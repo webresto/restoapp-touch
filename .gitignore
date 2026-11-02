@@ -1,0 +1,28 @@
+# Build output, in every module.
+build/
+out/
+captures/
+
+# Gradle's and Kotlin's own caches.
+.gradle/
+.kotlin/
+*.hprof
+
+# Machine-local paths.
+local.properties
+
+# Anything that could sign or publish a release.
+.secrets/
+keystore.properties
+*.jks
+*.keystore
+google-services*.json
+GoogleService-Info*.plist
+
+# IDEs and editors.
+.idea/
+*.iml
+.vscode/
+*.swp
+*~
+.DS_Store
