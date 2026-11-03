@@ -104,10 +104,12 @@ kotlin {
 }
 
 // The live test of the host starts the hook of ../restoapp-dev on fake deps (tools/fake-server), and
-// skips itself when there is no such checkout.
+// skips itself when there is no such checkout. `-Prestoapp.serverUrl=http://127.0.0.1:1341` sends it
+// to a server already running instead — tools/real-server, a lifted Sails with adminizer and core.
 tasks.withType<Test>().configureEach {
     systemProperty("restoapp.dev", rootProject.file("../restoapp-dev").absolutePath)
     systemProperty("restoapp.tools", rootProject.file("tools").absolutePath)
+    (findProperty("restoapp.serverUrl") as String?)?.let { systemProperty("restoapp.serverUrl", it) }
 }
 
 compose.desktop {
