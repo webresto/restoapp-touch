@@ -5,13 +5,15 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
  * as Unitool's composeApp (../client) — a host and nothing else — but a product of its own: its own
  * package, scheme, settings and window, so the two never share a Home or a language (D2).
  *
- * Empty for now: no apps, no push, no promo codes (D3). Desktop only (D5): a multiplatform module
- * still, so Android and the web come back as targets rather than as a rewrite.
+ * A list of servers, each its own Superizer with the apps that server has (D6); the apps are demos
+ * on their own storage for now (D7). No push, no promo codes (D3). Desktop only (D5): a
+ * multiplatform module still, so Android and the web come back as targets rather than as a rewrite.
  */
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlinxSerialization)
 }
 
 val appVersionName = "0.1"
@@ -82,6 +84,10 @@ kotlin {
             implementation(libs.superizer.host)
 
             implementation(libs.kotlinx.coroutines.core)
+
+            // The apps a server can have (D6). Each server's menu is the subset it serves.
+            implementation(project(":apps:orders"))
+            implementation(project(":apps:stock"))
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
