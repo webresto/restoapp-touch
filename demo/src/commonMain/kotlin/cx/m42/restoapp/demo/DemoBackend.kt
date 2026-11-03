@@ -387,6 +387,15 @@ public class DemoBackend(
                         put("oldPrice", line.oldPrice?.let(::JsonPrimitive) ?: JsonNull)
                         put("comment", line.comment?.let(::JsonPrimitive) ?: JsonNull)
                         put("hasOptions", line.hasOptions)
+                        putJsonArray("options") {
+                            line.options.forEach { option ->
+                                add(buildJsonObject {
+                                    put("id", option.id)
+                                    put("name", option.name)
+                                    put("amount", option.amount)
+                                })
+                            }
+                        }
                     })
                 }
             }
@@ -482,7 +491,7 @@ public class DemoBackend(
                         put("balance", rows[dish.id].effective())
                         put("weight", JsonNull)
                         put("imageUrl", JsonNull)
-                        put("hasOptions", false)
+                        put("hasOptions", DemoCatalog.optionGroups.containsKey(dish.id))
                         put("inOrder", draft.lines.filter { it.dishId == dish.id }.sumOf { it.amount })
                     }
                 }
@@ -503,16 +512,96 @@ public class DemoBackend(
             "pos.add" -> {
                 val amount = params.intOrNull("amount") ?: 1
                 val dishId = params.string("dishId")
+                val chosen = params.chosenOptions()
                 step(params.string("id")) { draft ->
                     val dish = DemoCatalog.dishes.firstOrNull { it.id == dishId }
                         ?: return@step draft to (words.t("Такого блюда нет", "No such product") to Tones.DANGER)
-                    val line = draft.lines.firstOrNull { it.dishId == dishId }
+                    val groups = DemoCatalog.optionGroups[dishId].orEmpty()
+                    if (chosen != null) {
+                        refuseOptions(groups, chosen, words)?.let { return@step draft to it }
+                    }
+                    // A line with options is its own line: two guests want different sauces on the
+                    // same pizza, and the receipt has to show which is which.
+                    val line = if (chosen != null) null else draft.lines.firstOrNull { it.dishId == dishId && it.options.isEmpty() }
                     val lines = if (line != null) {
                         draft.lines.map { if (it.lineId == line.lineId) it.copy(amount = it.amount + amount) else it }
                     } else {
-                        draft.lines + DemoDraftLine(draft.nextLineId, dish.id, dish.name, amount, dish.price)
+                        draft.lines + DemoDraftLine(
+                            lineId = draft.nextLineId,
+                            dishId = dish.id,
+                            name = dish.name,
+                            amount = amount,
+                            price = dish.price + optionsCost(groups, chosen.orEmpty()),
+                            hasOptions = groups.isNotEmpty(),
+                            options = namedOptions(groups, chosen.orEmpty()),
+                        )
                     }
                     draft.copy(lines = lines, nextLineId = draft.nextLineId + if (line == null) 1 else 0, state = "CART") to null
+                }
+            }
+
+            "pos.options" -> {
+                val id = params.string("id")
+                val draft = mine.firstOrNull { it.id == id } ?: fail(MobileApiException.NOT_FOUND, "No such draft")
+                val lineId = params.intOrNull("lineId")
+                val line = lineId?.let { wanted -> draft.lines.firstOrNull { it.lineId == wanted } }
+                if (lineId != null && line == null) fail(MobileApiException.NOT_FOUND, "No such line")
+                val dishId = line?.dishId ?: params.string("dishId")
+                val dish = DemoCatalog.dishes.firstOrNull { it.id == dishId }
+                    ?: fail(MobileApiException.NOT_FOUND, "No such product")
+                val groups = DemoCatalog.optionGroups[dishId].orEmpty()
+                val taken = line?.options?.associate { it.id to it.amount }.orEmpty()
+                buildJsonObject {
+                    put("dishId", dish.id)
+                    put("name", dish.name)
+                    put("price", dish.price)
+                    put("lineId", line?.lineId?.let(::JsonPrimitive) ?: JsonNull)
+                    put("amount", line?.amount ?: 1)
+                    putJsonArray("groups") {
+                        groups.forEach { group ->
+                            add(buildJsonObject {
+                                put("id", group.id)
+                                put("name", group.name)
+                                put("required", group.required)
+                                put("minAmount", group.minAmount)
+                                put("maxAmount", group.maxAmount?.let(::JsonPrimitive) ?: JsonNull)
+                                put("single", group.single)
+                                putJsonArray("options") {
+                                    group.options.forEach { option ->
+                                        add(buildJsonObject {
+                                            put("id", option.id)
+                                            put("name", option.name)
+                                            put("price", option.price)
+                                            put("balance", -1)
+                                            // The line's own choice, or the default the server would fill in.
+                                            put("amount", if (line != null) taken[option.id] ?: 0 else option.defaultAmount)
+                                            put("minAmount", 0)
+                                            put("maxAmount", option.maxAmount?.let(::JsonPrimitive) ?: JsonNull)
+                                            put("freeAmount", option.freeAmount)
+                                            put("defaultAmount", option.defaultAmount)
+                                        })
+                                    }
+                                }
+                            })
+                        }
+                    }
+                }
+            }
+
+            "pos.setLineOptions" -> {
+                val lineId = params.int("lineId", 1..Int.MAX_VALUE)
+                val chosen = params.chosenOptions().orEmpty()
+                step(params.string("id")) { draft ->
+                    val line = draft.lines.firstOrNull { it.lineId == lineId }
+                        ?: return@step draft to (words.t("Этой позиции уже нет в заказе", "That line is no longer in the order") to Tones.DANGER)
+                    val dish = DemoCatalog.dishes.first { it.id == line.dishId }
+                    val groups = DemoCatalog.optionGroups[line.dishId].orEmpty()
+                    refuseOptions(groups, chosen, words)?.let { return@step draft to it }
+                    val changed = line.copy(
+                        price = dish.price + optionsCost(groups, chosen),
+                        options = namedOptions(groups, chosen),
+                    )
+                    draft.copy(lines = draft.lines.map { if (it.lineId == lineId) changed else it }) to null
                 }
             }
 
@@ -919,6 +1008,55 @@ private fun JsonObject.booleanOrNull(name: String): Boolean? {
 private fun JsonObject.boolean(name: String): Boolean =
     (this[name] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull
         ?: fail(MobileApiException.INVALID, "Parameters do not match the method schema: $name")
+
+/** What the chooser sent back, or null when the call carried no chooser at all. */
+private fun JsonObject.chosenOptions(): List<Pair<String, Int>>? {
+    val array = this["modifiers"] as? JsonArray ?: return null
+    return array.map { element ->
+        val entry = element as? JsonObject ?: fail(MobileApiException.INVALID, "Parameters do not match the method schema: modifiers")
+        entry.string("id") to entry.int("amount", 0..99)
+    }
+}
+
+/** The rules of the groups, as the server checks them: a refusal in words, or nothing. */
+private fun refuseOptions(
+    groups: List<DemoCatalog.DemoOptionGroup>,
+    chosen: List<Pair<String, Int>>,
+    words: DemoWords,
+): Pair<String, String>? {
+    val taken = chosen.filter { (_, amount) -> amount > 0 }
+    val known = groups.flatMap { group -> group.options.map { it.id } }.toSet()
+    if (taken.any { (id, _) -> id !in known }) {
+        return words.t("Такой добавки у этого блюда нет", "This product has no such option") to Tones.DANGER
+    }
+    for (group in groups) {
+        val ids = group.options.map { it.id }.toSet()
+        val sum = taken.filter { (id, _) -> id in ids }.sumOf { (_, amount) -> amount }
+        if (sum < group.minAmount) {
+            return words.t("Выберите, что идёт в «${group.name}»", "Choose what goes in «${group.name}»") to Tones.DANGER
+        }
+        if (group.maxAmount != null && sum > group.maxAmount) {
+            return words.t("В «${group.name}» выбрано больше, чем можно", "Too many chosen in «${group.name}»") to Tones.DANGER
+        }
+    }
+    return null
+}
+
+/** What the options add to one dish, the free ones not charged — the server's arithmetic. */
+private fun optionsCost(groups: List<DemoCatalog.DemoOptionGroup>, chosen: List<Pair<String, Int>>): Int {
+    val flat = groups.flatMap { it.options }
+    return chosen.sumOf { (id, amount) ->
+        val option = flat.firstOrNull { it.id == id } ?: return@sumOf 0
+        maxOf(0, amount - option.freeAmount) * option.price
+    }
+}
+
+/** The chosen options by name, in the order of the dish's own groups. */
+private fun namedOptions(groups: List<DemoCatalog.DemoOptionGroup>, chosen: List<Pair<String, Int>>): List<DemoLineOption> {
+    val taken = chosen.filter { (_, amount) -> amount > 0 }.toMap()
+    return groups.flatMap { group -> group.options }
+        .mapNotNull { option -> taken[option.id]?.let { DemoLineOption(option.id, option.name, it) } }
+}
 
 /** 1330 → "1 330 ₽", with no-break spaces so a sum never splits. */
 internal fun rub(amount: Int): String =
