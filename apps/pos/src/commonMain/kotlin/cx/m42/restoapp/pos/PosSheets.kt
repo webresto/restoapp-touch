@@ -35,6 +35,7 @@ import cx.m42.restoapp.protocol.Tones
 import cx.m42.restoapp.render.ListRow
 import cx.m42.restoapp.render.Notice
 import cx.m42.restoapp.render.SearchBox
+import cx.m42.restoapp.render.StepperRow
 import cx.m42.restoapp.render.money
 import cx.m42.superizer.theme.AppTheme
 import cx.m42.superizer.ui.components.AppButton
@@ -66,8 +67,17 @@ internal fun BoxScope.PosSheets(context: PosContext) {
         PosSheet.Promocode -> words.promocode
         PosSheet.Details -> words.details
         PosSheet.LineComment -> words.comment
+        // The dish is the title: the operator is composing that one, and the sheet says which.
+        PosSheet.Options -> state.chooser?.options?.name ?: words.options
     }
-    Sheet(title = title, onDismiss = context.instance::closeSheet, tag = "pos:sheet-${sheet.name.lowercase()}") {
+    Sheet(
+        title = title,
+        onDismiss = context.instance::closeSheet,
+        tag = "pos:sheet-${sheet.name.lowercase()}",
+        // The chooser of a dish can be long: its button stays under the thumb instead of below
+        // whatever was scrolled past.
+        footer = if (sheet == PosSheet.Options) ({ OptionsButton(context) }) else null,
+    ) {
         state.message?.takeIf { it.tone == Tones.DANGER }?.let { Notice(it.text, it.tone, null, null, "pos:sheet-message") }
         when (sheet) {
             PosSheet.Service -> ServiceSheet(context, order)
@@ -79,6 +89,7 @@ internal fun BoxScope.PosSheets(context: PosContext) {
             PosSheet.Promocode -> PromocodeSheet(context, order)
             PosSheet.Details -> DetailsSheet(context, order)
             PosSheet.LineComment -> LineCommentSheet(context, order)
+            PosSheet.Options -> OptionsSheet(context)
         }
     }
 }
@@ -359,6 +370,111 @@ private fun LineCommentSheet(context: PosContext, order: PosOrder) {
     )
 }
 
+/**
+ * What goes with a dish: the modifier groups the server read off it.
+ *
+ * A group that takes one is a choice with a ✓; a group that takes several is a counter per option.
+ * The rules are the server's and so are the numbers — the sheet shows what an option adds to the
+ * dish and never a sum of its own: what the dish costs is on the receipt a moment later.
+ */
+@Composable
+private fun OptionsSheet(context: PosContext) {
+    val (instance, state, words) = Triple(context.instance, context.state, context.words)
+    val chooser = state.chooser
+    val tokens = AppTheme
+    if (chooser == null) {
+        Text(text = words.loading, style = tokens.label, color = tokens.muted, modifier = Modifier.testTag("pos:options-loading"))
+        return
+    }
+    if (chooser.options.groups.isEmpty()) {
+        Text(text = words.noOptions, style = tokens.label, color = tokens.muted, modifier = Modifier.testTag("pos:options-none"))
+    }
+    chooser.options.groups.forEach { group ->
+        Text(
+            text = group.name,
+            style = tokens.body.copy(fontWeight = FontWeight.SemiBold),
+            color = tokens.foreground,
+            modifier = Modifier.padding(top = 10.dp).testTag("pos:option-group-${group.id}"),
+        )
+        // How many of the group may be taken — the server's rule, said rather than enforced here.
+        val rule = listOfNotNull(
+            if (group.required) words.mustChoose else null,
+            if (group.single) words.chooseOne else group.maxAmount?.let { words.upTo(it) },
+        ).joinToString(" · ")
+        if (rule.isNotEmpty()) Text(text = rule, style = tokens.footnote, color = tokens.muted)
+        group.options.forEach { option ->
+            if (group.single) SingleOption(context, group, option) else CountedOption(context, option)
+        }
+    }
+}
+
+/** «Добавить в чек», or «Сохранить» when the chooser was opened on a line of the receipt. */
+@Composable
+private fun OptionsButton(context: PosContext) {
+    val words = context.words
+    AppButton(
+        text = if (context.state.chooser?.options?.lineId == null) words.addToReceipt else words.save,
+        onClick = context.instance::confirmOptions,
+        enabled = !context.state.busy && context.state.chooser != null,
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("pos:options-save"),
+    )
+}
+
+/** One of a group: tapped, it replaces whatever was ticked. */
+@Composable
+private fun SingleOption(context: PosContext, group: PosOptionGroup, option: PosOption) {
+    val chosen = context.state.chooser?.chosen?.get(option.id) ?: 0
+    val stopped = option.balance == 0.0
+    ListRow(
+        title = option.name,
+        subtitle = optionNote(context, option),
+        meta = null,
+        value = if (chosen > 0) "✓" else null,
+        valueTone = null,
+        badge = null,
+        badgeTone = null,
+        tag = "pos:option-${option.id}",
+        onClick = if (stopped) null else ({ context.instance.pickOption(group.id, option.id) }),
+    )
+}
+
+/** An option of a group that takes several: its own − / +. */
+@Composable
+private fun CountedOption(context: PosContext, option: PosOption) {
+    val (instance, state) = context.instance to context.state
+    val tokens = AppTheme
+    val chosen = state.chooser?.chosen?.get(option.id) ?: 0
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).testTag("pos:option-${option.id}"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = option.name, style = tokens.body, color = tokens.foreground)
+            optionNote(context, option)?.let { Text(text = it, style = tokens.footnote, color = tokens.muted) }
+        }
+        StepperRow(
+            display = chosen.toString(),
+            tone = null,
+            onMinus = { instance.setOption(option.id, chosen - 1) },
+            onPlus = { instance.setOption(option.id, chosen + 1) },
+            enabled = !state.busy && option.balance != 0.0,
+            tag = "pos:option-${option.id}:amount",
+        )
+    }
+}
+
+/** What an option costs on top of the dish, and what the server says about it. */
+@Composable
+private fun optionNote(context: PosContext, option: PosOption): String? {
+    val words = context.words
+    return listOfNotNull(
+        if (option.price > 0) "+${money(option.price, context.currency)}" else null,
+        option.freeAmount.takeIf { it > 0 }?.let { words.free(it) },
+        option.defaultAmount.takeIf { it > 0 }?.let { words.byDefault },
+        if (option.balance == 0.0) words.stopped else option.balance.takeIf { it > 0 }?.let { "${words.left} ${it.toInt()}" },
+    ).joinToString(" · ").takeIf { it.isNotEmpty() }
+}
+
 /** A labelled text field, as the renderer's form draws one. */
 @Composable
 private fun Field(label: String, value: String, onChange: (String) -> Unit, tag: String) {
@@ -374,7 +490,13 @@ private fun Field(label: String, value: String, onChange: (String) -> Unit, tag:
  * needs inside it.
  */
 @Composable
-private fun BoxScope.Sheet(title: String, onDismiss: () -> Unit, tag: String, content: @Composable () -> Unit) {
+private fun BoxScope.Sheet(
+    title: String,
+    onDismiss: () -> Unit,
+    tag: String,
+    footer: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
     val tokens = AppTheme
     AnimatedVisibility(visible = true, enter = fadeIn(), exit = fadeOut()) {
         Box(
@@ -406,5 +528,6 @@ private fun BoxScope.Sheet(title: String, onDismiss: () -> Unit, tag: String, co
         Column(modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
             content()
         }
+        footer?.invoke()
     }
 }

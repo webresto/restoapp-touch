@@ -147,10 +147,14 @@ class PosAppTest {
         assertShown("pos:catalog")
         click("pos:group-Пицца")
         val product = assertNotNull(screen.state.value.catalog?.catalog?.items?.firstOrNull())
-        click("pos:product-${product.id}:add")
+        // A pizza has something to choose, so the «+» opens the chooser; the server's own defaults
+        // are ticked in it, and confirming them is the whole of the «+» for an operator in a hurry.
         click("pos:product-${product.id}:add")
         idle()
-        assertEquals(2, screen.state.value.order?.lines?.firstOrNull()?.amount)
+        assertShown("pos:sheet-options")
+        click("pos:options-save")
+        idle()
+        assertEquals(1, screen.state.value.order?.lines?.size)
         // The catalog says how many of it the receipt already has, without leaving the catalog.
         assertShown("pos:product-${product.id}:in-order")
         click("pos:catalog-back")
@@ -159,6 +163,7 @@ class PosAppTest {
 
         // − and + in the receipt are the server's answer, not arithmetic on the device.
         val lineId = assertNotNull(screen.state.value.order?.lines?.firstOrNull()?.lineId)
+        tap("pos:line-$lineId:amount:plus")
         tap("pos:line-$lineId:amount:plus")
         idle()
         assertEquals(3, screen.state.value.order?.lines?.firstOrNull()?.amount)
@@ -196,6 +201,85 @@ class PosAppTest {
         assertEquals(emptyList(), screen.state.value.drafts)
         tap("pos:placed-done")
         assertShown("pos:empty")
+    }
+
+    @Test
+    fun composesADishFromItsGroupsAndChangesItOnTheLine() = pos {
+        tap("pos:new")
+        tap("pos:add")
+        click("pos:group-Пицца")
+        val pizza = assertNotNull(screen.state.value.catalog?.catalog?.items?.firstOrNull())
+        click("pos:product-${pizza.id}:add")
+        idle()
+
+        // The chooser opens at the server's answer: the groups of the dish, the defaults ticked.
+        val chooser = assertNotNull(screen.state.value.chooser)
+        assertEquals(listOf("dough", "sauce", "extra"), chooser.options.groups.map { it.id })
+        assertEquals(setOf("o-thin", "o-tomato"), chooser.chosen.keys)
+
+        // One of a group: the thick dough replaces the thin one rather than joining it.
+        click("pos:option-o-thick")
+        idle()
+        assertEquals(1, assertNotNull(screen.state.value.chooser).chosen["o-thick"])
+        assertNull(assertNotNull(screen.state.value.chooser).chosen["o-thin"])
+
+        // A group that takes several is counted, and the server's ceiling is kept.
+        click("pos:option-o-cheese:amount:plus")
+        click("pos:option-o-cheese:amount:plus")
+        click("pos:option-o-cheese:amount:plus")
+        click("pos:option-o-cheese:amount:plus")
+        idle()
+        assertEquals(3, assertNotNull(screen.state.value.chooser).chosen["o-cheese"])
+
+        click("pos:options-save")
+        idle()
+        val line = assertNotNull(screen.state.value.order?.lines?.firstOrNull())
+        assertEquals(listOf("Пышное", "Томатный", "Сыр"), line.options.map { it.name })
+        assertEquals(3, line.options.last().amount)
+        // The money is the server's: 60 for the dough, and two of the three cheeses charged.
+        assertEquals(pizza.price + 60.0 + 160.0, line.price)
+
+        // The same chooser from the receipt, and the sauce changed on the line that is already in it.
+        click("pos:catalog-back")
+        click("pos:catalog-back")
+        assertShown("pos:receipt")
+        tap("pos:line-${line.lineId}:options")
+        idle()
+        assertEquals(line.lineId, assertNotNull(screen.state.value.chooser).options.lineId)
+        click("pos:option-o-hot")
+        click("pos:options-save")
+        idle()
+        val changed = assertNotNull(screen.state.value.order?.lines?.firstOrNull())
+        assertEquals(line.lineId, changed.lineId)
+        assertEquals(listOf("Пышное", "Острый", "Сыр"), changed.options.map { it.name })
+        assertEquals(pizza.price + 60.0 + 40.0 + 160.0, changed.price)
+        assertEquals(1, screen.state.value.order?.lines?.size)
+    }
+
+    @Test
+    fun aGroupThatNeedsAChoiceIsRefusedByTheServerAndTheChooserStaysOpen() = pos {
+        tap("pos:new")
+        tap("pos:add")
+        click("pos:group-Пицца")
+        val pizza = assertNotNull(screen.state.value.catalog?.catalog?.items?.firstOrNull())
+        click("pos:product-${pizza.id}:add")
+        idle()
+        // The sauce is taken off — the chooser lets it go, and the server is the one that says no.
+        click("pos:option-o-tomato")
+        idle()
+        assertEquals(null, assertNotNull(screen.state.value.chooser).chosen["o-tomato"])
+        click("pos:options-save")
+        idle()
+        assertShown("pos:sheet-options")
+        assertShown("pos:sheet-message")
+        assertEquals("Выберите, что идёт в «Соус»", screen.state.value.message?.text)
+        assertEquals(emptyList(), screen.state.value.order?.lines)
+
+        click("pos:option-o-cream")
+        click("pos:options-save")
+        idle()
+        assertAbsent("pos:sheet-options")
+        assertEquals("Сливочный", screen.state.value.order?.lines?.first()?.options?.get(1)?.name)
     }
 
     @Test

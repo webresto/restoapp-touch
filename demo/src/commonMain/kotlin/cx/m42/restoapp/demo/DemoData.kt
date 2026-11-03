@@ -96,6 +96,10 @@ internal data class DemoClient(
     val title: String get() = firstName.ifBlank { phone }
 }
 
+/** One chosen modifier of a line: what the kitchen reads off it. */
+@Serializable
+internal data class DemoLineOption(val id: String, val name: String, val amount: Int)
+
 /** One line of a POS draft: the product, how many, and what the demo counts for it. */
 @Serializable
 internal data class DemoDraftLine(
@@ -107,6 +111,7 @@ internal data class DemoDraftLine(
     val oldPrice: Int? = null,
     val comment: String? = null,
     val hasOptions: Boolean = false,
+    val options: List<DemoLineOption> = emptyList(),
 ) {
     val total: Int get() = amount * price
 }
@@ -205,6 +210,65 @@ internal object DemoCatalog {
 
     val dishes: List<DemoDish> = menu.mapIndexed { index, (group, name, price) ->
         DemoDish(id = "d${index + 1}", name = name, code = "D" + (index + 1).toString().padStart(2, '0'), group = group, price = price)
+    }
+
+    /** One option of a group, as the demo keeps it: the server's shape, with its rules. */
+    internal data class DemoOption(
+        val id: String,
+        val name: String,
+        val price: Int,
+        val freeAmount: Int = 0,
+        val defaultAmount: Int = 0,
+        val maxAmount: Int? = null,
+    )
+
+    /** A group of a dish: how many of it may be taken, and what of. */
+    internal data class DemoOptionGroup(
+        val id: String,
+        val name: String,
+        val minAmount: Int,
+        val maxAmount: Int?,
+        val options: List<DemoOption>,
+    ) {
+        val single: Boolean get() = maxAmount == 1
+        val required: Boolean get() = minAmount > 0
+    }
+
+    /**
+     * What the demo's pizzas and pilaf are composed of: a dough that must be chosen, a sauce with a
+     * default, and extras counted one by one with the first of them free — the shapes a real menu
+     * has, so the chooser is drawn against all of them.
+     */
+    val optionGroups: Map<String, List<DemoOptionGroup>> = run {
+        val dough = DemoOptionGroup(
+            id = "dough", name = "Тесто", minAmount = 1, maxAmount = 1,
+            options = listOf(
+                DemoOption("o-thin", "Тонкое", 0, defaultAmount = 1),
+                DemoOption("o-thick", "Пышное", 60),
+            ),
+        )
+        val sauce = DemoOptionGroup(
+            id = "sauce", name = "Соус", minAmount = 1, maxAmount = 1,
+            options = listOf(
+                DemoOption("o-tomato", "Томатный", 0, defaultAmount = 1),
+                DemoOption("o-cream", "Сливочный", 40),
+                DemoOption("o-hot", "Острый", 40),
+            ),
+        )
+        val extras = DemoOptionGroup(
+            id = "extra", name = "Добавки", minAmount = 0, maxAmount = 4,
+            options = listOf(
+                DemoOption("o-cheese", "Сыр", 80, freeAmount = 1, maxAmount = 3),
+                DemoOption("o-olives", "Оливки", 50, maxAmount = 2),
+                DemoOption("o-jalapeno", "Халапеньо", 50, maxAmount = 2),
+            ),
+        )
+        val pizzas = dishes.filter { it.group == "Пицца" }.map { it.id }
+        // One soup with a sauce and extras, so a group without a dough is drawn too — the second
+        // one, because the first of a group is what the tests and the screenshots reach for when
+        // they want a product that simply goes into the receipt.
+        val soup = dishes.filter { it.group == "Супы" }.drop(1).take(1).map { it.id }
+        (pizzas.associateWith { listOf(dough, sauce, extras) } + soup.associateWith { listOf(sauce, extras) })
     }
 
     /** The groups in menu order: the catalog is sorted by group as the server sorts by `parentGroup`. */

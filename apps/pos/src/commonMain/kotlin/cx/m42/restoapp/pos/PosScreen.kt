@@ -287,8 +287,10 @@ private fun LineRow(context: PosContext, line: PosLine) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = line.name, style = tokens.body, color = tokens.foreground)
                 val note = listOfNotNull(
+                    // What was chosen with it, as the kitchen will read it: «Острый соус · Сыр ×2».
+                    line.options.takeIf { it.isNotEmpty() }
+                        ?.joinToString(" · ") { option -> option.name + if (option.amount > 1) " ×${option.amount}" else "" },
                     line.comment,
-                    if (line.hasOptions) words.withOptions else null,
                     "${money(line.price, context.currency)}${line.oldPrice?.let { " · ${money(it, context.currency)}" } ?: ""}",
                 ).joinToString(" · ")
                 Text(text = note, style = tokens.footnote, color = tokens.muted)
@@ -317,6 +319,17 @@ private fun LineRow(context: PosContext, line: PosLine) {
                 size = ButtonSize.Sm,
                 modifier = Modifier.padding(start = 8.dp).testTag("pos:line-${line.lineId}:comment"),
             )
+            // Only where there is something to choose: the server says so on the line.
+            if (line.hasOptions) {
+                AppButton(
+                    text = words.options,
+                    onClick = { instance.openOptions(lineId = line.lineId) },
+                    enabled = !state.busy,
+                    variant = ButtonVariant.Ghost,
+                    size = ButtonSize.Sm,
+                    modifier = Modifier.testTag("pos:line-${line.lineId}:options"),
+                )
+            }
         }
     }
 }

@@ -147,8 +147,9 @@ private fun ProductTile(context: PosContext, product: PosProduct) {
             )
         }
         AppButton(
+            // A dish with something to choose opens the chooser; the rest go straight in.
             text = if (stopped) words.stopped else "+",
-            onClick = { instance.add(product.id) },
+            onClick = { if (product.hasOptions) instance.openOptions(dishId = product.id) else instance.add(product.id) },
             enabled = !state.busy && !stopped,
             size = ButtonSize.Sm,
             modifier = Modifier.testTag("pos:product-${product.id}:add"),

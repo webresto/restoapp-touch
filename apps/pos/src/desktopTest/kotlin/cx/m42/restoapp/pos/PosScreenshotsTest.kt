@@ -132,8 +132,10 @@ class PosScreenshotsTest {
             tap("pos:group-Пицца")
             shot("pos-06-catalog-products")
             val product = pos.state.value.catalog?.catalog?.items?.first()!!
+            // A pizza is composed before it goes in: the chooser opens with the server's defaults
+            // ticked, and confirming them is the «+» of an operator in a hurry.
             tap("pos:product-${product.id}:add")
-            tap("pos:product-${product.id}:add")
+            tap("pos:options-save")
             tap("pos:catalog-search")
             onNodeWithTag("pos:catalog-search").performTextInput("мор")
             settle()
@@ -270,6 +272,37 @@ class PosScreenshotsTest {
         // 28. Сборка клиента без нативной кассы: приложение не прячется и не падает.
         screen(PosServerStub(demo()), PosServerStub.declared().copy(client = cx.m42.restoapp.protocol.ClientRender("kitchen", 1))) {
             shot("pos-29-needs-newer-client")
+        }
+
+        // 30–32. Состав блюда: выбор по группам, собранная позиция в чеке и отказ сервера, когда
+        // обязательную группу оставили пустой.
+        screen(PosServerStub(demo()), PosServerStub.declared()) { app ->
+            val pos = app as PosInstance
+            tap("pos:new")
+            tap("pos:add")
+            tap("pos:group-Пицца")
+            val pizza = pos.state.value.catalog?.catalog?.items?.first()!!
+            tap("pos:product-${pizza.id}:add")
+            shot("pos-30-sheet-options")
+
+            // Тесто подороже, соус другой и две порции сыра — первая бесплатно.
+            tap("pos:option-o-thick")
+            tap("pos:option-o-hot")
+            tap("pos:option-o-cheese:amount:plus")
+            tap("pos:option-o-cheese:amount:plus")
+            shot("pos-31-sheet-options-chosen")
+            tap("pos:options-save")
+            tap("pos:catalog-back")
+            tap("pos:catalog-back")
+            shot("pos-32-receipt-options")
+
+            // Обязательную группу оставили пустой: сервер отказывает, шторка остаётся.
+            val line = pos.state.value.order?.lines?.first()!!
+            tapBelow("pos:line-${line.lineId}:options")
+            tap("pos:option-o-hot")
+            tap("pos:options-save")
+            settle(200)
+            shot("pos-33-refused-options")
         }
     }
 

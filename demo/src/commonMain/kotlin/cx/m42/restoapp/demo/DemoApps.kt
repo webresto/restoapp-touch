@@ -90,6 +90,23 @@ private fun intProperty(minimum: Int, maximum: Int) = buildJsonObject {
 
 private fun booleanProperty() = buildJsonObject { put("type", "boolean") }
 
+/** The chosen options of a dish, as `apps/pos.ts` declares them. */
+private fun chosenOptionsProperty() = buildJsonObject {
+    put("type", "array")
+    put("maxItems", 50)
+    put(
+        "items",
+        objectSchema(
+            required = listOf("id", "groupId", "amount"),
+            properties = mapOf(
+                "id" to stringProperty(100, minLength = 1),
+                "groupId" to stringProperty(100, minLength = 1),
+                "amount" to intProperty(0, 99),
+            ),
+        ),
+    )
+}
+
 internal fun enumProperty(values: List<String>, default: String?, titles: Map<String, String>) = buildJsonObject {
     put("type", "string")
     put("enum", JsonArray(values.map(::JsonPrimitive)))
@@ -445,7 +462,18 @@ private fun posMethods(words: DemoWords): List<DeclaredMethod> {
             "pos.catalog", words.t("Каталог", "Catalog"), listOf("id"),
             id + mapOf("group" to stringProperty(100), "q" to stringProperty(100), "cursor" to stringProperty(200)),
         ),
-        mutation("pos.add", words.t("Добавить блюдо", "Add a product"), listOf("id", "dishId"), id + mapOf("dishId" to stringProperty(100, minLength = 1), "amount" to intProperty(1, 999))),
+        mutation(
+            "pos.add", words.t("Добавить блюдо", "Add a product"), listOf("id", "dishId"),
+            id + mapOf("dishId" to stringProperty(100, minLength = 1), "amount" to intProperty(1, 999), "modifiers" to chosenOptionsProperty()),
+        ),
+        query(
+            "pos.options", words.t("Состав блюда", "What goes with it"), listOf("id"),
+            id + mapOf("dishId" to stringProperty(100, minLength = 1), "lineId" to intProperty(1, 1_000_000)),
+        ),
+        mutation(
+            "pos.setLineOptions", words.t("Состав позиции", "The line's options"), listOf("id", "lineId", "modifiers"),
+            id + mapOf("lineId" to intProperty(1, 1_000_000), "modifiers" to chosenOptionsProperty()),
+        ),
         mutation("pos.setLine", words.t("Количество", "Amount"), listOf("id", "lineId", "amount"), id + mapOf("lineId" to intProperty(1, 1_000_000), "amount" to intProperty(0, 999))),
         mutation("pos.setLineComment", words.t("Комментарий к позиции", "Comment on a line"), listOf("id", "lineId", "comment"), id + mapOf("lineId" to intProperty(1, 1_000_000), "comment" to stringProperty(500))),
         query("pos.serviceOptions", words.t("Способы получения", "Ways to receive"), emptyList(), emptyMap()),
