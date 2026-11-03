@@ -26,12 +26,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 
 /**
- * The whole client against the real app-mobile-api hook (`tools/fake-server`: the hook's Express
- * application of ../restoapp-dev on the fake deps of its tests), through the window: connect a
- * server by address, sign in — the CAPTCHA solved by the Kotlin solver — and work in «Блюда» drawn
- * from the declaration; then the server forgets the device and the host asks to sign in again.
+ * The whole client against the real app-mobile-api hook, through the window: connect a server by
+ * address, sign in — the CAPTCHA solved by the Kotlin solver — and work in «Блюда» drawn from the
+ * declaration; then the server forgets the device and the host asks to sign in again.
  *
- * Skipped, with a line in the output, when there is no ../restoapp-dev with its node_modules.
+ * By default it starts `tools/fake-server` itself: the hook's Express application of ../restoapp-dev
+ * on the fake deps of its tests. With `-Drestoapp.serverUrl=http://127.0.0.1:1341` it goes to a
+ * server that is already running instead — `tools/real-server`, a lifted Sails with the admin panel,
+ * adminizer and core, whose users, points and dishes are the same (.ai-notes/real-server-walkthrough.md).
+ *
+ * Skipped, with a line in the output, when there is no ../restoapp-dev with its node_modules and no
+ * server to go to.
  */
 @OptIn(ExperimentalTestApi::class)
 class LiveServerTest {
@@ -41,6 +46,10 @@ class LiveServerTest {
     private var process: Process? = null
 
     private fun fakeServer(): String? {
+        System.getProperty("restoapp.serverUrl")?.takeIf { it.isNotBlank() }?.let {
+            println("against the server already running at $it")
+            return it
+        }
         if (!File(dev, "node_modules/adminizer").isDirectory || !File(dev, "api/hooks/app-mobile-api").isDirectory) {
             println("SKIPPED: no ../restoapp-dev with the app-mobile-api hook and node_modules at $dev")
             return null
