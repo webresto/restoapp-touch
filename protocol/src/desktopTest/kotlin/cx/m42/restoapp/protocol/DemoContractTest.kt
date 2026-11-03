@@ -48,19 +48,42 @@ class DemoContractTest {
         fun ids(declaration: Declaration) = declaration.apps.associate { it.id to it.places }
 
         demo.setRole(DemoRole.Admin)
-        assertEquals(mapOf("dishes" to listOf("p1", "p2"), "orders" to listOf("p1", "p2")), ids(demo.describe("demo", "ru").value))
+        val admin = demo.describe("demo", "ru").value
+        // The administrator has everything: the two apps by points, the customers (no points), and
+        // the POS, which is by points and drawn by the client itself.
+        assertEquals(
+            mapOf("dishes" to listOf("p1", "p2"), "orders" to listOf("p1", "p2"), "clients" to emptyList(), "pos" to listOf("p1", "p2")),
+            ids(admin),
+        )
+        assertEquals("pos", admin.app("pos")?.native)
+        assertEquals(null, admin.app("orders")?.native)
         demo.setRole(DemoRole.Stock)
         assertEquals(mapOf("dishes" to listOf("p1", "p2")), ids(demo.describe("demo", "ru").value))
         demo.setRole(DemoRole.Operator)
         val operator = demo.describe("demo", "ru").value
-        assertEquals(mapOf("orders" to listOf("p1")), ids(operator))
+        // An operator leads orders and looks customers up, but takes no orders: no POS.
+        assertEquals(mapOf("orders" to listOf("p1"), "clients" to emptyList()), ids(operator))
         assertEquals(listOf("p1"), operator.places.map { it.id })
+        val noPos = assertFailsWith<MobileApiException> { demo.call("demo", "pos.start", JsonObject(emptyMap()), "p1", "ru") }
+        assertEquals(MobileApiException.FORBIDDEN, noPos.code)
 
         // What the declaration lacks, the server refuses — whatever the client thinks it may do.
         val forbidden = assertFailsWith<MobileApiException> { demo.call("demo", "dishes.list", JsonObject(emptyMap()), "p1", "ru") }
         assertEquals(MobileApiException.FORBIDDEN, forbidden.code)
         val point = assertFailsWith<MobileApiException> { demo.call("demo", "orders.list", JsonObject(emptyMap()), "p2", "ru") }
         assertEquals(MobileApiException.PLACE_FORBIDDEN, point.code)
+    }
+
+    /** The POS is drawn by the client, so its answers have their own file — the hook's `pos.schema.json`. */
+    @Test
+    fun theAnswersOfThePosAreItsOwnContract(): Unit = runBlocking {
+        val demo = demo()
+        val started = demo.call("demo", "pos.start", JsonObject(emptyMap()), "p1", "ru").value
+        Contract.Pos.assertValid("posOrderAnswer", started)
+        val drafts = demo.call("demo", "pos.order", JsonObject(emptyMap()), "p1", "ru").value
+        Contract.Pos.assertValid("posOrderAnswer", drafts)
+        val id = (((started as JsonObject)["order"] as JsonObject)["id"] as JsonPrimitive).content
+        Contract.Pos.assertValid("posOrderAnswer", demo.call("demo", "pos.order", jsonObjectOf("id" to JsonPrimitive(id)), "p1", "ru").value)
     }
 
     @Test

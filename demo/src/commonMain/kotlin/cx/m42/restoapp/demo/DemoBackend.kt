@@ -101,6 +101,8 @@ public class DemoBackend(
             val result = when (app.id) {
                 DISHES -> dishes(method, params, point!!, current)
                 ORDERS -> orders(method, params, point!!, current, words)
+                CLIENTS -> clients(method, params, current, words)
+                POS -> pos(method, params, point!!, current, words)
                 else -> fail(MobileApiException.FORBIDDEN, "Method is not available")
             }
             Answer(result, declaration.revision, PROTOCOL_VERSION)
@@ -119,6 +121,9 @@ public class DemoBackend(
     // ---- the declaration ----
 
     private fun placesOf(role: DemoRole, app: String): List<String> = when {
+        // The stock manager takes no orders, and the operator leads them rather than taking them:
+        // the POS belongs to whoever holds `order-entry`, which here is the administrator.
+        app == POS && role != DemoRole.Admin -> emptyList()
         role == DemoRole.Operator && app == ORDERS -> places.take(1).map { it.id }
         role == DemoRole.Operator -> emptyList()
         role == DemoRole.Stock && app == ORDERS -> emptyList()
@@ -130,11 +135,15 @@ public class DemoBackend(
         val apps = listOfNotNull(
             placesOf(role, DISHES).takeIf { it.isNotEmpty() }?.let { dishesApp(words, it) },
             placesOf(role, ORDERS).takeIf { it.isNotEmpty() }?.let { ordersApp(words, it) },
+            // The customers are the model rights of the panel: the stock manager has none of them,
+            // the operator reads them, the administrator may add one as well.
+            if (role == DemoRole.Stock) null else clientsApp(words, mayCreate = role == DemoRole.Admin),
+            placesOf(role, POS).takeIf { it.isNotEmpty() }?.let { posApp(words, it) },
         )
         val used = apps.flatMap { it.places }.toSet()
         return Declaration(
             protocolVersion = PROTOCOL_VERSION,
-            revision = "demo-${role.name.lowercase()}-${places.joinToString(",") { it.id }}-1",
+            revision = "demo-${role.name.lowercase()}-${places.joinToString(",") { it.id }}-2",
             server = ServerFacts(serverName, VERSION, currency = "RUB", timezone = "Europe/Moscow", locale = "ru"),
             user = DeclaredUser(JsonPrimitive(role.ordinal + 1), loginOf(role), fullName = fullNameOf(role, words), isAdministrator = role == DemoRole.Admin),
             places = places.filter { it.id in used }.sortedBy { it.title },
@@ -282,6 +291,135 @@ public class DemoBackend(
         }
     }
 
+    // ---- «Клиенты» ----
+
+    private suspend fun clients(method: String, params: JsonObject, current: DemoState, words: DemoWords): JsonElement {
+        fun item(client: DemoClient, card: Boolean): JsonObject = buildJsonObject {
+            put("id", client.id)
+            put("title", client.title)
+            put("firstName", client.firstName)
+            put("phone", client.phone)
+            put("email", client.email?.let(::JsonPrimitive) ?: JsonNull)
+            put("verified", client.verified)
+            put("orderCount", client.orderCount)
+            put("createdAt", client.createdAt)
+            if (card) {
+                put("addresses", client.addresses.joinToString("\n"))
+                put(
+                    "orders",
+                    (1..client.orderCount).take(3)
+                        .joinToString("\n") { index -> "№${1000 + index} · ${rub(500 * index + 300)} · ${words.state(OrderState.DONE)}" },
+                )
+            }
+            putJsonArray("_actions") {}
+        }
+
+        return when (method) {
+            "clients.list" -> {
+                val q = params.stringOrNull("q", 100)?.trim()?.lowercase()?.ifEmpty { null }
+                val offset = params.stringOrNull("cursor", 200)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                val digits = q?.filter { it.isDigit() }
+                val chosen = current.clients
+                    .filter { client ->
+                        q == null ||
+                            client.title.lowercase().contains(q) ||
+                            (digits != null && digits.length >= 3 && client.phone.filter { it.isDigit() }.contains(digits))
+                    }
+                    .sortedByDescending { it.createdAt }
+                page(chosen.map { item(it, card = false) }, offset, emptyMap())
+            }
+            "clients.get" -> {
+                val client = current.clients.firstOrNull { it.id == params.string("id") }
+                    ?: fail(MobileApiException.NOT_FOUND, "No such customer")
+                buildJsonObject { put("item", item(client, card = true)) }
+            }
+            "clients.create" -> {
+                val name = params.string("name").trim()
+                val phone = params.string("phone")
+                val digits = phone.filter { it.isDigit() }
+                if (digits.length < 5) fail(MobileApiException.INVALID, "This is not a phone number")
+                // `materializeUser` of core is idempotent by number, and so is this.
+                val existing = current.clients.firstOrNull { it.phone.filter { digit -> digit.isDigit() } == digits }
+                if (existing != null) return buildJsonObject { put("item", item(existing, card = true)) }
+                val created = DemoClient(id = "u${current.clients.size + 1}", firstName = name, phone = phone, createdAt = clock())
+                save(current.copy(clients = current.clients + created))
+                buildJsonObject { put("item", item(created, card = true)) }
+            }
+            else -> fail(MobileApiException.FORBIDDEN, "Method is not available")
+        }
+    }
+
+    // ---- POS ----
+
+    private suspend fun pos(method: String, params: JsonObject, place: String, current: DemoState, words: DemoWords): JsonElement {
+        fun order(draft: DemoDraft): JsonObject = buildJsonObject {
+            put("id", draft.id)
+            put("number", draft.number)
+            put("state", "CART")
+            put("serviceType", draft.serviceType)
+            put("placeId", draft.place)
+            put("cookingPlaceId", draft.place)
+            put("cookingPlaceTitle", places.firstOrNull { it.id == draft.place }?.title?.let(::JsonPrimitive) ?: JsonNull)
+            put("table", JsonNull)
+            put("customerName", draft.customerName?.let(::JsonPrimitive) ?: JsonNull)
+            put("customerPhone", draft.customerPhone?.let(::JsonPrimitive) ?: JsonNull)
+            put("clientId", draft.clientId?.let(::JsonPrimitive) ?: JsonNull)
+            put("lines", JsonArray(emptyList()))
+            put("dishesCount", 0)
+            put("basketTotal", 0)
+            put("discountTotal", 0)
+            put("deliveryCost", 0)
+            put("bonusesTotal", 0)
+            put("total", 0)
+            put("createdAt", draft.createdAt)
+            put("updatedAt", draft.createdAt)
+        }
+        val mine = current.drafts.filter { it.place == place }
+
+        return when (method) {
+            "pos.order" -> {
+                val id = params.stringOrNull("id", 100)
+                if (id == null) {
+                    buildJsonObject {
+                        put("order", JsonNull)
+                        putJsonArray("drafts") { mine.sortedByDescending { it.createdAt }.forEach { add(order(it)) } }
+                    }
+                } else {
+                    val draft = mine.firstOrNull { it.id == id } ?: fail(MobileApiException.NOT_FOUND, "No such draft")
+                    buildJsonObject { put("order", order(draft)) }
+                }
+            }
+            "pos.start" -> {
+                val clientId = params.stringOrNull("clientId", 100)
+                val client = clientId?.let { id -> current.clients.firstOrNull { it.id == id } }
+                val point = places.firstOrNull { it.id == place }
+                val draft = DemoDraft(
+                    id = "draft${current.nextDraft}",
+                    // As `shortId` of core reads: eight characters staff can say out loud.
+                    number = "D${(1000 + current.nextDraft)}",
+                    place = place,
+                    // The demo's first point has a room to eat in, the others hand food over.
+                    // The strings of core's `serviceType`; the demo is a server, so it writes them
+                    // as a server does rather than importing the client's constants.
+                    serviceType = if (point?.id == places.firstOrNull()?.id) "dine-in" else "pickup",
+                    clientId = client?.id,
+                    customerName = client?.firstName,
+                    customerPhone = client?.phone,
+                    createdAt = clock(),
+                )
+                save(current.copy(drafts = current.drafts + draft, nextDraft = current.nextDraft + 1))
+                buildJsonObject { put("order", order(draft)) }
+            }
+            "pos.cancel" -> {
+                val id = params.string("id")
+                val draft = mine.firstOrNull { it.id == id } ?: fail(MobileApiException.NOT_FOUND, "No such draft")
+                save(current.copy(drafts = current.drafts - draft))
+                buildJsonObject { put("ok", true) }
+            }
+            else -> fail(MobileApiException.FORBIDDEN, "Method is not available")
+        }
+    }
+
     // ---- storage ----
 
     private suspend fun loaded(): DemoState = lock.withLock { loadLocked() }
@@ -290,7 +428,7 @@ public class DemoBackend(
         state?.let { return it }
         val stored = store.read()
             ?.let { text -> runCatching { ProtocolJson.decodeFromString(DemoState.serializer(), text) }.getOrNull() }
-            ?.takeIf { it.version == 1 && places.all { place -> place.id in it.stock && place.id in it.orders } }
+            ?.takeIf { it.version == 1 && it.clients.isNotEmpty() && places.all { place -> place.id in it.stock && place.id in it.orders } }
         val result = stored ?: generate(initialRole, clock()).also { store.write(ProtocolJson.encodeToString(DemoState.serializer(), it)) }
         state = result
         _role.value = result.role
@@ -311,6 +449,7 @@ public class DemoBackend(
             orders = places.mapIndexed { index, place ->
                 place.id to DemoEvening.orders(Random(seed + 100 + index), now, firstNumber = 1000 + 2000 * index + Random(seed + index).nextInt(900))
             }.toMap(),
+            clients = DemoClients.all(now),
         )
     }
 

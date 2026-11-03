@@ -8,7 +8,10 @@ Each server is a context (Superizer 0.8's `ContextPort`): the row at the top of 
 one you are on, a tap lists the others — as ChatGPT and GitHub switch accounts — and every server has
 its own apps, menu, Home and storage. The apps are not modules: a server *declares* them — the
 `app-mobile-api` hook of restoapp-dev, protocol 1 — and one renderer draws them all from the
-declaration. The demo server answers the same protocol in process. Desktop only. The decisions are in
+declaration. The one exception is the POS, which a server declares with `client: {native: "pos"}`
+and the client draws itself (`apps/pos`, `order-entry.plan.md`) — a receipt with a catalog behind a
+«+» is not a list with actions on a record. The demo server answers the same protocol in process.
+Built for the desktop today, written for every platform. The decisions are in
 [`.ai-notes`](.ai-notes/README.md), the protocol in `server-apps-and-rights.plan.md`.
 
 ## Requirements
@@ -41,9 +44,13 @@ cd ../restoapp-dev && npx tsx ../restoapp-mobile-admin/tools/fake-server/serve.t
 protocol/                        protocol 1: the declaration and envelopes, HttpMobileApi over
                                  Superizer's NetworkService, the PoW solver (CryptoPuzzleSolver, JVM)
 demo/                            DemoBackend: the protocol in process — «Блюда» as the hook has them,
-                                 «Заказы» in the shape of slice 2, two points, three roles
+                                 «Заказы» in the shape of slice 2, «Клиенты» and the POS, two points,
+                                 three roles
 render/                          ServerApp: one SuperizerApp per declared app; list, detail, stepper,
-                                 toggle, buttons, the point switch; RestoServer — the app's only door
+                                 toggle, buttons, a form and a «+» on the list, the point switch;
+                                 RestoServer — the app's only door
+apps/pos/                        PosApp: the POS of a server, drawn natively — the drafts of the point
+                                 and the receipt; every number comes from the server
 composeApp/src/
   commonMain/Servers.kt          a server: name and address; the two demo servers of a fresh install
   commonMain/ServerSession.kt    one server connected: token, cached declaration, point, error codes

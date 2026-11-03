@@ -48,6 +48,10 @@ dependencyResolutionManagement {
 // The host. Apps go into apps/<name> next to it, as in Unitool.
 include(":composeApp")
 
+// The one native app of a server (order-entry.plan.md): a POS receipt and catalog, which no
+// declaration describes. Everything else a server declares is drawn by :render.
+include(":apps:pos")
+
 // A server's apps are not modules any more (plan section 4): the server declares them and one
 // renderer draws them all. The protocol, the in-process demo server, and that renderer.
 include(":protocol")

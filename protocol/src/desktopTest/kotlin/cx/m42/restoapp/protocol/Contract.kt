@@ -13,10 +13,17 @@ import kotlin.test.fail
  * `schema/declaration.schema.json` of the app-mobile-api hook — copied into the test resources, as
  * the plan has it (section 5): the server checks its registrations against it, the client checks
  * what it reads and what its demo server says.
+ *
+ * [Pos] is the same for `schema/pos.schema.json`: the answers of the POS, which the client draws
+ * itself and whose shape therefore has a file of its own (`order-entry.plan.md`).
  */
-object Contract {
+object Contract : SchemaFile("/declaration.schema.json") {
+    object Pos : SchemaFile("/pos.schema.json")
+}
+
+abstract class SchemaFile(resource: String) {
     private val mapper = ObjectMapper()
-    private val root: ObjectNode = mapper.readTree(javaClass.getResource("/declaration.schema.json")!!.readText()) as ObjectNode
+    private val root: ObjectNode = mapper.readTree(javaClass.getResource(resource)!!.readText()) as ObjectNode
     private val factory = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V7)
     private val schemas = mutableMapOf<String, JsonSchema>()
 

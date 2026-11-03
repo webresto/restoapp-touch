@@ -41,6 +41,11 @@ import cx.m42.restoapp.protocol.RecordAction
 import cx.m42.restoapp.protocol.ServerFacts
 import cx.m42.restoapp.protocol.Tones
 import cx.m42.restoapp.protocol.Views
+import cx.m42.restoapp.protocol.propertyNames
+import cx.m42.restoapp.protocol.requiredNames
+import cx.m42.restoapp.protocol.schemaFormat
+import cx.m42.restoapp.protocol.schemaTitle
+import cx.m42.restoapp.protocol.schemaType
 import cx.m42.restoapp.protocol.actions
 import cx.m42.restoapp.protocol.enumValues
 import cx.m42.restoapp.protocol.id
@@ -100,7 +105,11 @@ internal fun ServerAppScreen(instance: ServerAppInstance) {
     Box(modifier = Modifier.fillMaxSize().background(tokens.pageBackground)) {
         when {
             declared == null -> EmptyState(words.gone, null, null, null, "server-app:gone")
-            declared.script != null -> EmptyState(words.needsNewerApp, words.needsNewerAppHint, null, null, "${declared.id}:needs-update")
+            // Either the app comes as JS, or it asks for a native screen this build does not have:
+            // the universal renderer cannot draw either, and the host only lands here when nothing
+            // else can (order-entry.plan.md, «Контракт»).
+            declared.script != null || declared.client != null ->
+                EmptyState(words.needsNewerApp, words.needsNewerAppHint, null, null, "${declared.id}:needs-update")
             declared.byPlace && places.isEmpty() -> EmptyState(words.noPlaces, null, null, null, "${declared.id}:no-places")
             else -> {
                 val context = RenderContext(declared, facts, words, runtime.clock.now())
@@ -182,8 +191,40 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, home
     val tokens = AppTheme
     val tag = context.tag
 
+    // An action on the list itself — `ui.on: "list"`, placement `list`: «+ Новый клиент».
+    val listAction = context.app.methods.firstOrNull { method ->
+        method.ui?.view == Views.ACTION && method.ui?.on == "list" && method.ui?.placement?.contains("list") == true
+    }
+    var adding by remember(listAction?.name) { mutableStateOf(false) }
+
     PlaceSwitch(instance, context) {
         TopNotices(instance, context)
+        listAction?.let { action ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                AppButton(
+                    text = if (adding) words.cancel else "+ ${action.title}",
+                    onClick = { adding = !adding },
+                    variant = if (adding) ButtonVariant.Ghost else ButtonVariant.Default,
+                    size = ButtonSize.Sm,
+                    modifier = Modifier.testTag("$tag:add"),
+                )
+            }
+            if (adding) {
+                FormCard(
+                    title = action.title,
+                    fields = formFields(action),
+                    submit = action.title,
+                    busy = "list:${action.name}" in busy,
+                    words = words,
+                    onSubmit = { values -> instance.actOnList(action, JsonObject(values)) { adding = false } },
+                    onCancel = { adding = false },
+                    tag = "$tag:form",
+                )
+            }
+        }
         ui.search?.let { SearchBox(state.query, words.search, instance::search, "$tag:search") }
         ui.chips?.let { chips ->
             val schema = home.input.property(chips)
@@ -561,5 +602,28 @@ private fun ButtonsCard(
                 )
             }
         }
+    }
+}
+
+/**
+ * The fields of a form from the schema of its method: the properties in the schema's order, their
+ * `title` from the server, `enum` as chips. A property shape v1 cannot draw — an object, an array —
+ * is left out, so a method that grows one still shows the rest instead of nothing.
+ */
+internal fun formFields(method: DeclaredMethod): List<FormField> {
+    val required = method.input.requiredNames()
+    return method.input.propertyNames().mapNotNull { name ->
+        val schema = method.input.property(name) ?: return@mapNotNull null
+        val type = schema.schemaType() ?: "string"
+        if (type !in setOf("string", "integer", "number", "boolean")) return@mapNotNull null
+        FormField(
+            name = name,
+            title = schema.schemaTitle() ?: name,
+            type = type,
+            required = name in required,
+            values = schema.enumValues(),
+            titles = schema.titles(),
+            format = schema.schemaFormat(),
+        )
     }
 }

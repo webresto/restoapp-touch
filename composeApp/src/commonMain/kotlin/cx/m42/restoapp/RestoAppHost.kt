@@ -17,6 +17,7 @@ import cx.m42.restoapp.protocol.ProtocolJson
 import cx.m42.restoapp.protocol.ServerAbout
 import cx.m42.restoapp.protocol.normalizeAddress
 import cx.m42.restoapp.render.RestoServer
+import cx.m42.restoapp.pos.PosApp
 import cx.m42.restoapp.render.ServerApp
 import cx.m42.superizer.ContextPort
 import cx.m42.superizer.HostContext
@@ -305,7 +306,12 @@ public class RestoAppHost(
         }.stateIn(serverScope, SharingStarted.Eagerly, PlatformLifecycle.state.value)
         val declaration = live.declaration.value
         val built = shellOf(declaration)
-        val apps = declaration?.apps.orEmpty().filter(ServerApp::canShow).map { ServerApp(it, live.lang) }
+        // Each declared app gets the class that can draw it: the POS its own (order-entry.plan.md),
+        // everything else the universal renderer. An app asking for a native screen this build does
+        // not have falls back to the renderer, which shows the «needs a newer version» tile.
+        val apps = declaration?.apps.orEmpty().filter(ServerApp::canShow).map { app ->
+            if (PosApp.canDraw(app)) PosApp(app, live.lang) else ServerApp(app, live.lang)
+        }
 
         val superizer = Superizer.build(serverScope) {
             host(

@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -47,6 +48,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
 import cx.m42.restoapp.protocol.Tones
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import cx.m42.superizer.theme.AppTheme
 import cx.m42.superizer.theme.Tokens
 import cx.m42.superizer.ui.components.AppButton
@@ -494,6 +497,127 @@ public fun EmptyState(text: String, hint: String?, action: String?, onAction: ((
         hint?.let { Text(text = it, style = tokens.label, color = tokens.muted, textAlign = TextAlign.Center) }
         if (action != null && onAction != null) {
             AppButton(text = action, onClick = onAction, variant = ButtonVariant.Outline, size = ButtonSize.Default, modifier = Modifier.testTag("$tag:action"))
+        }
+    }
+}
+
+/** One field of a form: what the schema says it is, and what the person has typed. */
+public data class FormField(
+    val name: String,
+    val title: String,
+    /** `string`, `integer`, `number`, `boolean`, or an `enum` when [values] is not empty. */
+    val type: String,
+    val required: Boolean,
+    val values: List<String> = emptyList(),
+    val titles: Map<String, String> = emptyMap(),
+    /** `phone`, `money`, `datetime` — a hint, not a type. */
+    val format: String? = null,
+)
+
+/**
+ * A form by the schema of a method (`control: {type: "form"}`): one line per property, the button of
+ * the method under them.
+ *
+ * As declarative as everything else here — the fields are the schema's, the words are the server's,
+ * and what comes back is a plain map of values, so the same component serves the script apps later.
+ * A property this version cannot draw (a nested object, an array) is left out rather than guessed at.
+ */
+@Composable
+public fun FormCard(
+    title: String,
+    fields: List<FormField>,
+    submit: String,
+    busy: Boolean,
+    words: RenderWords,
+    onSubmit: (Map<String, JsonElement>) -> Unit,
+    onCancel: (() -> Unit)?,
+    tag: String,
+) {
+    val tokens = AppTheme
+    val values = remember(tag, fields) { mutableStateMapOf<String, String>() }
+    val flags = remember(tag, fields) { mutableStateMapOf<String, Boolean>() }
+    val filled = fields.none { field ->
+        field.required && when {
+            field.type == "boolean" -> false
+            else -> values[field.name].isNullOrBlank()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(tokens.radius))
+            .background(tokens.surface)
+            .padding(12.dp)
+            .testTag(tag),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(text = title, style = tokens.body.copy(fontWeight = FontWeight.SemiBold), color = tokens.foreground)
+        fields.forEach { field ->
+            when {
+                field.type == "boolean" -> SwitchControl(
+                    checked = flags[field.name] == true,
+                    label = field.title,
+                    enabled = !busy,
+                    onChange = { flags[field.name] = it },
+                    tag = "$tag:${field.name}",
+                )
+                field.values.isNotEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(text = field.title, style = tokens.footnote, color = tokens.muted)
+                    Chips(
+                        values = field.values,
+                        titles = field.titles,
+                        counts = emptyMap(),
+                        selected = values[field.name],
+                        onSelect = { values[field.name] = it },
+                        tag = "$tag:${field.name}",
+                    )
+                }
+                else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(text = field.title, style = tokens.footnote, color = tokens.muted)
+                    AppTextField(
+                        value = values[field.name].orEmpty(),
+                        onValueChange = { values[field.name] = it },
+                        placeholder = field.title,
+                        modifier = Modifier.fillMaxWidth().testTag("$tag:${field.name}"),
+                    )
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppButton(
+                text = submit,
+                onClick = {
+                    onSubmit(
+                        fields.mapNotNull { field ->
+                            when {
+                                field.type == "boolean" -> field.name to JsonPrimitive(flags[field.name] == true)
+                                else -> values[field.name]?.takeIf { it.isNotBlank() }?.let { typed ->
+                                    field.name to when (field.type) {
+                                        "integer" -> JsonPrimitive(typed.trim().toLongOrNull() ?: 0L)
+                                        "number" -> JsonPrimitive(typed.trim().replace(',', '.').toDoubleOrNull() ?: 0.0)
+                                        else -> JsonPrimitive(typed.trim())
+                                    }
+                                }
+                            }
+                        }.toMap(),
+                    )
+                },
+                enabled = !busy && filled,
+                size = ButtonSize.Sm,
+                modifier = Modifier.testTag("$tag:submit"),
+            )
+            onCancel?.let {
+                AppButton(
+                    text = words.cancel,
+                    onClick = it,
+                    enabled = !busy,
+                    variant = ButtonVariant.Ghost,
+                    size = ButtonSize.Sm,
+                    modifier = Modifier.testTag("$tag:cancel"),
+                )
+            }
         }
     }
 }

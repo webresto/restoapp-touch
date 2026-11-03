@@ -140,6 +140,22 @@ public fun JsonObject.titles(): Map<String, String> =
 /** `default` of a schema, as a string. */
 public fun JsonObject.defaultString(): String? = (this["default"] as? JsonPrimitive)?.contentOrNull
 
+/** The names in `properties`, in the schema's own order — the order a form draws them in. */
+public fun JsonObject.propertyNames(): List<String> = (this["properties"] as? JsonObject)?.keys?.toList().orEmpty()
+
+/** The `required` of a schema. */
+public fun JsonObject.requiredNames(): Set<String> =
+    (this["required"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.toSet()
+
+/** `type` of a schema: `string`, `integer`, `number`, `boolean`. */
+public fun JsonObject.schemaType(): String? = (this["type"] as? JsonPrimitive)?.contentOrNull
+
+/** `title` of a schema — what a form calls the field; the server sends it translated. */
+public fun JsonObject.schemaTitle(): String? = (this["title"] as? JsonPrimitive)?.contentOrNull
+
+/** `x-format` of a schema: `phone`, `money`, `datetime` — a hint for the keyboard, not a type. */
+public fun JsonObject.schemaFormat(): String? = (this["x-format"] as? JsonPrimitive)?.contentOrNull
+
 /** A JSON object as a plain map, for building `params`. */
 public fun jsonObjectOf(vararg pairs: Pair<String, JsonElement?>): JsonObject =
     JsonObject(pairs.mapNotNull { (key, value) -> value?.let { key to it } }.toMap())
