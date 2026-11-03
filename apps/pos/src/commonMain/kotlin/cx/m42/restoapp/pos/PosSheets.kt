@@ -287,7 +287,8 @@ private fun PaymentSheet(context: PosContext, order: PosOrder) {
     context.state.options.payments.forEach { method ->
         ListRow(
             title = method.title,
-            subtitle = if (method.available) null else context.words.addLater,
+            // Online payment ends in a redirect, and a terminal has nowhere to send one (slice D).
+            subtitle = if (method.available) null else context.words.notOnTerminal,
             meta = null,
             value = if (order.paymentMethodId == method.id) "✓" else null,
             valueTone = null,
