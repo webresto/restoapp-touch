@@ -82,6 +82,14 @@ private fun objectSchema(required: List<String>, properties: Map<String, JsonObj
     put("properties", JsonObject(properties))
 }
 
+private fun intProperty(minimum: Int, maximum: Int) = buildJsonObject {
+    put("type", "integer")
+    put("minimum", minimum)
+    put("maximum", maximum)
+}
+
+private fun booleanProperty() = buildJsonObject { put("type", "boolean") }
+
 internal fun enumProperty(values: List<String>, default: String?, titles: Map<String, String>) = buildJsonObject {
     put("type", "string")
     put("enum", JsonArray(values.map(::JsonPrimitive)))
@@ -414,24 +422,67 @@ internal fun posApp(words: DemoWords, places: List<String>): DeclaredApp = Decla
     scope = DeclaredApp.SCOPE_PLACE,
     places = places,
     client = ClientRender(native = "pos", min = 1),
-    methods = listOf(
-        DeclaredMethod(
-            name = "pos.order",
-            kind = DeclaredMethod.KIND_QUERY,
-            title = words.t("Заказ", "Order"),
-            input = objectSchema(emptyList(), mapOf("id" to stringProperty(100, minLength = 1))),
-        ),
-        DeclaredMethod(
-            name = "pos.start",
-            kind = DeclaredMethod.KIND_MUTATION,
-            title = words.t("Новый заказ", "New order"),
-            input = objectSchema(emptyList(), mapOf("clientId" to stringProperty(100, minLength = 1))),
-        ),
-        DeclaredMethod(
-            name = "pos.cancel",
-            kind = DeclaredMethod.KIND_MUTATION,
-            title = words.t("Бросить черновик", "Drop the draft"),
-            input = objectSchema(listOf("id"), mapOf("id" to stringProperty(100, minLength = 1))),
-        ),
-    ),
+    methods = posMethods(words),
 )
+
+/**
+ * The methods of the POS as the hook registers them (`apps/pos.ts`): the same names, the same
+ * required parameters. The client draws the app itself, so none of them carries `ui` — but a method
+ * missing here is `forbidden`, exactly as on a real server.
+ */
+private fun posMethods(words: DemoWords): List<DeclaredMethod> {
+    val id = mapOf("id" to stringProperty(100, minLength = 1))
+    fun query(name: String, title: String, required: List<String> = emptyList(), properties: Map<String, JsonObject> = id) =
+        DeclaredMethod(name = name, kind = DeclaredMethod.KIND_QUERY, title = title, input = objectSchema(required, properties))
+    fun mutation(name: String, title: String, required: List<String>, properties: Map<String, JsonObject>) =
+        DeclaredMethod(name = name, kind = DeclaredMethod.KIND_MUTATION, title = title, input = objectSchema(required, properties))
+
+    return listOf(
+        query("pos.order", words.t("Заказ", "Order")),
+        mutation("pos.start", words.t("Новый заказ", "New order"), emptyList(), mapOf("clientId" to stringProperty(100, minLength = 1))),
+        mutation("pos.cancel", words.t("Бросить черновик", "Drop the draft"), listOf("id"), id),
+        query(
+            "pos.catalog", words.t("Каталог", "Catalog"), listOf("id"),
+            id + mapOf("group" to stringProperty(100), "q" to stringProperty(100), "cursor" to stringProperty(200)),
+        ),
+        mutation("pos.add", words.t("Добавить блюдо", "Add a product"), listOf("id", "dishId"), id + mapOf("dishId" to stringProperty(100, minLength = 1), "amount" to intProperty(1, 999))),
+        mutation("pos.setLine", words.t("Количество", "Amount"), listOf("id", "lineId", "amount"), id + mapOf("lineId" to intProperty(1, 1_000_000), "amount" to intProperty(0, 999))),
+        mutation("pos.setLineComment", words.t("Комментарий к позиции", "Comment on a line"), listOf("id", "lineId", "comment"), id + mapOf("lineId" to intProperty(1, 1_000_000), "comment" to stringProperty(500))),
+        query("pos.serviceOptions", words.t("Способы получения", "Ways to receive"), emptyList(), emptyMap()),
+        mutation(
+            "pos.setService", words.t("Способ получения", "Way to receive"), listOf("id", "serviceType"),
+            id + mapOf("serviceType" to enumProperty(listOf("delivery", "pickup", "dine-in"), null, emptyMap()), "table" to stringProperty(100)),
+        ),
+        mutation("pos.setTable", words.t("Столик", "Table"), listOf("id", "table"), id + mapOf("table" to stringProperty(100))),
+        query("pos.cities", words.t("Города", "Cities"), emptyList(), emptyMap()),
+        query("pos.addressSearch", words.t("Поиск адреса", "Address search"), listOf("city", "q"), mapOf("city" to stringProperty(100, minLength = 1), "parent" to stringProperty(100), "q" to stringProperty(200, minLength = 1))),
+        mutation(
+            "pos.setAddress", words.t("Адрес", "Address"), listOf("id", "city", "street", "home"),
+            id + mapOf(
+                "city" to stringProperty(100, minLength = 1),
+                "street" to stringProperty(200, minLength = 1),
+                "home" to stringProperty(50),
+                "apartment" to stringProperty(50),
+                "comment" to stringProperty(500),
+            ),
+        ),
+        query("pos.clientAddresses", words.t("Адреса клиента", "Customer's addresses"), listOf("clientId"), mapOf("clientId" to stringProperty(100, minLength = 1))),
+        query("pos.clients", words.t("Клиенты", "Customers"), emptyList(), mapOf("q" to stringProperty(100), "cursor" to stringProperty(200))),
+        mutation(
+            "pos.setCustomer", words.t("Гость", "Guest"), listOf("id", "name", "phone"),
+            id + mapOf("name" to stringProperty(100, minLength = 1), "phone" to stringProperty(20, minLength = 5), "createClient" to booleanProperty()),
+        ),
+        mutation("pos.setClient", words.t("Выбрать клиента", "Pick a customer"), listOf("id", "clientId"), id + mapOf("clientId" to stringProperty(100, minLength = 1))),
+        query("pos.timeOptions", words.t("Когда", "When"), listOf("id"), id),
+        mutation(
+            "pos.setTime", words.t("Время", "Time"), listOf("id", "mode"),
+            id + mapOf("mode" to enumProperty(listOf("asap", "time", "maxWait"), null, emptyMap()), "date" to intProperty(0, Int.MAX_VALUE), "maxWaitMinutes" to intProperty(5, 600)),
+        ),
+        query("pos.payments", words.t("Оплата", "Payment"), listOf("id"), id),
+        mutation("pos.setPayment", words.t("Способ оплаты", "Payment method"), listOf("id", "paymentMethodId"), id + mapOf("paymentMethodId" to stringProperty(100, minLength = 1), "trifleFrom" to intProperty(0, 1_000_000))),
+        mutation("pos.setDetails", words.t("Детали заказа", "Order details"), listOf("id"), id + mapOf("comment" to stringProperty(1000), "personsCount" to intProperty(1, 100))),
+        mutation("pos.promocode", words.t("Промокод", "Promo code"), listOf("id"), id + mapOf("code" to stringProperty(100))),
+        mutation("pos.check", words.t("Проверить заказ", "Check the order"), listOf("id"), id),
+        mutation("pos.place", words.t("Оформить заказ", "Place the order"), listOf("id"), id),
+    )
+}

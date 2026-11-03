@@ -9,6 +9,8 @@ import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
@@ -56,6 +58,23 @@ class PosScreenshotsTest {
         waitForIdle()
     }
 
+    /**
+     * A search of the POS waits out the typing before it asks the server. These screens run on a
+     * real dispatcher, not a test one, so the wait is a real one too.
+     */
+    /** The receipt is longer than the window: scroll a row into view, then tap it. */
+    private fun ComposeUiTest.tapBelow(tag: String) {
+        runCatching { onNodeWithTag(tag).performScrollTo() }
+        waitForIdle()
+        onNodeWithTag(tag).performClick()
+        waitForIdle()
+    }
+
+    private fun ComposeUiTest.settle(millis: Long = 450) {
+        Thread.sleep(millis)
+        waitForIdle()
+    }
+
     /** The POS alone, as the host composes it: the theme, the runtime, the server behind it. */
     private fun screen(server: RestoServer, declared: DeclaredApp, block: ComposeUiTest.(AppInstance) -> Unit) =
         runDesktopComposeUiTest(width = 420, height = 820) {
@@ -87,8 +106,7 @@ class PosScreenshotsTest {
     @Test
     fun everyStateOfTheTill() {
         // 1. Нет точек: группе не отметили ни одной — приложение есть, работать негде.
-        val noPlaces = PosServerStub(demo())
-        screen(NoPlacesServer(noPlaces), PosServerStub.declared().copy(places = emptyList())) { shot("pos-01-no-places") }
+        screen(NoPlacesServer(PosServerStub(demo())), PosServerStub.declared().copy(places = emptyList())) { shot("pos-01-no-places") }
 
         // 2. Пусто: точка выбрана, черновиков нет.
         screen(PosServerStub(demo()), PosServerStub.declared()) { shot("pos-02-no-drafts") }
@@ -103,52 +121,148 @@ class PosScreenshotsTest {
         }
         screen(PosServerStub(backend), PosServerStub.declared(backend)) { shot("pos-03-drafts") }
 
-        // 4. Чек нового заказа: сервер сам выбрал «в зале» — у точки есть зал.
-        screen(PosServerStub(demo()), PosServerStub.declared()) {
+        // 4–16. Один заказ от пустого чека до принятого.
+        screen(PosServerStub(demo()), PosServerStub.declared()) { app ->
+            val pos = app as PosInstance
             tap("pos:new")
             shot("pos-04-receipt-new")
-            // 5. «Бросить черновик» сначала спрашивает.
-            tap("pos:drop")
-            shot("pos-05-drop-confirm")
+
+            tap("pos:add")
+            shot("pos-05-catalog-groups")
+            tap("pos:group-Пицца")
+            shot("pos-06-catalog-products")
+            val product = pos.state.value.catalog?.catalog?.items?.first()!!
+            tap("pos:product-${product.id}:add")
+            tap("pos:product-${product.id}:add")
+            tap("pos:catalog-search")
+            onNodeWithTag("pos:catalog-search").performTextInput("мор")
+            settle()
+            shot("pos-07-catalog-search")
+            val drink = pos.state.value.catalog?.catalog?.items?.firstOrNull()
+            drink?.let { tap("pos:product-${it.id}:add") }
+            // Out of the catalog: the search, then the group, then the catalog itself.
+            tap("pos:catalog-back")
+            tap("pos:catalog-back")
+            tap("pos:catalog-back")
+            shot("pos-08-receipt-lines")
+
+            tap("pos:step-service")
+            shot("pos-09-sheet-service")
+            tap("pos:service-dine-in")
+            tap("pos:step-service")
+            onNodeWithTag("pos:table-input").performTextInput("12")
+            tap("pos:table-save")
+            waitForIdle()
+
+            tap("pos:step-guest")
+            onNodeWithTag("pos:guest-name").performTextInput("Сергей Крылов")
+            onNodeWithTag("pos:guest-phone").performTextInput("+7 999 123-45-67")
+            shot("pos-10-sheet-guest")
+            tap("pos:guest-save")
+            waitForIdle()
+
+            tap("pos:step-time")
+            shot("pos-11-sheet-time")
+            tap("pos:time-asap")
+            waitForIdle()
+
+            tap("pos:step-payment")
+            shot("pos-12-sheet-payment")
+            tap("pos:payment-cash")
+            waitForIdle()
+
+            tap("pos:step-promocode")
+            onNodeWithTag("pos:promocode-input").performTextInput("DEMO10")
+            tap("pos:promocode-save")
+            waitForIdle()
+            shot("pos-13-receipt-discount")
+
+            tapBelow("pos:check")
+            settle(200)
+            // The end of the receipt, where the answer of the check and the two buttons are.
+            runCatching { onNodeWithTag("pos:place-order").performScrollTo() }
+            waitForIdle()
+            shot("pos-14-checked")
+
+            tapBelow("pos:place-order")
+            shot("pos-15-place-confirm")
+            tapBelow("pos:place-order:yes")
+            settle(200)
+            shot("pos-16-placed")
         }
 
-        // 6. Точка самовывоза: тот же чек, другой способ получения.
-        screen(PosServerStub(demo()), PosServerStub.declared()) {
-            (this@PosScreenshotsTest.javaClass) // keep the block honest about its scope
-            onNodeWithTag("pos:place").performClick()
+        // 17–19. Доставка: свой шаг адреса, цена доставки в чеке, поиск клиента.
+        screen(PosServerStub(demo()), PosServerStub.declared()) { app ->
+            val pos = app as PosInstance
+            tap("pos:new")
+            tap("pos:step-service")
+            tap("pos:service-delivery")
             waitForIdle()
+            tap("pos:step-address")
+            onNodeWithTag("pos:address-street").performTextInput("Садовая")
+            settle()
+            shot("pos-17-sheet-address")
+            onNodeWithTag("pos:address-home").performTextInput("3")
+            tap("pos:address-save")
+            waitForIdle()
+            tap("pos:add")
+            tap("pos:group-Супы")
+            val soup = pos.state.value.catalog?.catalog?.items?.first()!!
+            tap("pos:product-${soup.id}:add")
+            tap("pos:catalog-back")
+            tap("pos:catalog-back")
+            shot("pos-18-receipt-delivery")
+
+            tap("pos:step-guest")
+            tap("pos:guest-find")
+            waitForIdle()
+            shot("pos-19-sheet-clients")
+        }
+
+        // 20. Точка самовывоза: тот же чек, другой способ получения.
+        screen(PosServerStub(demo()), PosServerStub.declared()) {
+            tap("pos:place")
             mainClock.advanceTimeBy(600)
-            shot("pos-06-points")
+            shot("pos-20-points")
             tap("pos:places:item-p2")
             tap("pos:new")
-            shot("pos-07-receipt-pickup")
+            shot("pos-21-receipt-pickup")
         }
 
-        // 8. Одна точка у сервера — строки переключателя нет вовсе.
+        // 22. Одна точка у сервера — строки переключателя нет вовсе.
         val single = demo(DemoBackend.ONE_POINT)
         screen(PosServerStub(single), PosServerStub.declared(single)) {
             tap("pos:new")
-            shot("pos-08-one-point")
+            shot("pos-22-one-point")
         }
 
-        // 9. Сервер ответил отказом: красная строка и «Повторить» вместо выдуманного экрана.
-        screen(FailingServer(PosServerStub(demo())), PosServerStub.declared()) { shot("pos-09-error") }
+        // 23. Сервер отказал: красная строка и «Повторить» вместо выдуманного экрана.
+        screen(FailingServer(PosServerStub(demo())), PosServerStub.declared()) { shot("pos-23-error") }
 
-        // 10. Слово хоста — права изменились, точку сняли: жёлтая строка над списком.
-        screen(PosServerStub(demo()), PosServerStub.declared()) { instance ->
-            val server = (instance as PosInstance).server as PosServerStub
+        // 24. Слово хоста — права изменились: жёлтая строка над списком.
+        screen(PosServerStub(demo()), PosServerStub.declared()) { app ->
+            val server = (app as PosInstance).server as PosServerStub
             runBlocking { server.notices.emit("Права изменились") }
-            shot("pos-10-notice")
+            shot("pos-24-notice")
         }
 
-        // 11–12. Ответы сервера, которых слой B ещё не умеет присылать: чек с составом, скидкой и
-        // доставкой, и заказ, который готовит другая кухня (решение по Q27 — показываем, кто).
-        screen(ScriptedServer(PosServerStub(demo()), FILLED), PosServerStub.declared()) { shot("pos-11-receipt-filled-stub") }
-        screen(ScriptedServer(PosServerStub(demo()), OTHER_KITCHEN), PosServerStub.declared()) { shot("pos-12-other-kitchen-stub") }
+        // 25. Отказ сервера на шаге: чек остаётся, причина написана.
+        screen(PosServerStub(demo()), PosServerStub.declared()) {
+            tap("pos:new")
+            tapBelow("pos:check")
+            settle(200)
+            shot("pos-25-refused")
+            tapBelow("pos:drop")
+            shot("pos-26-drop-confirm")
+        }
 
-        // 13. Сборка клиента без нативной кассы: приложение не прячется и не падает.
+        // 27. Заказ, который по адресу готовит другая кухня (ответ на Q27) — ответ подставного
+        // сервера: демо так не отвечает, а экран это рисует.
+        screen(ScriptedServer(PosServerStub(demo()), OTHER_KITCHEN), PosServerStub.declared()) { shot("pos-27-other-kitchen-stub") }
+
+        // 28. Сборка клиента без нативной кассы: приложение не прячется и не падает.
         screen(PosServerStub(demo()), PosServerStub.declared().copy(client = cx.m42.restoapp.protocol.ClientRender("kitchen", 1))) {
-            shot("pos-13-needs-newer-client")
+            shot("pos-28-needs-newer-client")
         }
     }
 
@@ -175,26 +289,6 @@ class PosScreenshotsTest {
     }
 
     private companion object {
-        /** A receipt as the hook will answer it in slice B: three lines, a promotion, a delivery. */
-        const val FILLED = """
-        {
-          "id": "d1", "number": "D1042", "state": "CHECKOUT", "serviceType": "delivery",
-          "placeId": "p1", "cookingPlaceId": "p1", "cookingPlaceTitle": "Ленина, 5", "table": null,
-          "customerName": "Анна Смирнова", "customerPhone": "+7 912 000-11-22", "clientId": "u1",
-          "address": "ул. Садовая, 3, кв. 15", "comment": "Домофон не работает", "personsCount": null,
-          "date": null, "maxWaitMinutes": null, "paymentMethodId": "cash", "paymentMethodTitle": "Наличные",
-          "promotionCode": "LETO20",
-          "lines": [
-            {"lineId": 1, "dishId": "d1", "name": "Пепперони 30 см", "amount": 2, "price": 472, "total": 944, "oldPrice": 1180, "comment": null, "hasOptions": true},
-            {"lineId": 2, "dishId": "d2", "name": "Цезарь с курицей", "amount": 1, "price": 380, "total": 380, "oldPrice": null, "comment": "без лука", "hasOptions": false},
-            {"lineId": 3, "dishId": "d3", "name": "Морс клюквенный 0,5 л", "amount": 3, "price": 150, "total": 450, "oldPrice": null, "comment": null, "hasOptions": false}
-          ],
-          "dishesCount": 6, "basketTotal": 1774, "discountTotal": 236, "deliveryCost": 200,
-          "bonusesTotal": 150, "total": 1824, "message": "Доставка 200 ₽,≈ 45 минут",
-          "createdAt": 1700000000000, "updatedAt": 1700000000000
-        }
-        """
-
         /** The same order, but the address belongs to another kitchen's zone (Q27). */
         const val OTHER_KITCHEN = """
         {
