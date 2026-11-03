@@ -31,6 +31,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 
 /** The list of the home method: what the chips, the search and the pages have brought. */
 internal data class ListState(
@@ -88,6 +89,7 @@ internal class ServerAppInstance(
     private var loadJob: Job? = null
     private var searchJob: Job? = null
     private var quietJob: Job? = null
+    private var pollJob: Job? = null
     private var detailJob: Job? = null
     private var restoredPlace: String? = null
 
@@ -122,6 +124,7 @@ internal class ServerAppInstance(
         restoredPlace?.let { id -> if (server.place.value == null && server.places.value.any { it.id == id }) server.selectPlace(id) }
         reload()
         _detail.value?.let { open(it.id, null) }
+        startPolling()
     }
 
     override fun saveState(): JsonObject = buildJsonObject {
@@ -139,18 +142,27 @@ internal class ServerAppInstance(
     }
 
     override fun onForeground() {
-        if (started) quietReload()
+        if (!started) return
+        quietReload()
+        startPolling()
+    }
+
+    /** Off screen nothing is asked: the plan's polling runs only while the app is in front. */
+    override fun onBackground() {
+        pollJob?.cancel()
+        pollJob = null
     }
 
     // ---- the list ----
 
-    private fun params(cursor: String?): JsonObject {
+    private fun params(cursor: String?, since: Long? = null): JsonObject {
         val ui = home?.ui
         val state = _list.value
         return buildJsonObject {
             ui?.chips?.let { chips -> chipOrDefault(state.chip)?.let { put(chips, JsonPrimitive(it)) } }
             ui?.search?.let { search -> state.query.trim().takeIf { it.isNotEmpty() }?.let { put(search, JsonPrimitive(it)) } }
             cursor?.let { put("cursor", JsonPrimitive(it)) }
+            since?.let { put(SINCE, JsonPrimitive(it)) }
         }
     }
 
@@ -220,8 +232,68 @@ internal class ServerAppInstance(
             } catch (_: MobileApiException) {
                 // Quiet: the list stays as it is; the next loud action shows the error.
             }
+            // The card standing on top of the list is as much of the screen as the list is: a move
+            // somebody else made must change its buttons too, not only the row behind it.
+            refreshOpenRecord()
         }
     }
+
+    /** Re-reads the open record without a spinner; leaves it as it is when the server will not say. */
+    private suspend fun refreshOpenRecord() {
+        val open = _detail.value ?: return
+        if (detailJob?.isActive == true) return
+        val method = home?.ui?.open?.let { app?.method(it) } ?: return
+        try {
+            val record = recordOf(server.call(method.name, buildJsonObject { put("id", JsonPrimitive(open.id)) }))
+            if (record != null && _detail.value?.id == open.id) _detail.value = DetailState(open.id, record, loading = false)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: MobileApiException) {
+            // The record may have gone; the next loud read says so.
+        }
+    }
+
+    /**
+     * Keeps the list fresh while the app is on screen (plan section 3, «Обновления без SSE»).
+     *
+     * Only for a list whose method takes `since` — «Заказы» do, «Блюда» do not and are re-read on
+     * return to the screen. Every [POLL_MS] the probe asks for what changed since the newest change
+     * on screen: an empty answer costs nothing, and anything at all is followed by a full re-read,
+     * so counts settle and a record that left the tab leaves the screen with them.
+     *
+     * The probe cannot see a record leaving the tab — it is no longer in the tab's answer — so one
+     * poll in [FULL_RELOAD_EVERY] is a full re-read regardless.
+     */
+    private fun startPolling() {
+        if (pollJob?.isActive == true) return
+        val method = home?.takeIf { it.ui?.view == Views.LIST } ?: return
+        if (method.input.property(SINCE) == null) return
+        pollJob = runtime.scope.launch {
+            var tick = 0
+            while (true) {
+                delay(POLL_MS)
+                if (loadJob?.isActive == true || _list.value.loading || !_list.value.loaded) continue
+                tick += 1
+                val since = newestChange()
+                if (since == null || tick % FULL_RELOAD_EVERY == 0) {
+                    quietReload()
+                    continue
+                }
+                try {
+                    val page = ListPage.of(server.call(method.name, params(cursor = null, since = since + 1)))
+                    if (page.items.isNotEmpty()) quietReload()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: MobileApiException) {
+                    // Quiet, as the re-reads are: the connection's own state is drawn from the host.
+                }
+            }
+        }
+    }
+
+    /** The newest `updatedAt` on screen — what `since` is measured against; null when records have none. */
+    private fun newestChange(): Long? =
+        _list.value.items.mapNotNull { runCatching { it[SINCE_FIELD]?.jsonPrimitive?.longOrNull }.getOrNull() }.maxOrNull()
 
     fun more() {
         val method = home ?: return
@@ -265,7 +337,10 @@ internal class ServerAppInstance(
         _list.value = ListState()
         _detail.value = null
         _error.value = null
-        if (started) reload()
+        if (started) {
+            reload()
+            startPolling()
+        }
     }
 
     // ---- a record ----
@@ -367,6 +442,14 @@ internal class ServerAppInstance(
 
     private companion object {
         const val SEARCH_DELAY_MS = 300L
+
+        /** The input parameter and the record field the plan's polling is built on. */
+        const val SINCE = "since"
+        const val SINCE_FIELD = "updatedAt"
+
+        /** How often the screen asks what moved, and how often it re-reads everything anyway. */
+        const val POLL_MS = 10_000L
+        const val FULL_RELOAD_EVERY = 6
 
         /** Taps on − and + close together are one re-read of the list, not one each. */
         const val QUIET_RELOAD_MS = 400L

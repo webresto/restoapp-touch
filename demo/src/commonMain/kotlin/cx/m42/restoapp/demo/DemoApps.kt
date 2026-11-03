@@ -266,6 +266,11 @@ internal fun ordersApp(words: DemoWords, places: List<String>): DeclaredApp {
                         ),
                         "q" to stringProperty(100),
                         "cursor" to stringProperty(200),
+                        // Polling while the screen is open: the moment of the last change the client knows.
+                        "since" to buildJsonObject {
+                            put("type", "integer")
+                            put("minimum", 0)
+                        },
                     ),
                 ),
                 ui = Ui(

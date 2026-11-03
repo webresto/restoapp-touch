@@ -19,6 +19,8 @@
  *   POST /__fake/password {"login": "stock"}      changes a password; the devices fall off
  *   POST /__fake/reset-password {"login": "stock"} puts `secret-password` back
  *   POST /__fake/order {"dish": "d1", "amount": 2, "place": "p1"}  places an order, answers its id
+ *   POST /__fake/order-without-kitchen {"dish": "d1"}             places a delivery with no kitchen
+ *   POST /__fake/order-delivery {"dish": "d1", "place": "p2"}     places a delivery cooked at that kitchen
  *   POST /__fake/move {"id": "...", "state": "COOKING"}           moves it on the orders board
  *   GET  /__fake/orders                           the orders with their state and lines
  *   POST /__fake/clear-attempts                   forgets the login attempts (the limit is 10/min/IP)
@@ -65,7 +67,13 @@ async function fixtures(sails: any) {
   const group = async (name: string, tokens: unknown[]) =>
     (await GroupAp.findOne({ name })) ? GroupAp.updateOne({ name }, { tokens }) : GroupAp.create({ name, tokens }).fetch();
   const stock = await group("Stock Manager", ["access-to-adminpanel", { tokenId: "stock-manager", rights: ["p1", "p2"] }]);
-  const operator = await group("Operator", ["access-to-adminpanel", "order-kanban", "read-order-model"]);
+  // `order-kanban` is contextual since core C1: p1 and «Без кухни», never p2.
+  const operator = await group("Operator", [
+    "access-to-adminpanel",
+    { tokenId: "order-kanban", rights: ["p1", "no-kitchen"] },
+    "read-order-model",
+    "update-order-model",
+  ]);
   const nopoints = await group("Stock no points", ["access-to-adminpanel", "stock-manager"]);
   const nobody = await group("Nobody", []);
 
@@ -103,6 +111,27 @@ async function placeOrder(dish: string, amount: number, place: string): Promise<
   return order.id;
 }
 
+/**
+ * A placed delivery at [kitchen] — or, with none, one no kitchen was resolved for, what a chain with
+ * soft calculation lets through for an operator to decide. Written as such, because the checkout of
+ * this stand has no delivery adapter to resolve an address with and would refuse the order.
+ */
+async function placeDelivery(dish: string, amount: number, kitchen: string | null): Promise<string> {
+  const Order: any = (global as any).Order;
+  const order = await Order.create({}).fetch();
+  await Order.addDish({ id: order.id }, dish, amount, [], "", "user");
+  await Order.update({ id: order.id }, {
+    state: "ORDER",
+    serviceType: "delivery",
+    cookingPoints: kitchen ? [kitchen] : [],
+    orderedAt: Math.floor(Date.now() / 1000),
+    customer: { name: "Гость", phone: { code: "+7", number: "9990000002", additionalNumber: "" } },
+    address: { formatted: "ул. Садовая, 1", home: "1" },
+    total: 100 * amount,
+  }).fetch();
+  return order.id;
+}
+
 /** The move of the admin panel's orders board, as its controller does it. */
 async function moveOrder(id: string, nextState: string, user: object): Promise<{ status: number; body: any }> {
   const controller = require(path.join(dev, "node_modules/@webresto/core/lib/adminpanel/src/controller/update-order-kanban-state"));
@@ -115,7 +144,7 @@ async function moveOrder(id: string, nextState: string, user: object): Promise<{
       sendStatus(code: number) { resolve({ status: code, body: null }); return res; },
       redirect() { resolve({ status: 302, body: null }); return res; },
     };
-    void move({ body: { id, nextState }, user, adminizer: { config: {} } }, res);
+    void move({ body: { id, nextState }, user, query: {}, adminizer: { config: {} } }, res);
   });
 }
 
@@ -190,6 +219,12 @@ async function main() {
         if (req.url === "/__fake/order") {
           return answer({ id: await placeOrder(data.dish ?? "d1", data.amount ?? 1, data.place ?? "p1") });
         }
+        if (req.url === "/__fake/order-without-kitchen") {
+          return answer({ id: await placeDelivery(data.dish ?? "d1", data.amount ?? 1, null) });
+        }
+        if (req.url === "/__fake/order-delivery") {
+          return answer({ id: await placeDelivery(data.dish ?? "d1", data.amount ?? 1, data.place ?? "p1") });
+        }
         if (req.url === "/__fake/move") {
           const user = data.login === "operator"
             ? { id: (await sails.models.userap.findOne({ login: "operator" })).id, isAdministrator: false, groups: [{ name: "Operator" }] }
@@ -251,11 +286,15 @@ async function main() {
           const out = [];
           for (const order of orders) {
             const lines = await sails.models.orderdish.find({ order: order.id }).populate("dish");
+            const { orderPlaceKey } = require(path.join(dev, "node_modules/@webresto/core/lib/order/orders-of-place"));
             out.push({
               id: order.id,
               shortId: order.shortId,
               state: order.state,
               pickupPoint: order.pickupPoint,
+              cookingPoints: order.cookingPoints ?? [],
+              /** The point the board and the phone lead it by, or `no-kitchen`. */
+              placeId: orderPlaceKey(order),
               total: order.total ?? order.basketTotal,
               lines: lines.map((line: any) => ({ dish: line.dish?.name, amount: line.amount })),
             });

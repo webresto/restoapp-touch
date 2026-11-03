@@ -47,6 +47,9 @@ class DemoServer(
     override val notices: MutableSharedFlow<String> = MutableSharedFlow(extraBufferCapacity = 8)
     val calls = mutableListOf<Pair<String, String?>>()
 
+    /** Every call with what it asked for: the polling test reads `since` out of it. */
+    val requests = mutableListOf<Triple<String, String?, JsonObject>>()
+
     private fun placesOf(declaration: Declaration): List<Place> {
         val ids = declaration.app(appId)?.places.orEmpty()
         return declaration.places.filter { it.id in ids }
@@ -59,6 +62,7 @@ class DemoServer(
     override suspend fun call(method: String, params: JsonObject): JsonElement {
         val place = if (_app.value?.byPlace == true) _place.value?.id else null
         calls += method to place
+        requests += Triple(method, place, params)
         return api.call("demo", method, params, place, lang).value
     }
 
