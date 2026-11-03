@@ -246,23 +246,30 @@ class PosScreenshotsTest {
             shot("pos-24-notice")
         }
 
-        // 25. Отказ сервера на шаге: чек остаётся, причина написана.
-        screen(PosServerStub(demo()), PosServerStub.declared()) {
+        // 25–26. Проверять нечего: ни блюд, ни гостя — кнопка выключена, пока сервер не скажет
+        // «можно». И отказ сервера на шаге: чек остаётся, причина написана.
+        screen(PosServerStub(demo()), PosServerStub.declared()) { app ->
+            val pos = app as PosInstance
             tap("pos:new")
-            tapBelow("pos:check")
+            shot("pos-25-nothing-to-check")
+
+            tap("pos:step-promocode")
+            onNodeWithTag("pos:promocode-input").performTextInput("НЕТ")
+            tap("pos:promocode-save")
             settle(200)
-            shot("pos-25-refused")
+            shot("pos-26-refused-promocode")
+            tap("pos:sheet-promocode:close")
             tapBelow("pos:drop")
-            shot("pos-26-drop-confirm")
+            shot("pos-27-drop-confirm")
         }
 
         // 27. Заказ, который по адресу готовит другая кухня (ответ на Q27) — ответ подставного
         // сервера: демо так не отвечает, а экран это рисует.
-        screen(ScriptedServer(PosServerStub(demo()), OTHER_KITCHEN), PosServerStub.declared()) { shot("pos-27-other-kitchen-stub") }
+        screen(ScriptedServer(PosServerStub(demo()), OTHER_KITCHEN), PosServerStub.declared()) { shot("pos-28-other-kitchen-stub") }
 
         // 28. Сборка клиента без нативной кассы: приложение не прячется и не падает.
         screen(PosServerStub(demo()), PosServerStub.declared().copy(client = cx.m42.restoapp.protocol.ClientRender("kitchen", 1))) {
-            shot("pos-28-needs-newer-client")
+            shot("pos-29-needs-newer-client")
         }
     }
 
