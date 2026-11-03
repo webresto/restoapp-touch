@@ -47,8 +47,23 @@ public class PosWords(public val lang: String) {
     public val stopped: String = t("Стоп", "Stopped")
     public val left: String = t("Осталось", "Left")
     public val cooking: String = t("Готовка", "Cooking")
-    public val withOptions: String = t("с опциями по умолчанию", "with the default options")
+    public val withOptions: String = t("можно выбрать состав", "options to choose")
     public val more: String = t("Показать ещё", "Show more")
+
+    // ---- what goes with a dish ----
+    public val options: String = t("Состав", "Options")
+    public val addToReceipt: String = t("Добавить в чек", "Add to the receipt")
+    public val mustChoose: String = t("обязательно", "required")
+    public val chooseOne: String = t("один на выбор", "one of these")
+    public val noOptions: String = t("У этого блюда нечего выбирать", "Nothing to choose for this product")
+
+    /** «до 3» — the ceiling of a group, as the server sent it. */
+    public fun upTo(count: Int): String = if (ru) "до $count" else "up to $count"
+
+    /** «1 бесплатно» — how many of an option are not charged for. */
+    public fun free(count: Int): String = if (ru) "$count бесплатно" else "$count free"
+
+    public val byDefault: String = t("по умолчанию", "by default")
 
     // ---- the steps of the checkout ----
     public val receiving: String = t("Получение", "Receiving")
