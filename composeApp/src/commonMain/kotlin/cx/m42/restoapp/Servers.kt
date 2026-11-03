@@ -1,27 +1,30 @@
 package cx.m42.restoapp
 
-import cx.m42.restoapp.orders.OrdersApp
-import cx.m42.restoapp.stock.StockApp
 import cx.m42.superizer.HostContext
-import cx.m42.superizer.app.SuperizerApp
 import kotlinx.serialization.Serializable
 
 /**
- * A server RestoApp knows about (D6): what the switcher shows and which apps its menu has.
- *
- * Nothing is connected yet (D7): [address] is shown, not dialled, and [apps] is what a real server
- * would report about itself — here the person ticked it when adding the server.
+ * A server RestoApp knows about (D6): what the switcher shows. Which apps it has is not here any
+ * more — the server declares them (plan section 4) and the demo server is one in process.
  */
 @Serializable
 public data class ServerProfile(
     /** Stable, and a directory name: `~/.restoapp/servers/<id>` holds this server's settings. */
     val id: String,
     val name: String,
+    /** `https://admin.cafe.ru` — or `demo://<variant>` for the demo server in process. */
     val address: String,
-    /** App ids, in the order Home shows them on a fresh install. */
-    val apps: List<String>,
 ) {
-    internal fun toContext(): HostContext = HostContext(id = id, title = name, subtitle = address)
+    val isDemo: Boolean get() = address.startsWith(DEMO_SCHEME)
+
+    internal fun toContext(): HostContext = HostContext(id = id, title = name, subtitle = if (isDemo) null else hostOf(address))
+
+    public companion object {
+        public const val DEMO_SCHEME: String = "demo://"
+
+        /** The demo with one point: no point switch, a stock manager's menu. */
+        public const val DEMO_POINT: String = "demo://point"
+    }
 }
 
 /** Every server, the one in force, and the one before it — where a long press goes back to. */
@@ -36,9 +39,8 @@ internal data class ServerList(
 }
 
 /**
- * Where the server list lives and how a server gets storage of its own — the two things that
- * differ per platform. The desktop's is `DesktopServerStore`: a JSON file and one prefs directory
- * per server.
+ * Where the server list lives and how a server gets storage of its own — the things that differ
+ * per platform. The desktop's is `DesktopServerStore`: a JSON file and one directory per server.
  */
 public interface ServerStore {
     /** The list as [save] wrote it, or null on a fresh install. */
@@ -55,32 +57,27 @@ public interface ServerStore {
 
     /** Deletes everything [serverId] kept. The server is already off the list. */
     public fun erase(serverId: String)
-}
 
-/** The apps a server can have. A real server will say which of these it serves (Q1). */
-internal object ServerApps {
-    private val factories: List<Pair<String, () -> SuperizerApp<*>>> = listOf(
-        OrdersApp.ID to { OrdersApp() },
-        StockApp.ID to { StockApp() },
-    )
+    /** A file of [serverId]'s own — its cached declaration, its point, the demo's data. */
+    public fun read(serverId: String, name: String): String?
 
-    val ids: List<String> = factories.map { it.first }
+    /**
+     * Writes it whole or not at all. [private]: readable by this user only (the device token — plan
+     * section 4: a file with mode 600 until a vault seals it).
+     */
+    public fun write(serverId: String, name: String, text: String, private: Boolean = false)
 
-    fun create(ids: List<String>): List<SuperizerApp<*>> =
-        factories.filter { it.first in ids }.map { it.second() }
-
-    fun title(id: String, langTag: String): String =
-        create(listOf(id)).firstOrNull()?.metadata?.title?.resolve(langTag) ?: id
+    public fun delete(serverId: String, name: String)
 }
 
 /**
- * What a fresh install starts with: two demo servers with different menus, so switching shows its
- * point at once.
+ * What a fresh install starts with: the demo server twice — a restaurant with two points and both
+ * apps, and one point seen by its stock manager — so switching shows its point at once.
  */
 internal val DemoServers: ServerList = ServerList(
     servers = listOf(
-        ServerProfile("demo-restaurant", "Демо-ресторан", "demo://restaurant", listOf(OrdersApp.ID, StockApp.ID)),
-        ServerProfile("demo-point", "Демо-точка", "demo://point", listOf(StockApp.ID)),
+        ServerProfile("demo-restaurant", "Демо-ресторан", "demo://restaurant"),
+        ServerProfile("demo-point", "Демо-точка", ServerProfile.DEMO_POINT),
     ),
     current = "demo-restaurant",
 )

@@ -9,15 +9,18 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
-import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.v2.runComposeUiTest
+import cx.m42.restoapp.demo.DemoRole
+import cx.m42.superizer.app.AppId
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,8 +28,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 
 /**
- * The host (D6): a fresh install has two demo servers, the drawer starts with the server, and the
- * sheet switches between them — each with its own menu, Home and storage.
+ * The host (D6, D8): a fresh install has two demo servers whose menus are what the demo server
+ * declares; the drawer starts with the server, the sheet switches between them, and a role switch on
+ * the demo changes the menu the way a group in the admin panel would.
  */
 @OptIn(ExperimentalTestApi::class)
 class RestoAppTest {
@@ -44,18 +48,24 @@ class RestoAppTest {
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
             store = DesktopServerStore(dir),
             debug = true,
-            checkDelayMs = 0,
+            clock = { 1_700_000_000_000 },
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
 
+    private fun RestoAppHost.registered(): Set<String> = active.value.superizer.registry.let { registry ->
+        listOf("dishes", "orders").filter { registry.get(AppId(it)) != null }.toSet()
+    }
+
     @Test
-    fun aFreshInstallOpensTheDemoRestaurantWithBothApps() = runComposeUiTest {
+    fun aFreshInstallOpensTheDemoRestaurantWithTheAppsItDeclares() = runComposeUiTest {
         val host = restoApp()
         setContent { RestoApp(host) }
+        waitUntil(timeoutMillis = 5_000L) { host.registered() == setOf("dishes", "orders") }
         waitForIdle()
 
         onNodeWithText("Демо-ресторан").assertIsDisplayed()
+        onNodeWithTag("home:tile-dishes").assertIsDisplayed()
         onNodeWithTag("home:tile-orders").assertIsDisplayed()
-        onNodeWithTag("home:tile-stock").assertIsDisplayed()
+        onNodeWithTag("home:demo").assertIsDisplayed()
         assertEquals(listOf("demo-restaurant", "demo-point"), host.contexts.value.map { it.id })
     }
 
@@ -93,11 +103,11 @@ class RestoAppTest {
         onNodeWithTag("context:row").performClick()
         waitForIdle()
         onNodeWithTag("context:item-demo-point").performClick()
+        waitUntil(timeoutMillis = 5_000L) { host.current.value?.id == "demo-point" && host.registered() == setOf("dishes") }
         waitForIdle()
 
-        assertEquals("demo-point", host.current.value?.id)
         onNodeWithText("Демо-точка").assertIsDisplayed()
-        onNodeWithTag("home:tile-stock").assertIsDisplayed()
+        onNodeWithTag("home:tile-dishes").assertIsDisplayed()
         onNodeWithTag("home:tile-orders").assertDoesNotExist()
         // The language follows the person, not the server.
         assertEquals("ru", host.active.value.superizer.settings.langTag.value)
@@ -109,11 +119,14 @@ class RestoAppTest {
         runBlocking { host.switchNow("demo-point") }
 
         assertTrue(File(dir, "servers/demo-restaurant/settings.properties").isFile)
-        assertTrue(File(dir, "servers/demo-point/settings.properties").isFile)
+        assertTrue(File(dir, "servers/demo-point/declaration.json").isFile)
+        assertTrue(File(dir, "servers/demo-point/demo.json").isFile)
 
         val again = restoApp()
         assertEquals("demo-point", again.current.value?.id)
         assertEquals("demo-restaurant", again.previous()?.id)
+        // The menu is there before any answer: it is the declaration of last time.
+        assertNotNull(again.active.value.superizer.registry.get(AppId("dishes")))
     }
 
     @Test
@@ -129,38 +142,52 @@ class RestoAppTest {
         onNodeWithTag("context:add").performClick()
         waitForIdle()
         onNodeWithTag("servers:add-demo").performClick()
+        waitUntil(timeoutMillis = 5_000L) { host.current.value?.id == "demo-2" && host.registered() == setOf("dishes", "orders") }
         waitForIdle()
 
-        assertEquals("demo-2", host.current.value?.id)
         assertEquals(3, host.contexts.value.size)
         onNodeWithText("Демо-сервер 2").assertIsDisplayed()
         onNodeWithTag("home:tile-orders").assertIsDisplayed()
     }
 
     @Test
-    fun aServerOfYourOwnIsCheckedAddedAndOpenedWithTheAppsTicked() = runComposeUiTest {
+    fun aRoleOnTheDemoIsAnotherMenuAndTheOpenAppComesBack() = runComposeUiTest {
         val host = restoApp()
         setContent { RestoApp(host) }
+        waitUntil(timeoutMillis = 5_000L) { host.registered() == setOf("dishes", "orders") }
         waitForIdle()
 
-        onNodeWithContentDescription("Открыть меню").performClick()
+        onNodeWithTag("home:tile-dishes").performClick()
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("dishes:list").assertExists() }.isSuccess }
+        val before = host.active.value
+
+        host.setDemoRole(DemoRole.Stock)
+        waitUntil(timeoutMillis = 5_000L) { host.active.value !== before && host.registered() == setOf("dishes") }
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("dishes:list").assertExists() }.isSuccess }
+
+        host.setDemoRole(DemoRole.Operator)
+        waitUntil(timeoutMillis = 5_000L) { host.registered() == setOf("orders") }
         waitForIdle()
-        onNodeWithTag("context:row").performClick()
-        waitForIdle()
-        onNodeWithTag("context:add").performClick()
-        waitForIdle()
-        onNodeWithTag("servers:add-custom").performClick()
-        waitForIdle()
-        onNodeWithTag("servers:address").performTextInput("https://admin.cafe.ru")
-        onNodeWithTag("servers:app-stock").performClick()
-        waitForIdle()
-        onNodeWithTag("servers:connect").performClick()
+        onNodeWithTag("dishes:list").assertDoesNotExist()
+    }
+
+    @Test
+    fun aPointPickedInOneAppIsWhereTheOtherOpens() = runComposeUiTest {
+        val host = restoApp()
+        setContent { RestoApp(host) }
+        waitUntil(timeoutMillis = 5_000L) { host.registered() == setOf("dishes", "orders") }
         waitForIdle()
 
-        assertEquals("admin-cafe-ru", host.current.value?.id)
-        onNodeWithText("admin.cafe.ru").assertIsDisplayed()
-        onNodeWithTag("home:tile-orders").assertIsDisplayed()
-        onNodeWithTag("home:tile-stock").assertDoesNotExist()
+        onNodeWithTag("home:tile-orders").performClick()
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("orders:place").assertExists() }.isSuccess }
+        onNodeWithTag("orders:place").performClick()
+        waitForIdle()
+        onNodeWithTag("orders:places:item-p2").performClick()
+        waitForIdle()
+        assertEquals("p2", host.active.value.session.bind("orders").place.value?.id)
+
+        assertEquals("p2", host.active.value.session.bind("dishes").place.value?.id)
+        assertTrue(File(dir, "servers/demo-restaurant/place.json").readText().contains("p2"))
     }
 
     @Test
@@ -171,5 +198,6 @@ class RestoAppTest {
 
         host.remove("demo-point")
         assertEquals(listOf("demo-restaurant"), host.servers.value.map { it.id })
+        assertNull(DesktopServerStore(dir).read("demo-point", "demo.json"))
     }
 }

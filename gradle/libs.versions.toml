@@ -3,6 +3,12 @@
 kotlin = "2.4.10"
 composeMultiplatform = "1.11.1"
 kotlinxCoroutines = "1.10.2"
+# Superizer's, so the host and the library share one runtime.
+kotlinxSerializationJson = "1.9.0"
+# Superizer's: the host makes the one network every server shares (KtorNetworkService takes a client).
+ktor = "3.4.0"
+# Contract tests only: the server's JSON Schema, checked on the JVM.
+jsonSchemaValidator = "1.5.9"
 
 # The library. Bumped by an explicit commit, as in Unitool.
 superizer = "0.7.1"
@@ -13,6 +19,10 @@ compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", v
 compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMultiplatform" }
 compose-ui-test = { module = "org.jetbrains.compose.ui:ui-test", version.ref = "composeMultiplatform" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+json-schema-validator = { module = "com.networknt:json-schema-validator", version.ref = "jsonSchemaValidator" }
 
 superizer-core = { module = "cx.m42.superizer:core", version.ref = "superizer" }
 superizer-ui-theme = { module = "cx.m42.superizer:ui-theme", version.ref = "superizer" }
