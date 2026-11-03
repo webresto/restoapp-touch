@@ -88,12 +88,22 @@ public data class DeclaredApp(
     val models: Map<String, Model> = emptyMap(),
     val methods: List<DeclaredMethod> = emptyList(),
     /**
+     * The client draws this app itself — the POS of `order-entry.plan.md`. The universal renderer
+     * cannot: a receipt with a catalog behind a «+» is not a list with actions on a record. A client
+     * that does not have this native app (or is older than `min`) shows the "needs a newer version"
+     * tile, exactly as it does for [script].
+     */
+    val client: ClientRender? = null,
+    /**
      * Reserved for apps that come as JS (script-apps.plan.md). A client that cannot run scripts shows
      * such an app as "needs a newer version", and neither crashes nor hides it.
      */
     val script: JsonElement? = null,
 ) {
     val byPlace: Boolean get() = scope == SCOPE_PLACE
+
+    /** Which built-in screen this app asks for, if any. */
+    public val native: String? get() = client?.native
 
     public fun method(name: String?): DeclaredMethod? = methods.firstOrNull { it.name == name }
 
@@ -105,6 +115,16 @@ public data class DeclaredApp(
         public const val SCOPE_PLACE: String = "place"
     }
 }
+
+/**
+ * «This one the client draws»: [native] names the built-in screen, [min] the oldest client that has
+ * it. Both come from the server, and a client that knows neither shows a tile instead of a screen.
+ */
+@Serializable
+public data class ClientRender(
+    val native: String,
+    val min: Int = 1,
+)
 
 /** An SVG path over a 24×24 box — `AppIcon.Path` in Superizer. */
 @Serializable
