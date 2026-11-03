@@ -5,8 +5,8 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
  * as Unitool's composeApp (../client) — a host and nothing else — but a product of its own: its own
  * package, scheme, settings and window, so the two never share a Home or a language (D2).
  *
- * A list of servers, each its own Superizer with the apps that server has (D6); the apps are demos
- * on their own storage for now (D7). No push, no promo codes (D3). Desktop only (D5): a
+ * A list of servers, each its own Superizer with the apps that server declares (D6, D8): a real
+ * RestoApp by its address, or the demo server in process. No push, no promo codes (D3). Desktop only (D5): a
  * multiplatform module still, so Android and the web come back as targets rather than as a rewrite.
  */
 plugins {
@@ -84,10 +84,13 @@ kotlin {
             implementation(libs.superizer.host)
 
             implementation(libs.kotlinx.coroutines.core)
+            // Only for the type: KtorNetworkService takes the HttpClient its companion makes.
+            implementation(libs.ktor.client.core)
 
-            // The apps a server can have (D6). Each server's menu is the subset it serves.
-            implementation(project(":apps:orders"))
-            implementation(project(":apps:stock"))
+            // A server's apps come from its declaration and are drawn by one renderer (plan section 4).
+            implementation(project(":protocol"))
+            implementation(project(":demo"))
+            implementation(project(":render"))
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
@@ -95,8 +98,16 @@ kotlin {
         desktopTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.compose.ui.test)
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
+}
+
+// The live test of the host starts the hook of ../restoapp-dev on fake deps (tools/fake-server), and
+// skips itself when there is no such checkout.
+tasks.withType<Test>().configureEach {
+    systemProperty("restoapp.dev", rootProject.file("../restoapp-dev").absolutePath)
+    systemProperty("restoapp.tools", rootProject.file("tools").absolutePath)
 }
 
 compose.desktop {

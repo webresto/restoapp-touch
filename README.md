@@ -2,42 +2,63 @@
 
 A Kotlin Multiplatform / Compose Multiplatform host for administering the RestoApp servers —
 `cx.m42.restoapp`. Built on [Superizer](https://github.com/adminization/superizer) the same way
-Unitool (`../client`) is: the host is a list of apps, and each app is a module of its own.
+Unitool (`../client`) is.
 
 Each server is a context (Superizer 0.8's `ContextPort`): the row at the top of the drawer says which
 one you are on, a tap lists the others — as ChatGPT and GitHub switch accounts — and every server has
-its own apps, menu, Home and storage. For now the servers are demos and so are the two apps, «Заказы»
-and «Склад», modelled on RestoApp core. Desktop only. The decisions are in [`.ai-notes`](.ai-notes/README.md).
+its own apps, menu, Home and storage. The apps are not modules: a server *declares* them — the
+`app-mobile-api` hook of restoapp-dev, protocol 1 — and one renderer draws them all from the
+declaration. The demo server answers the same protocol in process. Desktop only. The decisions are in
+[`.ai-notes`](.ai-notes/README.md), the protocol in `server-apps-and-rights.plan.md`.
 
 ## Requirements
 
 | | |
 |---|---|
-| JDK | 21 |
+| JDK | 17 (on this machine 21 hangs the Gradle daemon, `.ai-notes` D5) |
 | Gradle | none — use the bundled `./gradlew` |
 | Superizer | its sources at `../superizer` (`git clone git@github.com:adminization/superizer.git ../superizer`), also reachable as `./superizer` — a symlink, so the library is edited from this project's tree; `SUPERIZER_FROM_MAVEN=1` builds against mavenLocal instead |
+| restoapp-dev | optional: `../restoapp-dev` on branch `mobile-app` with `node_modules` — the live tests run the hook from there, and skip themselves without it |
 
 ## Running it
 
 ```bash
 ./gradlew :composeApp:run              # a 420×820 window
-./gradlew desktopTest                  # the tests: the host and both apps
+./gradlew desktopTest                  # every module's tests, the live ones included
+```
+
+A real server is "Подключить сервер → Свой сервер": its address, then the admin panel's login and
+password; the CAPTCHA is solved on the device. Without a RestoApp at hand, the hook on fake deps:
+
+```bash
+cd ../restoapp-dev && npx tsx ../restoapp-mobile-admin/tools/fake-server/serve.ts 4851
+# then connect to http://127.0.0.1:4851 as stock / secret-password (or admin, operator)
 ```
 
 ## How it is put together
 
 ```
+protocol/                        protocol 1: the declaration and envelopes, HttpMobileApi over
+                                 Superizer's NetworkService, the PoW solver (CryptoPuzzleSolver, JVM)
+demo/                            DemoBackend: the protocol in process — «Блюда» as the hook has them,
+                                 «Заказы» in the shape of slice 2, two points, three roles
+render/                          ServerApp: one SuperizerApp per declared app; list, detail, stepper,
+                                 toggle, buttons, the point switch; RestoServer — the app's only door
 composeApp/src/
-  commonMain/Servers.kt          a server: name, address, which apps; the two demo servers
-  commonMain/RestoAppHost.kt     the servers as contexts: one Superizer per server, switching between them
-  commonMain/ServerScreens.kt    "Connect a server", "Manage servers", the Settings block
+  commonMain/Servers.kt          a server: name and address; the two demo servers of a fresh install
+  commonMain/ServerSession.kt    one server connected: token, cached declaration, point, error codes
+  commonMain/RestoAppHost.kt     the servers as contexts: one Superizer per server, rebuilt when its menu changes
+  commonMain/ServerScreens.kt    connect a server, sign in, the demo's role, the Home banner, Settings
   desktopMain/main.kt            the window; ⌘/Ctrl+1…9 switch servers
   desktopMain/DesktopServerStore ~/.restoapp/servers.json, and ~/.restoapp/servers/<id>/ per server
-apps/orders/                     «Заказы»: demo orders and their states, as RestoApp core's kanban
-apps/stock/                      «Склад»: demo balances — unlimited, counted, on stop
+tools/fake-server/serve.ts       the app-mobile-api hook on fake deps, for development and live tests
+tools/pow-testdata.mjs           PoW tasks from the real crypto-puzzle, for the solver's tests
 ```
 
-Adding an app is what it is in Unitool: `include(":apps:<name>")` in `settings.gradle.kts`, a module
-that depends on `superizer:core` and `superizer:ui` only, `implementation(project(":apps:<name>"))` in
-`composeApp/build.gradle.kts`, and a line in `ServerApps` (`Servers.kt`) — after which any server
-that lists its id has it in the menu.
+Per server, `~/.restoapp/servers/<id>/` holds `settings.properties` (Home, snapshots, language),
+`session.json` (the device token, mode 600), `declaration.json` (the menu without a network),
+`place.json` (the point last picked) and, for a demo, `demo.json`.
+
+The contract — `schema/declaration.schema.json` of the hook — is copied into
+`protocol/src/desktopTest/resources`; the demo server is tested against it. When the hook's schema
+changes, copy it again.

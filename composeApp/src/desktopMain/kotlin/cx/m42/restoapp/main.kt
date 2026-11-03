@@ -14,7 +14,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import cx.m42.restoapp.protocol.CryptoPuzzleSolver
+import cx.m42.restoapp.protocol.DeviceInfo
 import java.io.File
+import java.net.InetAddress
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,7 +31,15 @@ fun main(args: Array<String>) {
     val base = File(System.getProperty("user.home"), ".restoapp")
     application {
         val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
-        val host = remember { RestoAppHost(scope, DesktopServerStore(base), debug = true) }
+        val host = remember {
+            RestoAppHost(
+                scope = scope,
+                store = DesktopServerStore(base),
+                debug = true,
+                device = DeviceInfo(deviceName(), "desktop-" + System.getProperty("os.name").orEmpty().lowercase().substringBefore(' ')),
+                solver = CryptoPuzzleSolver,
+            )
+        }
         val connection by host.active.collectAsState()
 
         remember {
@@ -47,6 +58,10 @@ fun main(args: Array<String>) {
         }
     }
 }
+
+/** What the server's list of devices will call this computer: its host name, as the OS has it. */
+private fun deviceName(): String =
+    runCatching { InetAddress.getLocalHost().hostName.removeSuffix(".local") }.getOrNull()?.take(100)?.ifBlank { null } ?: "Desktop"
 
 private val Digits = listOf(Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six, Key.Seven, Key.Eight, Key.Nine)
 

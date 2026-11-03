@@ -48,6 +48,8 @@ dependencyResolutionManagement {
 // The host. Apps go into apps/<name> next to it, as in Unitool.
 include(":composeApp")
 
-// What a server can have (D6, D7): each server's menu is the subset it serves.
-include(":apps:orders")
-include(":apps:stock")
+// A server's apps are not modules any more (plan section 4): the server declares them and one
+// renderer draws them all. The protocol, the in-process demo server, and that renderer.
+include(":protocol")
+include(":demo")
+include(":render")
