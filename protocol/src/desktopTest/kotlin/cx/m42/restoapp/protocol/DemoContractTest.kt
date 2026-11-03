@@ -10,7 +10,11 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 
 /**
  * The demo server speaks protocol 1 exactly: its declarations for every role and language, and the
@@ -84,6 +88,37 @@ class DemoContractTest {
         Contract.Pos.assertValid("posOrderAnswer", drafts)
         val id = (((started as JsonObject)["order"] as JsonObject)["id"] as JsonPrimitive).content
         Contract.Pos.assertValid("posOrderAnswer", demo.call("demo", "pos.order", jsonObjectOf("id" to JsonPrimitive(id)), "p1", "ru").value)
+
+        // What goes with a dish, and the step that writes it onto a line: the same file.
+        val options = demo.call(
+            "demo", "pos.options", jsonObjectOf("id" to JsonPrimitive(id), "dishId" to JsonPrimitive("d1")), "p1", "ru",
+        ).value
+        Contract.Pos.assertValid("posOptions", options)
+        val chosen = buildJsonArray {
+            add(buildJsonObject { put("id", "o-thin"); put("groupId", "dough"); put("amount", 1) })
+            add(buildJsonObject { put("id", "o-tomato"); put("groupId", "sauce"); put("amount", 1) })
+            add(buildJsonObject { put("id", "o-cheese"); put("groupId", "extra"); put("amount", 2) })
+        }
+        val added = demo.call(
+            "demo", "pos.add",
+            buildJsonObject { put("id", id); put("dishId", "d1"); put("modifiers", chosen) },
+            "p1", "ru",
+        ).value
+        Contract.Pos.assertValid("posStep", added)
+        val lineId = (((added as JsonObject)["order"] as JsonObject)["lines"] as kotlinx.serialization.json.JsonArray)
+            .map { it as JsonObject }.first()["lineId"]!!
+        Contract.Pos.assertValid(
+            "posOptions",
+            demo.call("demo", "pos.options", buildJsonObject { put("id", id); put("lineId", lineId) }, "p1", "ru").value,
+        )
+        Contract.Pos.assertValid(
+            "posStep",
+            demo.call(
+                "demo", "pos.setLineOptions",
+                buildJsonObject { put("id", id); put("lineId", lineId); put("modifiers", chosen) },
+                "p1", "ru",
+            ).value,
+        )
     }
 
     @Test

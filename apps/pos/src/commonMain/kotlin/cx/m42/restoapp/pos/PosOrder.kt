@@ -22,9 +22,15 @@ public data class PosLine(
     /** The price before a promotion took the line, when one did: shown struck through. */
     val oldPrice: Double? = null,
     val comment: String? = null,
-    /** The product has modifier groups; core fills the defaults until the chooser exists. */
+    /** The product has modifier groups: `pos.options` says what they are. */
     val hasOptions: Boolean = false,
+    /** What was chosen of them — what the kitchen will read off this line. */
+    val options: List<PosLineOption> = emptyList(),
 )
+
+/** One chosen modifier, as the line shows it. */
+@Serializable
+public data class PosLineOption(val id: String, val name: String = "", val amount: Int = 0)
 
 /** The draft, or a placed order, as the receipt shows it. */
 @Serializable
@@ -114,6 +120,57 @@ public data class PosProduct(
 
 @Serializable
 public data class PosGroup(val id: String, val name: String = "", val imageUrl: String? = null)
+
+/**
+ * One option of a modifier group: a product of the menu sold with the dish. The numbers are the
+ * rules the server read off the dish — the chooser draws them, the server checks them.
+ */
+@Serializable
+public data class PosOption(
+    val id: String,
+    val name: String = "",
+    /** What one of it costs on top of the dish. */
+    val price: Double = 0.0,
+    /** -1 unlimited, 0 stopped at this point. */
+    val balance: Double = -1.0,
+    /** How many are chosen now: the server's defaults, or what the line already has. */
+    val amount: Int = 0,
+    val minAmount: Int = 0,
+    val maxAmount: Int? = null,
+    /** How many of it are not charged for. */
+    val freeAmount: Int = 0,
+    val defaultAmount: Int = 0,
+)
+
+/** A group of modifiers of one dish, with how many of it may be taken. */
+@Serializable
+public data class PosOptionGroup(
+    val id: String,
+    val name: String = "",
+    val required: Boolean = false,
+    val minAmount: Int = 0,
+    val maxAmount: Int? = null,
+    /** At most one of the group: a choice, not a counter. */
+    val single: Boolean = false,
+    val options: List<PosOption> = emptyList(),
+)
+
+/**
+ * `pos.options`: the dish and what may be chosen with it.
+ *
+ * No total: what the dish with these options costs is the server's arithmetic, and it is read off
+ * the receipt once the line is written.
+ */
+@Serializable
+public data class PosDishOptions(
+    val dishId: String,
+    val name: String = "",
+    val price: Double = 0.0,
+    /** The line being changed, when the chooser was opened from the receipt; null — a new line. */
+    val lineId: Int? = null,
+    val amount: Int = 1,
+    val groups: List<PosOptionGroup> = emptyList(),
+)
 
 /** `pos.catalog`: where we are in the menu, what is one level down, and what can be added. */
 @Serializable

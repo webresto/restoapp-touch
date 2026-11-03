@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -34,6 +35,8 @@ public enum class PosSheet {
     Promocode,
     Details,
     LineComment,
+    /** What goes with a dish: the modifier groups of the menu. */
+    Options,
 }
 
 /** The catalog as it is open: where we are, what is in it, what is being looked for. */
@@ -55,6 +58,23 @@ public data class PosOptions(
     val savedAddresses: List<PosSavedAddress> = emptyList(),
 )
 
+/**
+ * The chooser of a dish's options as it stands: what the server offered, and what is ticked.
+ *
+ * The amounts live here and not in the sheet, so a refusal of the server («выберите соус») leaves
+ * the operator looking at their own choice rather than at the form reset.
+ */
+public data class PosChooser(
+    val options: PosDishOptions,
+    /** optionId → how many of it. */
+    val chosen: Map<String, Int> = emptyMap(),
+    val loading: Boolean = false,
+) {
+    /** Which group an option belongs to — what the server is sent back. */
+    internal fun groupOf(optionId: String): String? =
+        options.groups.firstOrNull { group -> group.options.any { it.id == optionId } }?.id
+}
+
 /** What is on the screen. */
 public data class PosState(
     val drafts: List<PosOrder> = emptyList(),
@@ -63,6 +83,8 @@ public data class PosState(
     val sheet: PosSheet? = null,
     /** The line a comment is being written for. */
     val lineId: Int? = null,
+    /** The open chooser of a dish's options; null — no dish is being composed. */
+    val chooser: PosChooser? = null,
     val options: PosOptions = PosOptions(),
     /** The order that has just been placed: the «accepted» screen. */
     val placed: PosOrder? = null,
@@ -211,7 +233,7 @@ public class PosInstance(
 
     /** Back to the drafts of the point. */
     public fun close() {
-        _state.value = _state.value.copy(order = null, catalog = null, sheet = null, message = null, error = null)
+        _state.value = _state.value.copy(order = null, catalog = null, sheet = null, chooser = null, message = null, error = null)
         reload()
     }
 
@@ -297,6 +319,89 @@ public class PosInstance(
         }
     }
 
+    /**
+     * The chooser of a dish: from the «+» of a product that has options, or from a line of the
+     * receipt. Choosing changes nothing until it is confirmed — `pos.options` is a query.
+     */
+    public fun openOptions(dishId: String? = null, lineId: Int? = null) {
+        val order = _state.value.order ?: return
+        _state.value = _state.value.copy(sheet = PosSheet.Options, chooser = null, message = null)
+        runtime.scope.launch {
+            try {
+                val answer = call("pos.options", params {
+                    put("id", JsonPrimitive(order.id))
+                    dishId?.let { put("dishId", JsonPrimitive(it)) }
+                    lineId?.let { put("lineId", JsonPrimitive(it)) }
+                }, PosDishOptions.serializer())
+                // The server opens the chooser at what it would have put on the line itself.
+                val chosen = answer.groups
+                    .flatMap { it.options }
+                    .filter { it.amount > 0 }
+                    .associate { it.id to it.amount }
+                _state.value = _state.value.copy(chooser = PosChooser(answer, chosen))
+            } catch (failure: MobileApiException) {
+                _state.value = _state.value.copy(sheet = null, error = failure.message)
+            }
+        }
+    }
+
+    /**
+     * One of a group and no more: the choice replaces whatever was ticked in it, and tapping the
+     * ticked one takes it off — even in a group that requires a choice. The rule is the server's:
+     * it refuses the dish and says which group is empty, which is a word the operator can act on.
+     */
+    public fun pickOption(groupId: String, optionId: String) {
+        val chooser = _state.value.chooser ?: return
+        val group = chooser.options.groups.firstOrNull { it.id == groupId } ?: return
+        val chosen = chooser.chosen.toMutableMap()
+        val wasChosen = chooser.chosen[optionId] != null
+        group.options.forEach { chosen.remove(it.id) }
+        if (!wasChosen) chosen[optionId] = 1
+        _state.value = _state.value.copy(chooser = chooser.copy(chosen = chosen), message = null)
+    }
+
+    /** − / + on an option of a group that takes several. */
+    public fun setOption(optionId: String, amount: Int) {
+        val chooser = _state.value.chooser ?: return
+        val option = chooser.options.groups.flatMap { it.options }.firstOrNull { it.id == optionId } ?: return
+        val chosen = chooser.chosen.toMutableMap()
+        val wanted = amount.coerceAtLeast(0).let { asked -> option.maxAmount?.let { asked.coerceAtMost(it) } ?: asked }
+        if (wanted <= 0) chosen.remove(optionId) else chosen[optionId] = wanted
+        _state.value = _state.value.copy(chooser = chooser.copy(chosen = chosen), message = null)
+    }
+
+    /** Into the receipt, or onto the line it was opened from. The server checks the groups. */
+    public fun confirmOptions() {
+        val order = _state.value.order ?: return
+        val chooser = _state.value.chooser ?: return
+        val chosen = chooser.chosen.filterValues { it > 0 }
+        val modifiers = kotlinx.serialization.json.buildJsonArray {
+            chosen.forEach { (optionId, amount) ->
+                add(
+                    buildJsonObject {
+                        put("id", JsonPrimitive(optionId))
+                        put("groupId", JsonPrimitive(chooser.groupOf(optionId).orEmpty()))
+                        put("amount", JsonPrimitive(amount))
+                    },
+                )
+            }
+        }
+        val line = chooser.options.lineId
+        if (line == null) {
+            step("pos.add", params {
+                put("id", JsonPrimitive(order.id))
+                put("dishId", JsonPrimitive(chooser.options.dishId))
+                put("modifiers", modifiers)
+            }, closeSheet = true, keepCatalog = true) { if (_state.value.catalog != null) loadCatalog() }
+        } else {
+            step("pos.setLineOptions", params {
+                put("id", JsonPrimitive(order.id))
+                put("lineId", JsonPrimitive(line))
+                put("modifiers", modifiers)
+            }, closeSheet = true)
+        }
+    }
+
     public fun setLine(lineId: Int, amount: Int) {
         val order = _state.value.order ?: return
         step(
@@ -319,7 +424,7 @@ public class PosInstance(
 
     /** Opens a sheet and reads what it chooses from. */
     public fun openSheet(sheet: PosSheet, lineId: Int? = null) {
-        _state.value = _state.value.copy(sheet = sheet, lineId = lineId, message = null)
+        _state.value = _state.value.copy(sheet = sheet, lineId = lineId, chooser = null, message = null)
         val order = _state.value.order ?: return
         runtime.scope.launch {
             try {
@@ -343,7 +448,7 @@ public class PosInstance(
     }
 
     public fun closeSheet() {
-        _state.value = _state.value.copy(sheet = null, lineId = null)
+        _state.value = _state.value.copy(sheet = null, lineId = null, chooser = null)
     }
 
     public fun searchClients(query: String) {
@@ -530,6 +635,7 @@ public class PosInstance(
                     loaded = true,
                     sheet = if (closeSheet && answer.ok) null else _state.value.sheet,
                     lineId = if (closeSheet && answer.ok) null else _state.value.lineId,
+                    chooser = if (closeSheet && answer.ok) null else _state.value.chooser,
                     catalog = if (keepCatalog) _state.value.catalog else _state.value.catalog,
                 )
                 onDone(answer)
