@@ -1,0 +1,12 @@
+{
+  "name": "quick-spike-js",
+  "private": true,
+  "description": "Preact app + host glue for the QuickJS -> Compose prototype (see ../README.md)",
+  "scripts": {
+    "build": "esbuild src/app.tsx --bundle --format=iife --target=es2020 --jsx=automatic --jsx-import-source=preact --minify --sourcemap --outfile=dist/bundle.js"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.2",
+    "preact": "^10.29.8"
+  }
+}
