@@ -407,6 +407,33 @@ internal class ServerAppInstance(
         }
     }
 
+    /**
+     * An action of the list screen itself (`ui.on: "list"`) — «+ Новый клиент»: no record under it,
+     * the form's values are the params. The answer may be a record, and then the list is re-read so
+     * it appears where the server puts it.
+     */
+    fun actOnList(method: DeclaredMethod, params: JsonObject, onDone: () -> Unit = {}) {
+        val key = "list:${method.name}"
+        if (key in _busy.value) return
+        _busy.value = _busy.value + key
+        runtime.scope.launch {
+            try {
+                val created = recordOf(server.call(method.name, params))
+                _error.value = null
+                onDone()
+                quietReload()
+                // Straight to the card of what was just made: that is what the person is after.
+                created?.id()?.let { id -> open(id, created) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: MobileApiException) {
+                fail(failure)
+            } finally {
+                _busy.value = _busy.value - key
+            }
+        }
+    }
+
     private fun replace(record: JsonObject) {
         val id = record.id() ?: return
         _list.value = _list.value.copy(items = _list.value.items.map { if (it.id() == id) record else it })
