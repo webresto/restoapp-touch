@@ -129,6 +129,9 @@ async function placeDelivery(dish: string, amount: number, kitchen: string | nul
     address: { formatted: "ул. Садовая, 1", home: "1" },
     total: 100 * amount,
   }).fetch();
+  // Not through `Order.order`, so the stops a board selects by are written by hand (core C2).
+  const { syncOrderStops } = require(path.join(dev, "node_modules/@webresto/core/lib/order/order-stops"));
+  await syncOrderStops({ id: order.id });
   return order.id;
 }
 
@@ -273,7 +276,7 @@ async function main() {
         if (req.url?.startsWith("/__fake/web-stock")) {
           // What the web Stock Manager of the admin panel reads for that point — core's own function.
           const query = new URL(req.url, "http://stand").searchParams;
-          const { getStockProducts } = require(path.join(dev, "node_modules/@webresto/core/lib/adminpanel/src/controller/stock-place-items"));
+          const { getStockProducts } = require(path.join(dev, "node_modules/@webresto/core/lib/menu/stock-items"));
           const { results, mode } = await getStockProducts(query.get("place"), { id: query.get("id") }, 1);
           return answer({ mode, item: results[0] ?? null });
         }
