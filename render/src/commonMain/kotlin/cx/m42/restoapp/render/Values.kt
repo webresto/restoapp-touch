@@ -110,8 +110,13 @@ public fun money(value: Double, currency: String?): String {
 /** Tone of a value of [field], from its specials; null when the value has none. */
 internal fun toneOf(value: JsonElement?, field: Field?): String? = field?.let { specialOf(value, it.specials)?.tone }
 
-/** Time in the server's zone, in the person's language. Platform code: the JVM's java.time. */
-internal expect fun dateTime(epochMillis: Long, timezone: String?, lang: String): String
+/**
+ * Time in the server's zone, in the person's language. Platform code: the JVM's java.time.
+ *
+ * Public because the native POS formats the slots of a kitchen with it: two formatters would
+ * print the same moment two ways on the same screen.
+ */
+public expect fun dateTime(epochMillis: Long, timezone: String?, lang: String): String
 
 /** "5 мин назад", "вчера 18:40" — and the date beyond that. */
 internal expect fun relativeTime(epochMillis: Long, now: Long, timezone: String?, lang: String): String

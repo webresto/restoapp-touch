@@ -13,6 +13,7 @@ import cx.m42.restoapp.protocol.Place
 import cx.m42.restoapp.protocol.ProtocolJson
 import cx.m42.restoapp.protocol.ServerAbout
 import cx.m42.restoapp.protocol.ServerFacts
+import cx.m42.restoapp.protocol.Tones
 import cx.m42.restoapp.protocol.SignedInUser
 import kotlin.random.Random
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -101,6 +102,8 @@ public class DemoBackend(
             val result = when (app.id) {
                 DISHES -> dishes(method, params, point!!, current)
                 ORDERS -> orders(method, params, point!!, current, words)
+                CLIENTS -> clients(method, params, current, words)
+                POS -> pos(method, params, point!!, current, words)
                 else -> fail(MobileApiException.FORBIDDEN, "Method is not available")
             }
             Answer(result, declaration.revision, PROTOCOL_VERSION)
@@ -119,6 +122,9 @@ public class DemoBackend(
     // ---- the declaration ----
 
     private fun placesOf(role: DemoRole, app: String): List<String> = when {
+        // The stock manager takes no orders, and the operator leads them rather than taking them:
+        // the POS belongs to whoever holds `order-entry`, which here is the administrator.
+        app == POS && role != DemoRole.Admin -> emptyList()
         role == DemoRole.Operator && app == ORDERS -> places.take(1).map { it.id }
         role == DemoRole.Operator -> emptyList()
         role == DemoRole.Stock && app == ORDERS -> emptyList()
@@ -130,11 +136,15 @@ public class DemoBackend(
         val apps = listOfNotNull(
             placesOf(role, DISHES).takeIf { it.isNotEmpty() }?.let { dishesApp(words, it) },
             placesOf(role, ORDERS).takeIf { it.isNotEmpty() }?.let { ordersApp(words, it) },
+            // The customers are the model rights of the panel: the stock manager has none of them,
+            // the operator reads them, the administrator may add one as well.
+            if (role == DemoRole.Stock) null else clientsApp(words, mayCreate = role == DemoRole.Admin),
+            placesOf(role, POS).takeIf { it.isNotEmpty() }?.let { posApp(words, it) },
         )
         val used = apps.flatMap { it.places }.toSet()
         return Declaration(
             protocolVersion = PROTOCOL_VERSION,
-            revision = "demo-${role.name.lowercase()}-${places.joinToString(",") { it.id }}-1",
+            revision = "demo-${role.name.lowercase()}-${places.joinToString(",") { it.id }}-2",
             server = ServerFacts(serverName, VERSION, currency = "RUB", timezone = "Europe/Moscow", locale = "ru"),
             user = DeclaredUser(JsonPrimitive(role.ordinal + 1), loginOf(role), fullName = fullNameOf(role, words), isAdministrator = role == DemoRole.Admin),
             places = places.filter { it.id in used }.sortedBy { it.title },
@@ -282,6 +292,516 @@ public class DemoBackend(
         }
     }
 
+    // ---- «Клиенты» ----
+
+    private suspend fun clients(method: String, params: JsonObject, current: DemoState, words: DemoWords): JsonElement {
+        fun item(client: DemoClient, card: Boolean): JsonObject = buildJsonObject {
+            put("id", client.id)
+            put("title", client.title)
+            put("firstName", client.firstName)
+            put("phone", client.phone)
+            put("email", client.email?.let(::JsonPrimitive) ?: JsonNull)
+            put("verified", client.verified)
+            put("orderCount", client.orderCount)
+            put("createdAt", client.createdAt)
+            if (card) {
+                put("addresses", client.addresses.joinToString("\n"))
+                put(
+                    "orders",
+                    (1..client.orderCount).take(3)
+                        .joinToString("\n") { index -> "№${1000 + index} · ${rub(500 * index + 300)} · ${words.state(OrderState.DONE)}" },
+                )
+            }
+            putJsonArray("_actions") {}
+        }
+
+        return when (method) {
+            "clients.list" -> {
+                val q = params.stringOrNull("q", 100)?.trim()?.lowercase()?.ifEmpty { null }
+                val offset = params.stringOrNull("cursor", 200)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                val digits = q?.filter { it.isDigit() }
+                val chosen = current.clients
+                    .filter { client ->
+                        q == null ||
+                            client.title.lowercase().contains(q) ||
+                            (digits != null && digits.length >= 3 && client.phone.filter { it.isDigit() }.contains(digits))
+                    }
+                    .sortedByDescending { it.createdAt }
+                page(chosen.map { item(it, card = false) }, offset, emptyMap())
+            }
+            "clients.get" -> {
+                val client = current.clients.firstOrNull { it.id == params.string("id") }
+                    ?: fail(MobileApiException.NOT_FOUND, "No such customer")
+                buildJsonObject { put("item", item(client, card = true)) }
+            }
+            "clients.create" -> {
+                val name = params.string("name").trim()
+                val phone = params.string("phone")
+                val digits = phone.filter { it.isDigit() }
+                if (digits.length < 5) fail(MobileApiException.INVALID, "This is not a phone number")
+                // `materializeUser` of core is idempotent by number, and so is this.
+                val existing = current.clients.firstOrNull { it.phone.filter { digit -> digit.isDigit() } == digits }
+                if (existing != null) return buildJsonObject { put("item", item(existing, card = true)) }
+                val created = DemoClient(id = "u${current.clients.size + 1}", firstName = name, phone = phone, createdAt = clock())
+                save(current.copy(clients = current.clients + created))
+                buildJsonObject { put("item", item(created, card = true)) }
+            }
+            else -> fail(MobileApiException.FORBIDDEN, "Method is not available")
+        }
+    }
+
+    // ---- POS ----
+
+    private suspend fun pos(method: String, params: JsonObject, place: String, current: DemoState, words: DemoWords): JsonElement {
+        fun order(draft: DemoDraft): JsonObject = buildJsonObject {
+            put("id", draft.id)
+            put("number", draft.number)
+            put("state", draft.state)
+            put("serviceType", draft.serviceType)
+            put("placeId", draft.place)
+            // A delivery of the demo is cooked where it was taken; the one case where the two
+            // differ is the stubbed screenshot of the plan, not the demo.
+            put("cookingPlaceId", draft.place)
+            put("cookingPlaceTitle", places.firstOrNull { it.id == draft.place }?.title?.let(::JsonPrimitive) ?: JsonNull)
+            put("table", draft.table?.let(::JsonPrimitive) ?: JsonNull)
+            put("customerName", draft.customerName?.let(::JsonPrimitive) ?: JsonNull)
+            put("customerPhone", draft.customerPhone?.let(::JsonPrimitive) ?: JsonNull)
+            put("clientId", draft.clientId?.let(::JsonPrimitive) ?: JsonNull)
+            put("address", draft.address?.let(::JsonPrimitive) ?: JsonNull)
+            put("comment", draft.comment?.let(::JsonPrimitive) ?: JsonNull)
+            put("personsCount", draft.personsCount?.let(::JsonPrimitive) ?: JsonNull)
+            put("date", draft.date?.let(::JsonPrimitive) ?: JsonNull)
+            put("maxWaitMinutes", draft.maxWaitMinutes?.let(::JsonPrimitive) ?: JsonNull)
+            put("paymentMethodId", draft.paymentMethodId?.let(::JsonPrimitive) ?: JsonNull)
+            put("paymentMethodTitle", draft.paymentMethodTitle?.let(::JsonPrimitive) ?: JsonNull)
+            put("promotionCode", draft.promotionCode?.let(::JsonPrimitive) ?: JsonNull)
+            putJsonArray("lines") {
+                draft.lines.forEach { line ->
+                    add(buildJsonObject {
+                        put("lineId", line.lineId)
+                        put("dishId", line.dishId)
+                        put("name", line.name)
+                        put("amount", line.amount)
+                        put("price", line.price)
+                        put("total", line.total)
+                        put("oldPrice", line.oldPrice?.let(::JsonPrimitive) ?: JsonNull)
+                        put("comment", line.comment?.let(::JsonPrimitive) ?: JsonNull)
+                        put("hasOptions", line.hasOptions)
+                    })
+                }
+            }
+            put("dishesCount", draft.dishesCount)
+            put("basketTotal", draft.basketTotal)
+            put("discountTotal", draft.discountTotal)
+            put("deliveryCost", draft.deliveryCost)
+            put("bonusesTotal", 0)
+            put("total", draft.total)
+            put("canCheck", draft.canCheck)
+            put("canPlace", draft.canPlace)
+            put("createdAt", draft.createdAt)
+            put("updatedAt", draft.createdAt)
+        }
+        val mine = current.drafts.filter { it.place == place }
+
+        /** A step of the order: write the draft, answer with the whole of it and a word about it. */
+        suspend fun step(id: String, change: (DemoDraft) -> Pair<DemoDraft, Pair<String, String>?>): JsonObject {
+            val draft = mine.firstOrNull { it.id == id } ?: fail(MobileApiException.NOT_FOUND, "No such draft")
+            val (updated, message) = change(draft)
+            save(current.copy(drafts = current.drafts.map { if (it.id == updated.id) updated else it }))
+            return buildJsonObject {
+                put("order", order(updated))
+                put(
+                    "message",
+                    message?.let { (text, tone) -> buildJsonObject { put("text", text); put("tone", tone) } } ?: JsonNull,
+                )
+                put("ok", message == null || message.second != Tones.DANGER)
+            }
+        }
+
+        return when (method) {
+            "pos.order" -> {
+                val id = params.stringOrNull("id", 100)
+                if (id == null) {
+                    buildJsonObject {
+                        put("order", JsonNull)
+                        putJsonArray("drafts") { mine.sortedByDescending { it.createdAt }.forEach { add(order(it)) } }
+                    }
+                } else {
+                    val draft = mine.firstOrNull { it.id == id } ?: fail(MobileApiException.NOT_FOUND, "No such draft")
+                    buildJsonObject { put("order", order(draft)) }
+                }
+            }
+            "pos.start" -> {
+                val clientId = params.stringOrNull("clientId", 100)
+                val client = clientId?.let { id -> current.clients.firstOrNull { it.id == id } }
+                val point = places.firstOrNull { it.id == place }
+                val draft = DemoDraft(
+                    id = "draft${current.nextDraft}",
+                    // As `shortId` of core reads: eight characters staff can say out loud.
+                    number = "D${(1000 + current.nextDraft)}",
+                    place = place,
+                    // The demo's first point has a room to eat in, the others hand food over.
+                    // The strings of core's `serviceType`; the demo is a server, so it writes them
+                    // as a server does rather than importing the client's constants.
+                    serviceType = if (point?.id == places.firstOrNull()?.id) "dine-in" else "pickup",
+                    clientId = client?.id,
+                    customerName = client?.firstName,
+                    customerPhone = client?.phone,
+                    createdAt = clock(),
+                )
+                save(current.copy(drafts = current.drafts + draft, nextDraft = current.nextDraft + 1))
+                buildJsonObject { put("order", order(draft)) }
+            }
+            "pos.cancel" -> {
+                val id = params.string("id")
+                val draft = mine.firstOrNull { it.id == id } ?: fail(MobileApiException.NOT_FOUND, "No such draft")
+                save(current.copy(drafts = current.drafts - draft))
+                buildJsonObject { put("ok", true) }
+            }
+
+            "pos.catalog" -> {
+                val id = params.string("id")
+                mine.firstOrNull { it.id == id } ?: fail(MobileApiException.NOT_FOUND, "No such draft")
+                val draft = mine.first { it.id == id }
+                val group = params.stringOrNull("group", 100)
+                val q = params.stringOrNull("q", 100)?.trim()?.lowercase()?.ifEmpty { null }
+                val offset = params.stringOrNull("cursor", 200)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                val rows = current.stock[place].orEmpty()
+                val chosen = DemoCatalog.dishes
+                    .filter { dish -> if (q != null) q in dish.name.lowercase() || q in dish.code.lowercase() else dish.group == group }
+                    // What is stopped at the point is not sold at the point: core hides it, so does this.
+                    .filter { dish -> rows[dish.id].effective() != 0 }
+                val items = chosen.map { dish ->
+                    buildJsonObject {
+                        put("id", dish.id)
+                        put("name", dish.name)
+                        put("code", dish.code)
+                        put("groupId", dish.group)
+                        put("price", dish.price)
+                        put("salePrice", JsonNull)
+                        put("balance", rows[dish.id].effective())
+                        put("weight", JsonNull)
+                        put("imageUrl", JsonNull)
+                        put("hasOptions", false)
+                        put("inOrder", draft.lines.filter { it.dishId == dish.id }.sumOf { it.amount })
+                    }
+                }
+                fun groupOf(name: String) = buildJsonObject {
+                    put("id", name)
+                    put("name", name)
+                    put("imageUrl", JsonNull)
+                }
+                buildJsonObject {
+                    putJsonArray("path") { if (group != null && q == null) add(groupOf(group)) }
+                    putJsonArray("groups") { if (group == null && q == null) DemoCatalog.groupOrder.forEach { add(groupOf(it)) } }
+                    putJsonArray("items") { items.drop(offset).take(PAGE).forEach { add(it) } }
+                    put("nextCursor", if (offset + PAGE < items.size) JsonPrimitive((offset + PAGE).toString()) else JsonNull)
+                    put("total", items.size)
+                }
+            }
+
+            "pos.add" -> {
+                val amount = params.intOrNull("amount") ?: 1
+                val dishId = params.string("dishId")
+                step(params.string("id")) { draft ->
+                    val dish = DemoCatalog.dishes.firstOrNull { it.id == dishId }
+                        ?: return@step draft to (words.t("Такого блюда нет", "No such product") to Tones.DANGER)
+                    val line = draft.lines.firstOrNull { it.dishId == dishId }
+                    val lines = if (line != null) {
+                        draft.lines.map { if (it.lineId == line.lineId) it.copy(amount = it.amount + amount) else it }
+                    } else {
+                        draft.lines + DemoDraftLine(draft.nextLineId, dish.id, dish.name, amount, dish.price)
+                    }
+                    draft.copy(lines = lines, nextLineId = draft.nextLineId + if (line == null) 1 else 0, state = "CART") to null
+                }
+            }
+
+            "pos.setLine" -> {
+                val lineId = params.int("lineId", 1..Int.MAX_VALUE)
+                val amount = params.int("amount", 0..999)
+                step(params.string("id")) { draft ->
+                    if (draft.lines.none { it.lineId == lineId }) {
+                        draft to (words.t("Этой позиции уже нет в заказе", "That line is no longer in the order") to Tones.DANGER)
+                    } else {
+                        val lines = if (amount == 0) draft.lines.filterNot { it.lineId == lineId }
+                        else draft.lines.map { if (it.lineId == lineId) it.copy(amount = amount) else it }
+                        draft.copy(lines = lines, state = "CART") to null
+                    }
+                }
+            }
+
+            "pos.setLineComment" -> {
+                val lineId = params.int("lineId", 1..Int.MAX_VALUE)
+                val comment = params.stringOrNull("comment", 500) ?: ""
+                step(params.string("id")) { draft ->
+                    draft.copy(lines = draft.lines.map { if (it.lineId == lineId) it.copy(comment = comment.ifBlank { null }) else it }) to null
+                }
+            }
+
+            "pos.serviceOptions" -> {
+                val point = places.firstOrNull { it.id == place }
+                // The demo's first point is the one with a room to eat in; the others hand food over.
+                val hall = point?.id == places.firstOrNull()?.id
+                buildJsonObject {
+                    putJsonArray("options") {
+                        add(buildJsonObject { put("id", "delivery"); put("available", true); put("reason", JsonNull) })
+                        add(buildJsonObject { put("id", "pickup"); put("available", true); put("reason", JsonNull) })
+                        add(buildJsonObject {
+                            put("id", "dine-in")
+                            put("available", hall)
+                            put("reason", if (hall) JsonNull else JsonPrimitive(words.t("На этой точке нет зала", "This point has no dining room")))
+                        })
+                    }
+                }
+            }
+
+            "pos.setService" -> {
+                val serviceType = params.enumOf("serviceType", listOf("delivery", "pickup", "dine-in"), "pickup")
+                val table = params.stringOrNull("table", 100)
+                val hall = place == places.firstOrNull()?.id
+                step(params.string("id")) { draft ->
+                    if (serviceType == "dine-in" && !hall) {
+                        draft to (words.t("Этот способ получения на точке недоступен", "This point does not take such orders") to Tones.DANGER)
+                    } else {
+                        draft.copy(
+                            serviceType = serviceType,
+                            table = if (serviceType == "dine-in") table else null,
+                            // The address belongs to a delivery and to nothing else.
+                            address = if (serviceType == "delivery") draft.address else null,
+                            state = "CART",
+                        ) to null
+                    }
+                }
+            }
+
+            "pos.setTable" -> {
+                val table = params.string("table")
+                step(params.string("id")) { draft ->
+                    if (draft.serviceType != "dine-in") {
+                        draft to (words.t("Столик указывают только для заказа в зале", "A table belongs to a dine-in order only") to Tones.DANGER)
+                    } else {
+                        draft.copy(table = table) to null
+                    }
+                }
+            }
+
+            "pos.cities" -> buildJsonObject {
+                putJsonArray("items") { add(buildJsonObject { put("id", "c1"); put("name", words.t("Город", "The city")) }) }
+            }
+
+            "pos.addressSearch" -> {
+                val q = params.string("q")
+                buildJsonObject {
+                    putJsonArray("items") {
+                        DemoAddresses.streets.filter { it.lowercase().contains(q.lowercase()) }.forEach { street ->
+                            add(buildJsonObject { put("id", street); put("name", street); put("type", "street") })
+                        }
+                    }
+                }
+            }
+
+            "pos.setAddress" -> {
+                val city = params.string("city")
+                val street = params.string("street")
+                val home = params.string("home")
+                val apartment = params.stringOrNull("apartment", 50)
+                step(params.string("id")) { draft ->
+                    if (draft.serviceType != "delivery") {
+                        draft to (words.t("Адрес нужен только доставке", "An address belongs to a delivery") to Tones.DANGER)
+                    } else {
+                        val line = listOfNotNull(street, home, apartment?.let { words.t("кв. $it", "apt. $it") }).joinToString(", ")
+                        draft.copy(address = line, state = "CART") to null
+                    }
+                }
+            }
+
+            "pos.clientAddresses" -> {
+                val clientId = params.string("clientId")
+                val client = current.clients.firstOrNull { it.id == clientId }
+                buildJsonObject {
+                    putJsonArray("items") {
+                        client?.addresses?.forEachIndexed { index, address ->
+                            add(buildJsonObject { put("id", "${clientId}-$index"); put("formatted", address) })
+                        }
+                    }
+                }
+            }
+
+            "pos.clients" -> clients("clients.list", params, current, words)
+
+            "pos.setCustomer" -> {
+                val name = params.string("name").trim()
+                val phone = params.string("phone")
+                val createClient = params.booleanOrNull("createClient") ?: false
+                val digits = phone.filter { it.isDigit() }
+                val existing = current.clients.firstOrNull { it.phone.filter { digit -> digit.isDigit() } == digits }
+                val created = if (createClient && existing == null) {
+                    DemoClient(id = "u${current.clients.size + 1}", firstName = name, phone = phone, createdAt = clock())
+                } else {
+                    null
+                }
+                if (created != null) save(current.copy(clients = current.clients + created))
+                step(params.string("id")) { draft ->
+                    draft.copy(
+                        customerName = name,
+                        customerPhone = phone,
+                        clientId = if (createClient) (existing?.id ?: created?.id) else draft.clientId,
+                    ) to null
+                }
+            }
+
+            "pos.setClient" -> {
+                val clientId = params.string("clientId")
+                val client = current.clients.firstOrNull { it.id == clientId }
+                step(params.string("id")) { draft ->
+                    if (client == null) {
+                        draft to (words.t("Такого клиента нет", "No such customer") to Tones.DANGER)
+                    } else {
+                        draft.copy(clientId = client.id, customerName = client.firstName, customerPhone = client.phone) to null
+                    }
+                }
+            }
+
+            "pos.timeOptions" -> {
+                val now = clock()
+                buildJsonObject {
+                    put("asap", true)
+                    putJsonArray("slots") {
+                        // Four half-hour slots from the next hour, as a kitchen's day looks.
+                        (1..4).forEach { index ->
+                            val from = now + index * 30 * 60_000L
+                            add(JsonArray(listOf(JsonPrimitive(from), JsonPrimitive(from + 30 * 60_000L))))
+                        }
+                    }
+                    put("minCookingMinutes", 20)
+                }
+            }
+
+            "pos.setTime" -> {
+                val mode = params.enumOf("mode", listOf("asap", "time", "maxWait"), "asap")
+                val date = params.longOrNull("date")
+                val wait = params.intOrNull("maxWaitMinutes")
+                step(params.string("id")) { draft ->
+                    when {
+                        mode == "time" && date == null -> draft to (words.t("Выберите время", "Choose a time") to Tones.DANGER)
+                        mode == "maxWait" && wait == null -> draft to (words.t("Укажите, сколько готовы ждать", "Say how long the guest will wait") to Tones.DANGER)
+                        else -> draft.copy(
+                            date = if (mode == "time") date else null,
+                            maxWaitMinutes = if (mode == "maxWait") wait else null,
+                            state = "CART",
+                        ) to null
+                    }
+                }
+            }
+
+            "pos.payments" -> buildJsonObject {
+                putJsonArray("items") {
+                    add(buildJsonObject {
+                        put("id", "cash"); put("title", words.t("Наличные", "Cash")); put("isPromise", true); put("available", true)
+                    })
+                    add(buildJsonObject {
+                        put("id", "card-on-delivery"); put("title", words.t("Картой курьеру", "Card on delivery")); put("isPromise", true); put("available", true)
+                    })
+                    add(buildJsonObject {
+                        put("id", "online"); put("title", words.t("Онлайн", "Online")); put("isPromise", false); put("available", false)
+                    })
+                }
+            }
+
+            "pos.setPayment" -> {
+                val methodId = params.string("paymentMethodId")
+                step(params.string("id")) { draft ->
+                    when (methodId) {
+                        "cash" -> draft.copy(paymentMethodId = methodId, paymentMethodTitle = words.t("Наличные", "Cash"), state = "CART") to null
+                        "card-on-delivery" -> draft.copy(paymentMethodId = methodId, paymentMethodTitle = words.t("Картой курьеру", "Card on delivery"), state = "CART") to null
+                        "online" -> draft to (words.t("Онлайн-оплату на терминале пока не принимаем", "Online payment is not taken on a terminal yet") to Tones.DANGER)
+                        else -> draft to (words.t("Такого способа оплаты нет", "No such payment method") to Tones.DANGER)
+                    }
+                }
+            }
+
+            "pos.setDetails" -> {
+                val comment = params.stringOrNull("comment", 1000)
+                val persons = params.intOrNull("personsCount")
+                step(params.string("id")) { draft ->
+                    draft.copy(comment = comment ?: draft.comment, personsCount = persons ?: draft.personsCount) to null
+                }
+            }
+
+            "pos.promocode" -> {
+                val code = params.stringOrNull("code", 100)?.trim()?.ifEmpty { null }
+                step(params.string("id")) { draft ->
+                    when {
+                        code == null -> draft.copy(promotionCode = null) to (words.t("Промокод снят", "Promo code removed") to Tones.INFO)
+                        code.equals(DemoDraft.PROMOCODE, ignoreCase = true) ->
+                            draft.copy(promotionCode = DemoDraft.PROMOCODE) to (words.t("Промокод применён: −10%", "Promo code applied: −10%") to Tones.SUCCESS)
+                        else -> draft.copy(promotionCode = null) to (words.t("Промокод не действует", "This promo code does not apply") to Tones.DANGER)
+                    }
+                }
+            }
+
+            "pos.check" -> step(params.string("id")) { draft ->
+                when {
+                    draft.dishesCount == 0 -> draft to (words.t("В заказе пусто", "The cart is empty") to Tones.DANGER)
+                    draft.customerPhone.isNullOrBlank() -> draft to (words.t("Укажите телефон гостя", "Enter the customer's phone") to Tones.DANGER)
+                    draft.serviceType == "delivery" && draft.address.isNullOrBlank() ->
+                        draft to (words.t("Не указан адрес", "No address given") to Tones.DANGER)
+                    else -> draft.copy(state = "CHECKOUT") to (words.t("Заказ проверен — можно оформлять", "The order is checked — it can be placed") to Tones.SUCCESS)
+                }
+            }
+
+            "pos.place" -> {
+                val id = params.string("id")
+                val draft = mine.firstOrNull { it.id == id } ?: fail(MobileApiException.NOT_FOUND, "No such draft")
+                if (draft.state != "CHECKOUT") {
+                    buildJsonObject {
+                        put("order", order(draft))
+                        put("message", buildJsonObject {
+                            put("text", words.t("Сначала проверьте заказ", "Check the order first"))
+                            put("tone", Tones.DANGER)
+                        })
+                        put("ok", false)
+                    }
+                } else {
+                    // Placed: it leaves the drafts and turns up among the orders of this point, as
+                    // it does on a real server.
+                    val placed = draft.copy(state = "ORDER")
+                    val number = (current.orders[place].orEmpty().maxOfOrNull { it.number } ?: 1000) + 1
+                    val asOrder = DemoOrder(
+                        id = draft.id,
+                        number = number,
+                        state = OrderState.ORDER,
+                        lines = draft.lines.map { OrderLine(it.name, it.amount, it.price) },
+                        deliveryCost = draft.deliveryCost,
+                        customerName = draft.customerName ?: "",
+                        customerPhone = draft.customerPhone ?: "",
+                        selfService = draft.serviceType != "delivery",
+                        address = draft.address,
+                        comment = listOfNotNull(draft.comment, draft.table?.let { words.t("Столик $it", "Table $it") }).joinToString(" · ").ifBlank { null },
+                        paid = false,
+                        createdAt = clock(),
+                    )
+                    save(
+                        current.copy(
+                            drafts = current.drafts.filterNot { it.id == draft.id },
+                            orders = current.orders + (place to (listOf(asOrder) + current.orders[place].orEmpty())),
+                        ),
+                    )
+                    buildJsonObject {
+                        put("order", order(placed))
+                        put("message", buildJsonObject {
+                            put("text", words.t("Заказ ${placed.number} принят", "Order ${placed.number} accepted"))
+                            put("tone", Tones.SUCCESS)
+                        })
+                        put("ok", true)
+                    }
+                }
+            }
+
+            else -> fail(MobileApiException.FORBIDDEN, "Method is not available")
+        }
+    }
+
     // ---- storage ----
 
     private suspend fun loaded(): DemoState = lock.withLock { loadLocked() }
@@ -290,7 +810,7 @@ public class DemoBackend(
         state?.let { return it }
         val stored = store.read()
             ?.let { text -> runCatching { ProtocolJson.decodeFromString(DemoState.serializer(), text) }.getOrNull() }
-            ?.takeIf { it.version == 1 && places.all { place -> place.id in it.stock && place.id in it.orders } }
+            ?.takeIf { it.version == 1 && it.clients.isNotEmpty() && places.all { place -> place.id in it.stock && place.id in it.orders } }
         val result = stored ?: generate(initialRole, clock()).also { store.write(ProtocolJson.encodeToString(DemoState.serializer(), it)) }
         state = result
         _role.value = result.role
@@ -311,6 +831,7 @@ public class DemoBackend(
             orders = places.mapIndexed { index, place ->
                 place.id to DemoEvening.orders(Random(seed + 100 + index), now, firstNumber = 1000 + 2000 * index + Random(seed + index).nextInt(900))
             }.toMap(),
+            clients = DemoClients.all(now),
         )
     }
 
@@ -380,6 +901,18 @@ private fun JsonObject.int(name: String, range: IntRange): Int {
 private fun JsonObject.longOrNull(name: String): Long? {
     val value = this[name] ?: return null
     return (value as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull
+        ?: fail(MobileApiException.INVALID, "Parameters do not match the method schema: $name")
+}
+
+private fun JsonObject.intOrNull(name: String): Int? {
+    val value = this[name] ?: return null
+    return (value as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull
+        ?: fail(MobileApiException.INVALID, "Parameters do not match the method schema: $name")
+}
+
+private fun JsonObject.booleanOrNull(name: String): Boolean? {
+    val value = this[name] ?: return null
+    return (value as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull
         ?: fail(MobileApiException.INVALID, "Parameters do not match the method schema: $name")
 }
 

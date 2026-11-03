@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import java.io.File
 import java.nio.file.Files
@@ -105,6 +106,54 @@ class ScreenshotsTest {
         onNodeWithContentDescription("Открыть меню").performClick()
         waitForIdle()
         shot("11-operator-menu")
+    }
+
+    /** The POS and «Клиенты» of slice A (order-entry.plan.md), same window, same demo server. */
+    @Test
+    fun thePosAndTheCustomers() = runDesktopComposeUiTest(width = 420, height = 820) {
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(Files.createTempDirectory("restoapp-pos-shots").toFile()),
+            debug = true,
+            clock = { 1_700_000_000_000 },
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+        setContent { RestoApp(host) }
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("home:tile-pos").assertExists() }.isSuccess }
+        shot("12-home-with-pos")
+
+        tap("home:tile-pos")
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("pos:new").assertExists() }.isSuccess }
+        shot("13-pos-no-drafts")
+
+        tap("pos:new")
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("pos:receipt").assertExists() }.isSuccess }
+        shot("14-pos-receipt")
+
+        tap("pos:back")
+        waitUntil(timeoutMillis = 5_000L) { onAllNodes(tagStartsWith("pos:draft-")).fetchSemanticsNodes().isNotEmpty() }
+        shot("15-pos-drafts")
+
+        tap("pos:place")
+        mainClock.advanceTimeBy(600)
+        shot("16-pos-points")
+        tap("pos:places:item-p1")
+
+        onNodeWithContentDescription("Открыть меню").performClick()
+        waitForIdle()
+        onAllNodesWithText("Клиенты").onFirst().performClick()
+        waitUntil(timeoutMillis = 5_000L) { onAllNodes(tagStartsWith("clients:row-")).fetchSemanticsNodes().isNotEmpty() }
+        shot("17-clients")
+
+        tap("clients:add")
+        waitForIdle()
+        onNodeWithTag("clients:form:name").performTextInput("Сергей Крылов")
+        onNodeWithTag("clients:form:phone").performTextInput("+7 999 123-45-67")
+        waitForIdle()
+        shot("18-clients-form")
+
+        tap("clients:form:submit")
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("clients:detail").assertExists() }.isSuccess }
+        shot("19-client-card")
     }
 
     private fun tagStartsWith(prefix: String) = SemanticsMatcher("tag starts with $prefix") {

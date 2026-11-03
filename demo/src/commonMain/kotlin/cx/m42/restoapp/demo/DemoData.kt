@@ -81,6 +81,89 @@ internal data class DemoOrder(
     val total: Int get() = lines.sumOf { it.amount * it.price } + deliveryCost
 }
 
+/** A customer of the demo — core's `user`, cut to what «Клиенты» shows. */
+@Serializable
+internal data class DemoClient(
+    val id: String,
+    val firstName: String,
+    val phone: String,
+    val email: String? = null,
+    val verified: Boolean = false,
+    val orderCount: Int = 0,
+    val createdAt: Long = 0,
+    val addresses: List<String> = emptyList(),
+) {
+    val title: String get() = firstName.ifBlank { phone }
+}
+
+/** One line of a POS draft: the product, how many, and what the demo counts for it. */
+@Serializable
+internal data class DemoDraftLine(
+    val lineId: Int,
+    val dishId: String,
+    val name: String,
+    val amount: Int,
+    val price: Int,
+    val oldPrice: Int? = null,
+    val comment: String? = null,
+    val hasOptions: Boolean = false,
+) {
+    val total: Int get() = amount * price
+}
+
+/**
+ * A draft of the POS: a cart of the demo, at one point, by one person.
+ *
+ * It holds what the hook's draft holds, because the client must not be able to tell the two apart:
+ * the demo counts the same totals, refuses the same steps and places the order into the demo's own
+ * «Заказы» at the end.
+ */
+@Serializable
+internal data class DemoDraft(
+    val id: String,
+    val number: String,
+    val place: String,
+    val serviceType: String,
+    val clientId: String? = null,
+    val customerName: String? = null,
+    val customerPhone: String? = null,
+    val createdAt: Long = 0,
+    val state: String = "CART",
+    val table: String? = null,
+    val lines: List<DemoDraftLine> = emptyList(),
+    val address: String? = null,
+    val comment: String? = null,
+    val personsCount: Int? = null,
+    val date: Long? = null,
+    val maxWaitMinutes: Int? = null,
+    val paymentMethodId: String? = null,
+    val paymentMethodTitle: String? = null,
+    val promotionCode: String? = null,
+    val nextLineId: Int = 1,
+) {
+    val basketTotal: Int get() = lines.sumOf { it.total }
+
+    /** The demo's promotion: the one code there is takes a tenth off. */
+    val discountTotal: Int get() = if (promotionCode == PROMOCODE) basketTotal / 10 else 0
+
+    /** A delivery of the demo costs a flat 200 until the basket is big enough. */
+    val deliveryCost: Int get() = if (serviceType == "delivery" && basketTotal in 1..1499) 200 else 0
+
+    val total: Int get() = basketTotal - discountTotal + deliveryCost
+
+    val dishesCount: Int get() = lines.sumOf { it.amount }
+
+    val canCheck: Boolean get() = dishesCount > 0 && !customerPhone.isNullOrBlank() &&
+        (serviceType != "delivery" || !address.isNullOrBlank())
+
+    val canPlace: Boolean get() = state == "CHECKOUT"
+
+    internal companion object {
+        /** The only code the demo knows; anything else is refused, as a real one refuses. */
+        const val PROMOCODE: String = "DEMO10"
+    }
+}
+
 /** Everything the demo server keeps, as one JSON in the server's own storage. */
 @Serializable
 internal data class DemoState(
@@ -90,6 +173,11 @@ internal data class DemoState(
     val stock: Map<String, Map<String, DishPlaceRow>> = emptyMap(),
     /** placeId → its orders. */
     val orders: Map<String, List<DemoOrder>> = emptyMap(),
+    val clients: List<DemoClient> = emptyList(),
+    /** The POS drafts, newest last; one list for the demo's single operator. */
+    val drafts: List<DemoDraft> = emptyList(),
+    /** Numbers the demo gives new drafts. */
+    val nextDraft: Int = 1,
 )
 
 internal object DemoCatalog {
@@ -138,6 +226,38 @@ internal object DemoCatalog {
         }
         return rows
     }
+}
+
+/** The customers the demo knows: enough to search by digits and by name. */
+internal object DemoClients {
+
+    private val people = listOf(
+        Triple("Анна Смирнова", "+7 912 000-11-22", 5),
+        Triple("Игорь Петров", "+7 913 555-00-33", 2),
+        Triple("Мария Козлова", "+7 914 777-20-10", 11),
+        Triple("Дмитрий Волков", "+7 915 303-44-55", 0),
+        Triple("Елена Новикова", "+7 916 808-90-01", 3),
+    )
+
+    fun all(now: Long): List<DemoClient> = people.mapIndexed { index, (name, phone, orders) ->
+        DemoClient(
+            id = "u${index + 1}",
+            firstName = name,
+            phone = phone,
+            email = if (index == 0) "anna@example.com" else null,
+            verified = index % 2 == 0,
+            orderCount = orders,
+            createdAt = now - (index + 1) * 86_400_000L,
+            addresses = if (orders > 0) listOf("ул. Ленина, 12, кв. 45") else emptyList(),
+        )
+    }
+}
+
+/** The streets the demo's address search knows. */
+internal object DemoAddresses {
+    val streets: List<String> = listOf(
+        "ул. Ленина", "ул. Садовая", "пр. Мира", "ул. Гагарина", "Набережная", "ул. Пушкина",
+    )
 }
 
 /** A plausible evening at one point: twelve orders, most of them still in the kitchen. */

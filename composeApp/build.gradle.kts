@@ -91,6 +91,8 @@ kotlin {
             implementation(project(":protocol"))
             implementation(project(":demo"))
             implementation(project(":render"))
+            // The one native app of a server: the POS (order-entry.plan.md).
+            implementation(project(":apps:pos"))
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)

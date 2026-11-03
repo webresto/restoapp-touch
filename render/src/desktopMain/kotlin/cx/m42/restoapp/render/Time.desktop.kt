@@ -12,7 +12,7 @@ private fun zone(timezone: String?): ZoneId =
 
 private fun locale(lang: String): Locale = Locale.forLanguageTag(lang.substringBefore('-').ifEmpty { "ru" })
 
-internal actual fun dateTime(epochMillis: Long, timezone: String?, lang: String): String =
+public actual fun dateTime(epochMillis: Long, timezone: String?, lang: String): String =
     DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", locale(lang)).format(Instant.ofEpochMilli(epochMillis).atZone(zone(timezone)))
 
 internal actual fun relativeTime(epochMillis: Long, now: Long, timezone: String?, lang: String): String {

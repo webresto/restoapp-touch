@@ -259,7 +259,9 @@ internal class ServerSession(
 
 /** What the menu is built from: when this changes, the server's Superizer is built again. */
 internal fun shellOf(declaration: Declaration?): List<List<Any?>> =
-    declaration?.apps.orEmpty().filter(ServerApp::canShow).map { listOf(it.id, it.title, it.icon?.path, it.category, it.version, it.script != null) }
+    declaration?.apps.orEmpty().filter(ServerApp::canShow).map {
+        listOf(it.id, it.title, it.icon?.path, it.category, it.version, it.script != null, it.native)
+    }
 
 /**
  * Login with the CAPTCHA (plan section 2), for a server the person has and for one being added. A

@@ -55,6 +55,11 @@ class RestoAppTest {
         listOf("dishes", "orders").filter { registry.get(AppId(it)) != null }.toSet()
     }
 
+    /** Every app of the current server, whoever draws it. */
+    private fun RestoAppHost.allRegistered(): Set<String> = active.value.superizer.registry.let { registry ->
+        listOf("dishes", "orders", "clients", "pos").filter { registry.get(AppId(it)) != null }.toSet()
+    }
+
     @Test
     fun aFreshInstallOpensTheDemoRestaurantWithTheAppsItDeclares() = runComposeUiTest {
         val host = restoApp()
@@ -188,6 +193,27 @@ class RestoAppTest {
 
         assertEquals("p2", host.active.value.session.bind("dishes").place.value?.id)
         assertTrue(File(dir, "servers/demo-restaurant/place.json").readText().contains("p2"))
+    }
+
+    /**
+     * The POS of the declaration is drawn by the native app and the rest by the renderer: the host
+     * picks the class by `client: {native}`, and nothing else about the app changes (D10).
+     */
+    @Test
+    fun theDeclaredPosIsDrawnByTheNativeApp() = runComposeUiTest {
+        val host = restoApp()
+        setContent { RestoApp(host) }
+        waitUntil(timeoutMillis = 5_000L) { host.allRegistered() == setOf("dishes", "orders", "clients", "pos") }
+        waitForIdle()
+
+        assertTrue(host.active.value.superizer.registry.get(AppId("pos")) is cx.m42.restoapp.pos.PosApp)
+        assertTrue(host.active.value.superizer.registry.get(AppId("clients")) is cx.m42.restoapp.render.ServerApp)
+
+        onNodeWithTag("home:tile-pos").performClick()
+        // The POS screen, not the renderer's «needs a newer version» tile.
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("pos").assertExists() }.isSuccess }
+        onNodeWithTag("pos:needs-update").assertDoesNotExist()
+        onNodeWithTag("pos:new").assertIsDisplayed()
     }
 
     @Test
