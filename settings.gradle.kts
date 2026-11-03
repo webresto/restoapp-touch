@@ -47,3 +47,7 @@ dependencyResolutionManagement {
 
 // The host. Apps go into apps/<name> next to it, as in Unitool.
 include(":composeApp")
+
+// What a server can have (D6, D7): each server's menu is the subset it serves.
+include(":apps:orders")
+include(":apps:stock")
