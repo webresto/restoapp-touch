@@ -15,15 +15,17 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * The client against the real app-mobile-api hook: `tools/fake-server` runs the hook's Express
  * application of ../restoapp-dev on the fake deps of its own tests — the real PoW CAPTCHA, ajv,
  * adminizer's AccessRightsHelper with core's `stock-manager` check. Only the database is memory.
  *
- * Slice 1 of the plan, from the phone's side: a Stock Manager with points A and B signs in by
- * solving the CAPTCHA, changes a balance at A and does not see it at B; the Operator has no «Блюда»;
- * a point taken away or a password changed is felt on the very next request.
+ * Slices 1 and 2 of the plan, from the phone's side: a Stock Manager with points A and B signs in
+ * by solving the CAPTCHA, changes a balance at A and does not see it at B; the Operator has no
+ * «Блюда» but leads the orders of their own point, one state at a time, and is told by `since`
+ * alone what moved; a point taken away or a password changed is felt on the very next request.
  *
  * Skipped, with a line in the output, when there is no ../restoapp-dev with its node_modules.
  */
@@ -153,6 +155,99 @@ class HttpMobileApiLiveTest {
 
         val admin = api.signIn("admin")
         assertEquals(listOf("p1", "p2"), api.describe(admin, "ru").value.app("dishes")!!.places)
+    }
+
+    @Test
+    fun theOperatorLeadsTheOrdersOfTheirPointAndNothingElse(): Unit = runBlocking {
+        val api = server() ?: return@runBlocking
+        val operator = api.signIn("operator")
+        val declaration = api.describe(operator, "ru").value
+
+        val orders = assertNotNull(declaration.app("orders"), "the operator is given «Заказы»")
+        assertNull(declaration.app("dishes"), "and no «Блюда»")
+        assertEquals("Заказы", orders.title)
+        assertTrue(orders.byPlace)
+        assertEquals(listOf("p1", "p3"), orders.places, "the points of their group")
+        assertEquals("orders.list", orders.home)
+        assertEquals(Views.LIST, orders.method("orders.list")!!.ui!!.view)
+        assertEquals(Controls.BUTTONS, orders.method("orders.setState")!!.ui!!.control!!.type)
+        assertNotNull(orders.method("orders.setState")!!.ui!!.confirm, "REJECT is asked about")
+
+        val answer = api.call(operator, "orders.list", JsonObject(emptyMap()), "p1", "ru")
+        Contract.assertValid("listResult", answer.value)
+        val active = ListPage.of(answer.value)
+        assertEquals(listOf("AAAA1111"), active.items.map { it["number"]?.jsonPrimitive?.content }, "the active orders of p1")
+        assertEquals(mapOf("active" to 1, "done" to 1), active.counts, "the counts of both tabs of the point")
+        val row = active.items.first()
+        assertEquals(listOf("orders.setState"), row.actions().map { it.method })
+        assertEquals(
+            listOf("COOKING", "ON_THE_WAY", "DONE", "REJECT"),
+            row.actions().first().input!!.property("to")!!.enumValues(),
+            "the states the flow allows an operator from ORDER",
+        )
+
+        // Nothing has changed since this answer: the polling probe costs an empty page.
+        val seen = row["updatedAt"]!!.jsonPrimitive.content.toLong()
+        val quiet = ListPage.of(api.call(operator, "orders.list", jsonObjectOf("since" to JsonPrimitive(seen + 1)), "p1", "ru").value)
+        assertEquals(emptyList(), quiet.items.map { it.id() })
+
+        // The move, and the probe telling the phone about it.
+        val cooking = api.call(operator, "orders.setState", jsonObjectOf("id" to JsonPrimitive(row.id()!!), "to" to JsonPrimitive("COOKING")), "p1", "ru")
+        assertEquals(JsonPrimitive("COOKING"), recordOf(cooking.value)!!["state"])
+        val moved = ListPage.of(api.call(operator, "orders.list", jsonObjectOf("since" to JsonPrimitive(seen + 1)), "p1", "ru").value)
+        assertEquals(listOf(row.id()), moved.items.map { it.id() })
+        assertEquals(
+            listOf("ON_THE_WAY", "DONE", "REJECT"),
+            moved.items.first().actions().first().input!!.property("to")!!.enumValues(),
+            "and offers only where it can go from there",
+        )
+
+        // The orders of another point: not in the list, not by id, not movable.
+        val elsewhere = assertFailsWith<MobileApiException> { api.call(operator, "orders.list", JsonObject(emptyMap()), "p2", "ru") }
+        assertEquals(MobileApiException.PLACE_FORBIDDEN, elsewhere.code)
+        val byId = assertFailsWith<MobileApiException> { api.call(operator, "orders.get", jsonObjectOf("id" to JsonPrimitive("o2")), "p1", "ru") }
+        assertEquals(MobileApiException.NOT_FOUND, byId.code)
+        val backwards = assertFailsWith<MobileApiException> {
+            api.call(operator, "orders.setState", jsonObjectOf("id" to JsonPrimitive(row.id()!!), "to" to JsonPrimitive("ORDER")), "p1", "ru")
+        }
+        assertEquals(MobileApiException.INVALID, backwards.code, "a state the narrowed schema does not carry")
+    }
+
+    @Test
+    fun anOrderWithNoKitchenWaitsAtItsOwnPointAndIsGivenOne(): Unit = runBlocking {
+        val api = server() ?: return@runBlocking
+        val dispatcher = api.signIn("dispatcher")
+        val declaration = api.describe(dispatcher, "ru").value
+
+        val orders = assertNotNull(declaration.app("orders"))
+        assertEquals(listOf("p1", "p2", "no-kitchen"), orders.places, "«Без кухни» is a point of the app")
+        assertEquals("Без кухни", declaration.places.first { it.id == "no-kitchen" }.title)
+        assertEquals(
+            listOf("p1", "p2"),
+            orders.method("orders.assignKitchen")!!.input.property("place")!!.enumValues(),
+            "the kitchens of this person, in the declaration itself",
+        )
+
+        val waiting = ListPage.of(api.call(dispatcher, "orders.list", JsonObject(emptyMap()), "no-kitchen", "ru").value)
+        assertEquals(listOf("DDDD4444"), waiting.items.map { it["number"]?.jsonPrimitive?.content })
+        val order = waiting.items.first()
+        assertEquals(listOf("orders.setState", "orders.assignKitchen"), order.actions().map { it.method })
+
+        val assigned = api.call(
+            dispatcher, "orders.assignKitchen",
+            jsonObjectOf("id" to JsonPrimitive(order.id()!!), "place" to JsonPrimitive("p2")), "no-kitchen", "ru",
+        )
+        assertEquals(JsonPrimitive("p2"), recordOf(assigned.value)!!["placeId"])
+        assertEquals(emptyList(), ListPage.of(api.call(dispatcher, "orders.list", JsonObject(emptyMap()), "no-kitchen", "ru").value).items.map { it.id() })
+        assertTrue(
+            ListPage.of(api.call(dispatcher, "orders.list", JsonObject(emptyMap()), "p2", "ru").value).items.any { it.id() == order.id() },
+            "it is among the orders of that kitchen now",
+        )
+
+        // «Без кухни» is granted like any point: the operator does not hold it.
+        val operator = api.signIn("operator")
+        val refused = assertFailsWith<MobileApiException> { api.call(operator, "orders.list", JsonObject(emptyMap()), "no-kitchen", "ru") }
+        assertEquals(MobileApiException.PLACE_FORBIDDEN, refused.code)
     }
 
     @Test

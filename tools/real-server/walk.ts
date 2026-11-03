@@ -168,7 +168,10 @@ async function main() {
     console.log(`       ${user}: apps [${apps}] places [${places}] revision ${declaration.revision}`);
     if (user === "admin") same(places, ["p1", "p2"], "admin sees both cooking points");
     if (user === "stock") same(places, ["p1", "p2"], "stock sees the two points of its group");
-    if (user === "operator") same(apps, [], "operator has no «Блюда»");
+    if (user === "operator") {
+      same(apps, ["orders"], "operator has «Заказы» and no «Блюда»");
+      same([...(declaration.apps[0]?.places ?? [])], ["p1", "no-kitchen"], "on the points of its group, «Без кухни» among them");
+    }
     // The token with no points ticked: the app is there, with no point to choose — the client then
     // has nothing to switch and the methods refuse every place (tests/mobile-api.test.ts:246).
     if (user === "nopoints") same([apps, places], [["dishes"], []], "the token with no points ticked: «Блюда» with no points");
@@ -311,11 +314,80 @@ async function main() {
   const dropped = await request("GET", "/api/mobile/describe", { token: tokens.nopoints });
   ok(dropped.status === 401, "the old token is 401 after a password change", dropped.status);
 
-  console.log(`\n== the orders of the server ==`);
-  const orders = await (await fetch(`${base}/__fake/orders`)).json();
-  console.log(`       ${orders.orders.length} order(s): ${orders.orders.map((order: any) => `${order.shortId} ${order.state} ${order.total}₽ @${order.pickupPoint}`).join("; ")}`);
-  const ordersApp = await call(tokens.operator, "orders.list", { params: {}, place: "p1" });
-  ok(Boolean(ordersApp.body?.error), "the mobile API has no orders app yet (slice 2)", ordersApp.body?.error ?? ordersApp.body);
+  console.log(`\n== «Заказы» at p1, by the operator ==`);
+  const operator = tokens.operator;
+  const placeOrderAt = async (place: string) =>
+    (await (await fetch(`${base}/__fake/order`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dish: "d1", amount: 2, place }),
+    })).json()).id as string;
+
+  const mine = await placeOrderAt("p1");
+  // p2 hands nothing over the counter (`isPickupPoint: false`), so its order is a delivery it cooks.
+  const theirs = (await (await fetch(`${base}/__fake/order-delivery`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dish: "d1", place: "p2" }),
+  })).json()).id as string;
+  ok(Boolean(theirs), "an order of p2 to compare with", theirs);
+  const active = (await call(operator, "orders.list", { params: {}, place: "p1" })).body.result;
+  console.log(`       ${active.items.length} active: ${active.items.map((item: any) => `${item.number} ${item.state} ${item.total}₽`).join("; ")}`);
+  ok(active.items.some((item: any) => item.id === mine), "the order of p1 is in the list", active.items.map((item: any) => item.id));
+  ok(!active.items.some((item: any) => item.id === theirs), "the order of p2 is not", active.items.map((item: any) => item.id));
+  ok(active.counts?.active >= 1, "the chips carry the counts of the point", active.counts);
+
+  const orderCard = (await call(operator, "orders.get", { params: { id: mine }, place: "p1" })).body.result?.item;
+  console.log(`       card: ${orderCard?.title} — ${orderCard?.summary}; ${JSON.stringify(orderCard?.contents)}`);
+  ok(orderCard?.contents?.includes("Борщ"), "the card carries the lines of the order", orderCard?.contents);
+  ok(orderCard?.customerName === "Гость", "and the customer the checkout gave it", orderCard?.customerName);
+  same(orderCard?._actions?.map((action: any) => action.method), ["orders.setState"], "with the move as its only action");
+  same(orderCard?._actions?.[0]?.input?.properties?.to?.enum, ["COOKING", "ON_THE_WAY", "DONE", "REJECT"], "offering what the flow allows an operator");
+
+  console.log(`\n== what the polling with since answers ==`);
+  const quiet = (await call(operator, "orders.list", { params: { since: orderCard.updatedAt + 1 }, place: "p1" })).body.result;
+  same(quiet.items, [], "nothing changed since the card was read");
+  const onTheBoard = await (await fetch(`${base}/__fake/move`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: mine, state: "COOKING", login: "operator" }),
+  })).json();
+  ok(onTheBoard.status === 200, "the web board starts cooking it", onTheBoard);
+  const moved = (await call(operator, "orders.list", { params: { since: orderCard.updatedAt + 1 }, place: "p1" })).body.result;
+  ok(moved.items.some((item: any) => item.id === mine && item.state === "COOKING"), "the phone is told about it by `since` alone", moved.items);
+
+  console.log(`\n== the walk of one order from the phone ==`);
+  for (const to of ["ON_THE_WAY", "DONE"]) {
+    const response = await call(operator, "orders.setState", { params: { id: mine, to }, place: "p1" });
+    ok(response.body?.result?.item?.state === to, `${to} from the phone`, response.body?.error ?? response.body?.result?.item?.state);
+  }
+  const stored = (await (await fetch(`${base}/__fake/orders`)).json()).orders.find((order: any) => order.id === mine);
+  ok(stored?.state === "DONE", "the database of the server agrees", stored);
+  const done = (await call(operator, "orders.list", { params: { tab: "done" }, place: "p1" })).body.result;
+  ok(done.items.some((item: any) => item.id === mine), "and it is in «Завершённые» now", done.items.map((item: any) => item.id));
+  const finished = done.items.find((item: any) => item.id === mine);
+  same(finished?._actions, [], "a finished order carries no actions at all");
+
+  console.log(`\n== the orders of another point ==`);
+  const refused = await call(operator, "orders.list", { params: {}, place: "p2" });
+  ok(refused.body?.error?.code === "place_forbidden", "p2 is refused to the operator", refused.body?.error);
+  const byId = await call(operator, "orders.get", { params: { id: theirs }, place: "p1" });
+  ok(byId.body?.error?.code === "not_found", "and its order is not found by direct id either", byId.body?.error);
+  const moveTheirs = await call(operator, "orders.setState", { params: { id: theirs, to: "COOKING" }, place: "p1" });
+  ok(moveTheirs.body?.error?.code === "not_found", "nor moved", moveTheirs.body?.error);
+
+  console.log(`\n== «Без кухни» and «Назначить кухню» ==`);
+  const waiting = (await (await fetch(`${base}/__fake/order-without-kitchen`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dish: "d2" }),
+  })).json()).id as string;
+  const unassigned = (await call(operator, "orders.list", { params: {}, place: "no-kitchen" })).body.result;
+  ok(unassigned.items.some((item: any) => item.id === waiting), "an order with no kitchen waits there", unassigned.items.map((item: any) => item.id));
+  const waitingRow = unassigned.items.find((item: any) => item.id === waiting);
+  ok(waitingRow?._actions?.some((action: any) => action.method === "orders.assignKitchen"), "offering «Назначить кухню»", waitingRow?._actions);
+  same(waitingRow?._actions?.find((action: any) => action.method === "orders.assignKitchen")?.input?.properties?.place?.enum, ["p1"],
+    "with the kitchens of this operator and no others");
+  const assigned = await call(operator, "orders.assignKitchen", { params: { id: waiting, place: "p1" }, place: "no-kitchen" });
+  ok(assigned.body?.result?.item?.placeId === "p1", "assigning it to p1", assigned.body?.error ?? assigned.body?.result?.item);
+  const leftBehind = (await call(operator, "orders.list", { params: {}, place: "no-kitchen" })).body.result;
+  ok(!leftBehind.items.some((item: any) => item.id === waiting), "it has left «Без кухни»", leftBehind.items.map((item: any) => item.id));
+  const movedToP1 = (await call(operator, "orders.list", { params: {}, place: "p1" })).body.result;
+  ok(movedToP1.items.some((item: any) => item.id === waiting), "and is among the orders of p1", movedToP1.items.map((item: any) => item.id));
+  const rejected = await call(operator, "orders.setState", { params: { id: waiting, to: "REJECT" }, place: "p1" });
+  ok(rejected.body?.result?.item?.state === "REJECT", "rejecting it from the phone", rejected.body?.error ?? rejected.body?.result?.item?.state);
 
   console.log(`\n== a dish added in the web panel, seen from the app ==`);
   await forgetAttempts();

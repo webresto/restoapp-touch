@@ -233,6 +233,7 @@ public class DemoBackend(
             put("summary", order.customerName + " · " + words.t(if (order.selfService) "Самовывоз" else "Доставка", if (order.selfService) "Pickup" else "Delivery"))
             put("state", order.state.name)
             put("createdAt", order.createdAt)
+            put("updatedAt", order.updatedAt)
             put("customerName", order.customerName)
             put("customerPhone", order.customerPhone)
             put("method", if (order.selfService) "pickup" else "delivery")
@@ -257,10 +258,13 @@ public class DemoBackend(
                 val tab = params.enumOf("tab", listOf("active", "done"), "active")
                 val q = params.stringOrNull("q", 100)?.trim()?.lowercase()?.ifEmpty { null }
                 val offset = params.stringOrNull("cursor", 200)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                val since = params.longOrNull("since")
                 val active = orders.filter { it.state.active }
                 val done = orders.filterNot { it.state.active }
                 val chosen = (if (tab == "done") done else active)
                     .filter { q == null || q in it.number.toString() || q in it.customerName.lowercase() }
+                    // Only what changed since that moment; the counts stay those of the whole tab.
+                    .filter { since == null || it.updatedAt >= since }
                     .sortedByDescending { it.createdAt }
                 page(chosen.map(::item), offset, mapOf("active" to active.size, "done" to done.size))
             }
@@ -371,6 +375,12 @@ private fun JsonObject.int(name: String, range: IntRange): Int {
     val number = value?.takeIf { !it.isString }?.longOrNull
     if (number == null || number !in range.first.toLong()..range.last.toLong()) fail(MobileApiException.INVALID, "Parameters do not match the method schema: $name")
     return number.toInt()
+}
+
+private fun JsonObject.longOrNull(name: String): Long? {
+    val value = this[name] ?: return null
+    return (value as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull
+        ?: fail(MobileApiException.INVALID, "Parameters do not match the method schema: $name")
 }
 
 private fun JsonObject.boolean(name: String): Boolean =

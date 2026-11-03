@@ -25,6 +25,12 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * The client through the window against `tools/real-server` — a lifted Sails with the admin panel of
@@ -217,24 +223,141 @@ class RealServerWalkTest {
         // 14. What the server itself holds after the walk: the stock of p1 the client wrote.
         assertEquals(5, localBalanceAtP1("d1"), "the five the client set is the server's number")
 
-        // 15. The orders: a real one of core, moved the way the admin panel's board moves it. The
-        // client has nothing to show for them — the mobile API declares no orders app (slice 2 of
-        // server-apps-and-rights.plan.md), and the declaration says so.
+        // 15. A Stock Manager is given no «Заказы»: that app is the operator's, and the walk of it
+        // is `theWholeOrdersAppAgainstTheRealServer` below.
         assertTrue(
             host.active.value.session.declaration.value?.app("orders") == null,
-            "there is no orders app in the declaration yet",
+            "a stock manager must not be given the orders app",
         )
-        val placed = control("order", """{"dish": "d1", "amount": 2, "place": "p1"}""")
-        val id = Regex("\"id\":\"([^\"]+)\"").find(placed)?.groupValues?.get(1)
-        assertTrue(id != null, "the order was placed: $placed")
-        assertTrue(get("orders").contains("\"state\":\"ORDER\""), "it starts in ORDER: ${get("orders")}")
-        for (state in listOf("COOKING", "ON_THE_WAY", "DONE")) {
-            val moved = control("move", """{"id": "$id", "state": "$state", "login": "operator"}""")
-            assertTrue(moved.contains("\"status\":200"), "the operator moves it to $state: $moved")
+    }
+
+    /**
+     * «Заказы» of slice 2 through the window, as the operator of «Ленина, 5»: the orders of the
+     * point and of no other, the card, the walk of the flow by its buttons, «Отклонить» asking
+     * first, the polling catching a move made on the web board, and «Без кухни» handing an order a
+     * kitchen. Against the same stand, so every answer comes from core through the hook.
+     */
+    @Test
+    fun theWholeOrdersAppAgainstTheRealServer() {
+        val address = base ?: run {
+            println("SKIPPED: no -Prestoapp.serverUrl=<url> of a running tools/real-server")
+            return
         }
-        val finished = get("orders")
-        assertTrue(finished.contains("\"state\":\"DONE\""), "it ends in DONE: $finished")
-        println("orders on the stand: $finished")
+        control("clear-attempts")
+        control("reset-password", """{"login": "operator"}""")
+
+        // One order of this point, one of another, one that arrived with no kitchen at all.
+        val mine = idOf(control("order", """{"dish": "d1", "amount": 2, "place": "p1"}"""))
+        val theirs = idOf(control("order-delivery", """{"dish": "d1", "place": "p2"}"""))
+        val waiting = idOf(control("order-without-kitchen", """{"dish": "d2"}"""))
+
+        val dir = Files.createTempDirectory("restoapp-real-orders").toFile()
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(dir),
+            debug = true,
+            device = DeviceInfo("Real orders walk", "desktop"),
+            solver = CryptoPuzzleSolver,
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+
+        runComposeUiTest {
+            setContent { RestoApp(host) }
+            waitForIdle()
+
+            // 1. Connect the server and sign in as the operator.
+            openMenu()
+            onNodeWithTag("context:row").performClick()
+            waitForIdle()
+            onNodeWithTag("context:add").performClick()
+            waitForIdle()
+            onNodeWithTag("servers:add-custom").performClick()
+            waitForIdle()
+            onNodeWithTag("servers:address").performTextInput(address)
+            onNodeWithTag("servers:check").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("servers:found") }
+            onNodeWithTag("servers:login").performTextInput("operator")
+            onNodeWithTag("servers:password").performTextInput("secret-password")
+            onNodeWithTag("servers:connect").performClick()
+            waitUntil(timeoutMillis = 40_000L) {
+                if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
+                host.active.value.superizer.registry.get(AppId("orders")) != null && exists("home:tile-orders")
+            }
+            waitForIdle()
+
+            // 2. «Заказы» opens on «Ленина, 5», and «Блюда» is not there at all.
+            onNodeWithTag("home:tile-dishes").assertDoesNotExist()
+            onNodeWithTag("home:tile-orders").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("orders:list") }
+            waitUntil(timeoutMillis = 20_000L) { exists("orders:row-$mine") }
+            onNodeWithTag("orders:row-$theirs").assertDoesNotExist()
+
+            // 3. The card of the order, and the flow by its buttons.
+            onNodeWithTag("orders:row-$mine").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("orders:detail") }
+            onNodeWithTag("orders:orders.setState-COOKING").performClick()
+            waitUntil(timeoutMillis = 20_000L) { stateOf(mine) == "COOKING" }
+            waitForIdle()
+            // From COOKING there is no way back to ORDER: the server sends no such button.
+            onNodeWithTag("orders:orders.setState-COOKING").assertDoesNotExist()
+
+            // 4. «Отклонить» asks first, and «нет» changes nothing.
+            onNodeWithTag("orders:orders.setState-REJECT").performClick()
+            waitUntil(timeoutMillis = 10_000L) { exists("orders:orders.setState-REJECT:confirm") }
+            onNodeWithTag("orders:orders.setState-REJECT:no").performClick()
+            waitForIdle()
+            assertEquals("COOKING", stateOf(mine), "«нет» left the order where it was")
+
+            // 5. The web board sends it on its way; the screen asks what changed and catches up.
+            control("move", """{"id": "$mine", "state": "ON_THE_WAY", "login": "operator"}""")
+            waitUntil(timeoutMillis = 40_000L) {
+                host.active.value.session.declaration.value != null && exists("orders:orders.setState-DONE") &&
+                    !exists("orders:orders.setState-ON_THE_WAY")
+            }
+
+            // 6. And the operator finishes it from the phone.
+            onNodeWithTag("orders:orders.setState-DONE").performClick()
+            waitUntil(timeoutMillis = 20_000L) { stateOf(mine) == "DONE" }
+            onNodeWithTag("orders:back").performClick()
+            waitForIdle()
+
+            // 7. «Без кухни»: the order that arrived without one waits there, and is given one.
+            onNodeWithTag("orders:place").performClick()
+            waitForIdle()
+            onNodeWithTag("orders:places:item-no-kitchen").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("orders:row-$waiting") }
+            onNodeWithTag("orders:row-$waiting").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("orders:orders.assignKitchen-p1") }
+            onNodeWithTag("orders:orders.assignKitchen-p1").performClick()
+            waitUntil(timeoutMillis = 20_000L) { placeOf(waiting) == "p1" }
+            waitForIdle()
+
+            // 8. It is among the orders of «Ленина, 5» now, and gone from «Без кухни».
+            onNodeWithTag("orders:back").performClick()
+            waitForIdle()
+            onNodeWithTag("orders:place").performClick()
+            waitForIdle()
+            onNodeWithTag("orders:places:item-p1").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("orders:row-$waiting") }
+        }
+
+        println("orders on the stand: ${get("orders")}")
+    }
+
+    private fun idOf(answer: String): String =
+        Regex("\"id\":\"([^\"]+)\"").find(answer)?.groupValues?.get(1)
+            ?: error("the stand placed no order: $answer")
+
+    /** The state of one order as the stand's database holds it. */
+    private fun stateOf(id: String): String? = orderField(id, "state")
+
+    /** The point the order is led by, as core answers it — `no-kitchen` while it has none. */
+    private fun placeOf(id: String): String? = orderField(id, "placeId")
+
+    /** One field of one order, out of what the stand's `/__fake/orders` answers. */
+    private fun orderField(id: String, field: String): String? {
+        val orders = (Json.parseToJsonElement(get("orders")).jsonObject["orders"] as JsonArray)
+        val order = orders.map { it.jsonObject }.firstOrNull { it["id"]?.jsonPrimitive?.contentOrNull == id } ?: return null
+        return (order[field] as? JsonPrimitive)?.contentOrNull
     }
 
     /** The effective stock the web Stock Manager reads at that point. */

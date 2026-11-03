@@ -4,6 +4,7 @@ package cx.m42.restoapp.render
 
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollTo
@@ -217,6 +218,49 @@ class ServerAppTest {
         idle()
         inner("orders:badge").assertTextEquals("Отклонён")
         assertAbsent("orders:orders.setState-DONE")
+    }
+
+    /**
+     * The orders screen asks what moved while it is open (plan section 3): a probe with `since`
+     * every ten seconds, and a full re-read as soon as the probe brings anything — so a move made
+     * on another device or on the web board lands on the screen without anybody touching it.
+     */
+    @Test
+    fun theOrdersScreenPollsWhatChangedAndCatchesUpByItself() {
+        var now = 1_700_000_000_000L
+        val backend = DemoBackend(MemoryDemoStore(), DemoBackend.TWO_POINTS, clock = { now }, serverName = "Демо")
+        run(appId = "orders", backend = backend) {
+            val id = runBlocking { ListPage.of(server.api.call("demo", "orders.list", JsonObject(emptyMap()), "p1", "ru").value) }
+                .items.first { it["state"] == JsonPrimitive("ORDER") }.id()!!
+            node("orders:row-$id").assertExists()
+            val cookingBefore = cookingBadges()
+
+            // Somebody else — the web board, another phone — starts cooking it.
+            now += 60_000
+            runBlocking {
+                server.api.call("demo", "orders.setState", jsonObjectOf("id" to JsonPrimitive(id), "to" to JsonPrimitive("COOKING")), "p1", "ru")
+            }
+            assertEquals(JsonPrimitive("ORDER"), screen.list.value.items.first { it.id() == id }["state"])
+
+            advance(10_000)
+
+            val probes = server.requests.filter { it.first == "orders.list" && "since" in it.third }
+            assertTrue(probes.isNotEmpty(), "the screen never asked what changed: ${server.requests}")
+            assertEquals(JsonPrimitive("COOKING"), screen.list.value.items.first { it.id() == id }["state"])
+            assertEquals(cookingBefore + 1, cookingBadges(), "the row on screen still says what it said before")
+        }
+    }
+
+    /** How many rows show the «Готовится» badge: the screen's own account of what it was told. */
+    private fun AppTestScope<*>.cookingBadges(): Int =
+        ui.onAllNodesWithText("Готовится", useUnmergedTree = true).fetchSemanticsNodes().size
+
+    /** «Блюда» take no `since`: that screen is re-read on return, never polled. */
+    @Test
+    fun theDishesScreenIsNotPolled() = run {
+        val before = server.requests.size
+        advance(60_000)
+        assertEquals(before, server.requests.size)
     }
 
     @Test
