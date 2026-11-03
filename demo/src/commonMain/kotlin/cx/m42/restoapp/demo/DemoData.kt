@@ -96,7 +96,28 @@ internal data class DemoClient(
     val title: String get() = firstName.ifBlank { phone }
 }
 
-/** A draft of the POS: a cart of the demo, at one point, by one person. */
+/** One line of a POS draft: the product, how many, and what the demo counts for it. */
+@Serializable
+internal data class DemoDraftLine(
+    val lineId: Int,
+    val dishId: String,
+    val name: String,
+    val amount: Int,
+    val price: Int,
+    val oldPrice: Int? = null,
+    val comment: String? = null,
+    val hasOptions: Boolean = false,
+) {
+    val total: Int get() = amount * price
+}
+
+/**
+ * A draft of the POS: a cart of the demo, at one point, by one person.
+ *
+ * It holds what the hook's draft holds, because the client must not be able to tell the two apart:
+ * the demo counts the same totals, refuses the same steps and places the order into the demo's own
+ * «Заказы» at the end.
+ */
 @Serializable
 internal data class DemoDraft(
     val id: String,
@@ -107,7 +128,41 @@ internal data class DemoDraft(
     val customerName: String? = null,
     val customerPhone: String? = null,
     val createdAt: Long = 0,
-)
+    val state: String = "CART",
+    val table: String? = null,
+    val lines: List<DemoDraftLine> = emptyList(),
+    val address: String? = null,
+    val comment: String? = null,
+    val personsCount: Int? = null,
+    val date: Long? = null,
+    val maxWaitMinutes: Int? = null,
+    val paymentMethodId: String? = null,
+    val paymentMethodTitle: String? = null,
+    val promotionCode: String? = null,
+    val nextLineId: Int = 1,
+) {
+    val basketTotal: Int get() = lines.sumOf { it.total }
+
+    /** The demo's promotion: the one code there is takes a tenth off. */
+    val discountTotal: Int get() = if (promotionCode == PROMOCODE) basketTotal / 10 else 0
+
+    /** A delivery of the demo costs a flat 200 until the basket is big enough. */
+    val deliveryCost: Int get() = if (serviceType == "delivery" && basketTotal in 1..1499) 200 else 0
+
+    val total: Int get() = basketTotal - discountTotal + deliveryCost
+
+    val dishesCount: Int get() = lines.sumOf { it.amount }
+
+    val canCheck: Boolean get() = dishesCount > 0 && !customerPhone.isNullOrBlank() &&
+        (serviceType != "delivery" || !address.isNullOrBlank())
+
+    val canPlace: Boolean get() = state == "CHECKOUT"
+
+    internal companion object {
+        /** The only code the demo knows; anything else is refused, as a real one refuses. */
+        const val PROMOCODE: String = "DEMO10"
+    }
+}
 
 /** Everything the demo server keeps, as one JSON in the server's own storage. */
 @Serializable
@@ -196,6 +251,13 @@ internal object DemoClients {
             addresses = if (orders > 0) listOf("ул. Ленина, 12, кв. 45") else emptyList(),
         )
     }
+}
+
+/** The streets the demo's address search knows. */
+internal object DemoAddresses {
+    val streets: List<String> = listOf(
+        "ул. Ленина", "ул. Садовая", "пр. Мира", "ул. Гагарина", "Набережная", "ул. Пушкина",
+    )
 }
 
 /** A plausible evening at one point: twelve orders, most of them still in the kitchen. */
