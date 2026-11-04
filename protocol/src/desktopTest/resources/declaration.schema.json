@@ -29,6 +29,45 @@
       }
     },
 
+    "scriptSource": {
+      "description": "What an app registers when its code comes as one JS file (script-apps.plan.md, D12): the built bundle inside the module that owns the app. The hook reads and hashes it at registration — the declaration carries a link and the hash, never the code.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "min": { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "scriptRef": {
+      "description": "The link to the bundle of a script app, with its hash: the hash is in the URL, so a new build is a new URL and what the client downloaded is good forever.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "sha256", "size", "min"],
+      "properties": {
+        "url": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "size": { "type": "integer", "minimum": 1 },
+        "min": { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "module": {
+      "description": "A module of this server as the app sees it: the system modules the installation is built of, and the modules installed from the marketplace. A module that brings a mobile app of its own carries that app's id and the link to its JS.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "kind"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "version": { "type": ["string", "null"] },
+        "kind": { "enum": ["system", "installed"] },
+        "title": { "type": ["string", "null"] },
+        "app": { "$ref": "#/definitions/id" },
+        "script": { "$ref": "#/definitions/scriptRef" }
+      }
+    },
+
     "special": {
       "description": "A value with its own meaning: -1 is 'Unlimited', 0 is 'Out of stock'.",
       "type": "object",
@@ -178,7 +217,8 @@
         },
         "models": { "type": "object", "additionalProperties": { "$ref": "#/definitions/model" } },
         "client": { "$ref": "#/definitions/client" },
-        "script": { "description": "Reserved for apps delivered as JS (script-apps.plan.md). The first release never sends it.", "not": {} }
+        "script": { "$ref": "#/definitions/scriptSource" },
+        "module": { "description": "The module that owns this app, by its appId: that is how the modules of the declaration carry the link to their JS.", "type": "string", "minLength": 1 }
       },
       "if": { "properties": { "scope": { "const": "place" } }, "required": ["scope"] },
       "then": { "required": ["places"] },
@@ -232,7 +272,7 @@
         "models": { "type": "object", "additionalProperties": { "$ref": "#/definitions/model" } },
         "client": { "$ref": "#/definitions/client" },
         "methods": { "type": "array", "items": { "$ref": "#/definitions/declaredMethod" } },
-        "script": { "description": "Reserved. A client that cannot run scripts shows such an app as a 'Needs a newer version' tile, it neither crashes nor hides it." }
+        "script": { "$ref": "#/definitions/scriptRef" }
       }
     },
 
@@ -279,7 +319,8 @@
           }
         },
         "places": { "type": "array", "items": { "$ref": "#/definitions/place" } },
-        "apps": { "type": "array", "items": { "$ref": "#/definitions/declaredApp" } }
+        "apps": { "type": "array", "items": { "$ref": "#/definitions/declaredApp" } },
+        "modules": { "description": "Every module of this server by id: what it is built of, and what was installed into it.", "type": "array", "items": { "$ref": "#/definitions/module" } }
       }
     },
 

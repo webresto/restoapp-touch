@@ -11,6 +11,11 @@
  *
  * Control, for the tests: POST /__fake/stock-points {"places": ["p1"]} regrants the points of
  * `stock`; POST /__fake/password {"login": "stock"} changes a password (devices fall off).
+ *
+ * «Навигация» is here too when the hook has it (D12): the app a module brings as JS, so the client
+ * can be walked through downloading a script — the declaration gives the link, this server serves the
+ * bundle of `api/hooks/app-mobile-api/assets/mobile/navigation.js` by its hash. Only the
+ * administrator holds its right here, and the modules of the server are answered as a real one does.
  */
 import * as http from "http";
 import * as path from "path";
@@ -23,10 +28,64 @@ const { createMobileApi } = require(path.join(dev, "api/hooks/app-mobile-api/htt
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const passwordHash = require(require.resolve("password-hash", { paths: [dev] }));
 
+/** The menus of simple-navigation, in memory: enough for the client to read, save and reorder. */
+function memoryNavigation() {
+  const rows = new Map<string, { name: string; mnemonicId: string; items: any[] }>([
+    ["m1", { name: "Шапка", mnemonicId: "header", items: [{ label: "Меню", link: "/menu", visible: true }] }],
+    ["m2", { name: "Подвал", mnemonicId: "footer", items: [] }],
+  ]);
+  const view = (id: string, row: any) => ({ id, name: row.name, mnemonicId: row.mnemonicId, count: row.items.length });
+  return {
+    list: async () => [...rows].map(([id, row]) => view(id, row)),
+    links: async () => [
+      { link: "/menu", title: "Menu", kind: "site" },
+      { link: "/stocks", title: "Stocks", kind: "site" },
+    ],
+    get: async (id: string) => {
+      const row = rows.get(id);
+      return row ? { ...view(id, row), items: row.items } : null;
+    },
+    create: async (name: string, mnemonicId: string) => {
+      const id = `m${rows.size + 1}`;
+      rows.set(id, { name, mnemonicId, items: [] });
+      return view(id, rows.get(id));
+    },
+    save: async (id: string, name: string, items: any[]) => {
+      const row = rows.get(id);
+      if (!row) return null;
+      row.name = name;
+      row.items = items;
+      return view(id, row);
+    },
+    remove: async (id: string) => rows.delete(id),
+  };
+}
+
+/** The app a module brought, if this hook knows about scripts at all. */
+function withNavigation(made: any) {
+  let registerNavigation: any;
+  let navigationScriptFile: any;
+  try {
+    ({ registerNavigation, navigationScriptFile } = require(path.join(dev, "api/hooks/app-mobile-api/apps/navigation")));
+  } catch {
+    console.log("no navigation app in this hook — serving without it");
+    return;
+  }
+  made.deps.modules = {
+    list: async () => [
+      { id: "@webresto/core", version: "2.0.0", kind: "system", title: "RestoApp core" },
+      { id: "simple-navigation", version: "1.7.1", kind: "installed", title: "simple-navigation" },
+    ],
+  };
+  made.deps.access.registerToken({ id: "navigation-manager", name: "Navigation", description: "The site's menus", department: "Marketing" });
+  registerNavigation(made.deps.registry, memoryNavigation(), navigationScriptFile());
+}
+
 async function main() {
   const made = await fakes.makeFakes();
   // Small puzzles: the client really solves them, in a fraction of a second.
   made.deps.settings.captchaBaseDifficultyMs = () => Number(process.env.FAKE_POW_MS ?? 40);
+  withNavigation(made);
   const app = createMobileApi(made.deps);
 
   const control = (req: http.IncomingMessage, res: http.ServerResponse) => {

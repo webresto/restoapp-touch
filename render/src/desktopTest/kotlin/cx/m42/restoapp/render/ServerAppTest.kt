@@ -311,7 +311,7 @@ class ServerAppTest {
     fun anAppTheServerSendsAsAScriptSaysItNeedsANewerClient() {
         val declared = ProtocolJson.decodeFromString(
             DeclaredApp.serializer(),
-            """{"id":"later","version":"1.0.0","title":"Потом","home":"later.a","scope":"server","methods":[],"script":{"url":"x.js"}}""",
+            """{"id":"later","version":"1.0.0","title":"Потом","home":"later.a","scope":"server","methods":[],"script":{"url":"/api/mobile/app-assets/later/abababababababababababababababababababababababababababababababab.js","sha256":"abababababababababababababababababababababababababababababababab","size":42}}""",
         )
         val server = object : RestoServer by DemoServer(DemoServer.demo(), "dishes") {
             override val app = kotlinx.coroutines.flow.MutableStateFlow<DeclaredApp?>(declared)

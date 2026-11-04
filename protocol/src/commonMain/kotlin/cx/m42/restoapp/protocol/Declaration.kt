@@ -38,6 +38,8 @@ public data class Declaration(
     /** Every point of every app by points, sorted by title. */
     val places: List<Place> = emptyList(),
     val apps: List<DeclaredApp> = emptyList(),
+    /** What this server is built of and what was installed into it; empty from a server that does not say. */
+    val modules: List<ServerModule> = emptyList(),
 ) {
     public fun app(id: String): DeclaredApp? = apps.firstOrNull { it.id == id }
 
@@ -95,10 +97,11 @@ public data class DeclaredApp(
      */
     val client: ClientRender? = null,
     /**
-     * Reserved for apps that come as JS (script-apps.plan.md). A client that cannot run scripts shows
-     * such an app as "needs a newer version", and neither crashes nor hides it.
+     * The app comes as JS from the server (script-apps.plan.md, D12): where to download the bundle and
+     * which bundle it must be. A client that cannot run scripts shows such an app as "needs a newer
+     * version", and neither crashes nor hides it.
      */
-    val script: JsonElement? = null,
+    val script: ScriptRef? = null,
 ) {
     val byPlace: Boolean get() = scope == SCOPE_PLACE
 
@@ -125,6 +128,41 @@ public data class ClientRender(
     val native: String,
     val min: Int = 1,
 )
+
+/**
+ * Where the code of a script app is and what it must be.
+ *
+ * [sha256] is in [url] on purpose: a new build is a new link, so what was downloaded under this name
+ * is good forever, and a body that hashes to something else is refused rather than run.
+ */
+@Serializable
+public data class ScriptRef(
+    val url: String,
+    val sha256: String,
+    val size: Int,
+    /** The oldest client that may run it; a newer requirement than this client shows the update tile. */
+    val min: Int = 1,
+)
+
+/**
+ * A module of the server: [KIND_SYSTEM] — what the installation is built of, [KIND_INSTALLED] — what
+ * was installed into it from the marketplace. A module that brought an app of its own names it in
+ * [app], and if that app comes as JS, [script] is the same link the app itself carries.
+ */
+@Serializable
+public data class ServerModule(
+    val id: String,
+    val version: String? = null,
+    val kind: String = KIND_INSTALLED,
+    val title: String? = null,
+    val app: String? = null,
+    val script: ScriptRef? = null,
+) {
+    public companion object {
+        public const val KIND_SYSTEM: String = "system"
+        public const val KIND_INSTALLED: String = "installed"
+    }
+}
 
 /** An SVG path over a 24×24 box — `AppIcon.Path` in Superizer. */
 @Serializable

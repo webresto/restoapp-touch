@@ -39,6 +39,9 @@ internal class HostWords(lang: String) {
 
     fun placeGone(title: String) = t("Доступ к точке «$title» снят", "Access to the point “$title” was removed")
 
+    /** An app whose code comes from the server (D12) could not be downloaded: the tile stays, empty. */
+    fun scriptFailed(title: String) = t("«$title» не загрузилось с сервера", "“$title” did not download from the server")
+
     fun server(name: String, version: String?) = t("Сервер «$name»", "Server “$name”") + (version?.let { " · $it" } ?: "")
 
     fun progress(fraction: Float) = solving + " " + (fraction * 100).toInt() + "%"

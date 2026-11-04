@@ -183,11 +183,14 @@ class DemoContractTest {
              "places":[],"apps":[{"id":"x","version":"2.0.0","title":"X","home":"x.a","scope":"server","future":true,
              "models":{"m":{"fields":[{"name":"f","title":"F","format":"markdown"}]}},
              "methods":[{"name":"x.a","kind":"query","title":"A","input":{"type":"object"},"ui":{"view":"grid","control":{"type":"slider"}}}],
-             "script":{"url":"x.js"}}]}
+             "script":{"url":"/api/mobile/app-assets/x/cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd.js","sha256":"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd","size":17,"later":true}}]}
         """.trimIndent()
         val declaration = ProtocolJson.decodeFromString(Declaration.serializer(), text)
         assertEquals("grid", declaration.apps.single().methods.single().ui!!.view)
         assertEquals("markdown", declaration.apps.single().fields("m").single().format)
-        assertTrue(declaration.apps.single().script!!.jsonObject.isNotEmpty())
+        val script = declaration.apps.single().script!!
+        assertEquals(sha256Hex("not the bundle".encodeToByteArray()).length, script.sha256.length)
+        assertEquals(17, script.size)
+        assertEquals(1, script.min)
     }
 }

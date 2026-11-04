@@ -33,6 +33,11 @@ kotlin {
 // The live test starts the hook of ../restoapp-dev on fake deps (tools/fake-server); it finds the
 // checkout through this, and skips itself when there is none.
 tasks.withType<Test>().configureEach {
-    systemProperty("restoapp.dev", rootProject.file("../restoapp-dev").absolutePath)
+    // A worktree of its own server checkout wins: `restoapp-dev` in the project root (a symlink in
+    // every workspace) before the `../restoapp-dev` next door, so two workspaces never share a server.
+    systemProperty(
+        "restoapp.dev",
+        (rootProject.file("restoapp-dev").takeIf { it.exists() } ?: rootProject.file("../restoapp-dev")).absolutePath,
+    )
     systemProperty("restoapp.tools", rootProject.file("tools").absolutePath)
 }
