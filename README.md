@@ -48,7 +48,9 @@ protocol/                        protocol 1: the declaration and envelopes, Http
 demo/                            DemoBackend: the protocol in process — «Блюда» as the hook has them,
                                  «Заказы» in the shape of slice 2, «Клиенты», the POS and
                                  «Маркетинг», two points, four roles
-render/                          ServerApp: one SuperizerApp per declared app; a stack of frames —
+render/                          ServerApp: one SuperizerApp per declared app; SchemaEditor — a form
+                                 over a JSON Schema a record brought with it (settings now, the forms
+                                 of models next); a stack of frames —
                                  list, detail, the links of a record (`_open`, `_links`) and «Назад»;
                                  stepper, toggle, buttons, a form, a «+» on the list, the point
                                  switch, the catalog shell; NativeActions — the screens the client
@@ -58,6 +60,8 @@ apps/pos/                        PosApp: the POS of a server, drawn natively —
 apps/marketing/                  the editor of a promotion: the one action of «Маркетинг» the client
                                  draws itself — the discount, the products and groups from the
                                  catalog, a gift, the hours
+apps/settings/                   the two screens of «Настройки»: the editor of one value, built from
+                                 the JSON Schema that came with the record, and the export/import
 composeApp/src/
   commonMain/Servers.kt          a server: name and address; the two demo servers of a fresh install
   commonMain/ServerSession.kt    one server connected: token, cached declaration, point, error codes
@@ -68,6 +72,7 @@ composeApp/src/
 tools/fake-server/serve.ts       the app-mobile-api hook on fake deps, for development and live tests
 tools/real-server/serve.ts       the whole backend on sails-disk: adminizer, core, the hook — what the
                                  walkthrough tests drive the window against
+tools/real-server/walk.ts        the mobile API walked against that stand, printed step by step
 tools/pow-testdata.mjs           PoW tasks from the real crypto-puzzle, for the solver's tests
 ```
 

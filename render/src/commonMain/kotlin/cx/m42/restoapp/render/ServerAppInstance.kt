@@ -122,6 +122,14 @@ internal class ServerAppInstance(
     private val _native = MutableStateFlow<NativeRequest?>(null)
     val native: StateFlow<NativeRequest?> get() = _native.asStateFlow()
 
+    /**
+     * Why the server refused what a native screen submitted. Such a screen covers `TopNotices`, so
+     * its refusal belongs to it and not to the app's error line — otherwise a save that was thrown
+     * out looks like nothing happening, and the line turns up later behind a screen already closed.
+     */
+    private val _nativeFailure = MutableStateFlow<String?>(null)
+    val nativeFailure: StateFlow<String?> get() = _nativeFailure.asStateFlow()
+
     private val _chrome = MutableStateFlow(AppChrome())
     override val chrome: StateFlow<AppChrome> get() = _chrome.asStateFlow()
 
@@ -613,11 +621,19 @@ internal class ServerAppInstance(
     }
 
     /** The same, with the params given whole: a native screen of an action builds them itself (`control: native`). */
-    fun actWith(record: JsonObject, action: RecordAction, method: DeclaredMethod, params: JsonObject, onDone: () -> Unit = {}) {
+    fun actWith(
+        record: JsonObject,
+        action: RecordAction,
+        method: DeclaredMethod,
+        params: JsonObject,
+        native: Boolean = false,
+        onDone: () -> Unit = {},
+    ) {
         val id = record.id() ?: return
         val key = "$id:${method.name}"
         if (key in _busy.value) return
         _busy.value = _busy.value + key
+        if (native) _nativeFailure.value = null
         runtime.scope.launch {
             try {
                 val updated = recordOf(server.call(method.name, params))
@@ -628,7 +644,7 @@ internal class ServerAppInstance(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: MobileApiException) {
-                fail(failure)
+                if (native) _nativeFailure.value = refusalText(failure) else fail(failure)
             } finally {
                 _busy.value = _busy.value - key
             }
@@ -640,10 +656,11 @@ internal class ServerAppInstance(
      * values are the params. The answer may be a record, and then the list is re-read so it appears where the
      * server puts it.
      */
-    fun actOnList(method: DeclaredMethod, params: JsonObject, onDone: () -> Unit = {}) {
+    fun actOnList(method: DeclaredMethod, params: JsonObject, native: Boolean = false, onDone: () -> Unit = {}) {
         val key = "list:${method.name}"
         if (key in _busy.value) return
         _busy.value = _busy.value + key
+        if (native) _nativeFailure.value = null
         runtime.scope.launch {
             try {
                 val created = recordOf(server.call(method.name, params))
@@ -655,7 +672,7 @@ internal class ServerAppInstance(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: MobileApiException) {
-                fail(failure)
+                if (native) _nativeFailure.value = refusalText(failure) else fail(failure)
             } finally {
                 _busy.value = _busy.value - key
             }
@@ -664,11 +681,18 @@ internal class ServerAppInstance(
 
     /** Opens the screen the client has for this action, and closes it again once it has run. */
     fun openNative(record: JsonObject, action: RecordAction, method: DeclaredMethod) {
+        _nativeFailure.value = null
         _native.value = NativeRequest(record, action, method)
     }
 
     fun closeNative() {
+        _nativeFailure.value = null
         _native.value = null
+    }
+
+    /** A line for the screen underneath, left by a native screen that is closing (`NativeActionScope.notice`). */
+    fun showNotice(text: String) {
+        _notice.value = text
     }
 
     /** One method of this app, for a native screen that needs more than the action it runs (a catalog). */
@@ -685,6 +709,21 @@ internal class ServerAppInstance(
                 )
             },
         )
+    }
+
+    /**
+     * A refusal as a screen of its own shows it: the server's sentence when there is one, and the
+     * connection's own words when there is not.
+     */
+    private fun refusalText(failure: MobileApiException): String {
+        val words = RenderWords(runtime.locale.langTag.value)
+        return when (failure.code) {
+            MobileApiException.NETWORK -> words.offline
+            MobileApiException.UNAUTHORIZED -> words.signedOut
+            MobileApiException.UPDATE_REQUIRED -> words.updateRequired
+            MobileApiException.RATE_LIMITED -> words.tooManyAttempts(failure.retryAfterSeconds)
+            else -> failure.message?.takeIf { it.isNotBlank() } ?: failure.code
+        }
     }
 
     private fun fail(failure: MobileApiException) {

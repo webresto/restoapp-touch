@@ -23,6 +23,10 @@
  * card carries the «provider is not installed» notice. /admin/sales-channels-manager shows the same
  * two, which is what «one to one» is compared against.
  *
+ * Settings: all 102 of core's manifests are seeded (CORE_LOAD_SETTINGS_MANIFESTS), plus the five of
+ * @webresto/graphql as an installed module brings them — JWT_SECRET among them, the one secret.
+ * `TZ` is pinned by the environment here, so the stand also shows a setting nobody may edit.
+ *
  * Customers to find: Ольга Белова +7 999 000 00 07 (with a saved address, «ул. Мира, 3»), Иван
  * Петров +7 999 000 00 01. A delivery of the POS needs a kitchen and a tariff, so p1 and p2 carry
  * a coordinate, one zone covers them, and `KITCHEN_RESOLVE_CHAIN` is set — nothing of that is
@@ -47,9 +51,12 @@
  *   POST /__fake/bulk-dishes {"count": 60}        adds that many dishes, for the paging
  *   POST /__fake/drop-bulk-dishes                 removes them again
  *   GET  /__fake/promocode?code=ЛЕТО10            the promo code as the database holds it
+ *   GET  /__fake/setting?key=TZ                   the Settings row as the database holds it
+ *   POST /__fake/setting {"key": "...", "value": …} writes one, for a test that needs a value back
  *   GET  /__fake/web-stock?place=p1&id=d1         what the web Stock Manager reads there
  *   GET  /__fake/dish-place?place=p1&id=d1        the DishPlace row behind it
  */
+import * as fs from "fs";
 import * as http from "http";
 import * as path from "path";
 
@@ -139,6 +146,7 @@ async function fixtures(sails: any) {
 
   await customers(sails);
   await delivery(sails);
+  await settings(sails);
   await menus(sails);
   await marketing(sails);
   await salesChannels(sails);
@@ -311,6 +319,42 @@ async function delivery(sails: any) {
   }).fetch();
 }
 
+/**
+ * The settings of a module, as an installed module brings them: @webresto/graphql declares five of
+ * its own in `settings/*.json`, and the module manager seeds them with `module` filled in. The hook
+ * of graphql is off on the stand (its schema build is not needed here), so nothing would seed them
+ * — and JWT_SECRET is the one secret setting a real server has, which «Настройки» must never show.
+ *
+ * Registering the directory with core is what the module's own `initialize` does: it is where the
+ * human wording of a `pattern` rule lives, as the stored row has no column for it.
+ */
+async function settings(sails: any) {
+  const Settings: any = (global as any).Settings;
+  const graphqlDir = path.dirname(require.resolve("@webresto/graphql/package.json", { paths: [dev] }));
+  const manifestDir = path.join(graphqlDir, "settings");
+  require(require.resolve("@webresto/core/lib/settings/schema", { paths: [dev] })).addSettingsManifestDir(manifestDir);
+
+  for (const file of fs.readdirSync(manifestDir)) {
+    if (!file.endsWith(".json")) continue;
+    const manifest = JSON.parse(fs.readFileSync(path.join(manifestDir, file), "utf8"));
+    await Settings.set(manifest.key, {
+      key: manifest.key,
+      type: manifest.type,
+      name: manifest.name,
+      description: manifest.description,
+      jsonSchema: manifest.jsonSchema,
+      isRequired: manifest.isRequired,
+      secret: manifest.secret,
+      readOnly: manifest.readOnly,
+      restartRequired: manifest.restartRequired,
+      // `Settings.set` takes the owning module as `appId` and stores it in `module`.
+      appId: "graphql",
+    });
+  }
+  // A secret that is set: the editor then says "stored and not shown" rather than "not set yet".
+  await Settings.set("JWT_SECRET", { value: "stand-jwt-secret-0123456789abcdef0123" });
+}
+
 /** A placed order, the way the storefront's resolvers make one (core test/places/support/storefront.ts). */
 async function placeOrder(dish: string, amount: number, place: string): Promise<string> {
   const Order: any = (global as any).Order;
@@ -378,6 +422,10 @@ async function main() {
     MM_SETTINGS_MODEL_DENY: "1",
     MM_SYSTEM_MODULES: path.join(dev, "node_modules/@webresto/core"),
     AP_PASSWORD_SALT: SALT,
+    // Core seeds its 102 settings from settings/*.json only when asked (hook/afterHook.ts): a
+    // legacy install gets them through the module manager instead. The stand asks, so «Настройки»
+    // has the list a real server has.
+    CORE_LOAD_SETTINGS_MANIFESTS: "true",
     MOBILE_API_ENABLED: "true",
     MOBILE_API_SECRET: "stand-secret",
     ENABLE_ADMIN_CAPTCHA: "true",
@@ -508,6 +556,17 @@ async function main() {
           // The login limit is 10 a minute per IP; a walkthrough from one machine trips it at once.
           await sails.models.mobileauthattempt.destroy({}).fetch();
           return answer({ ok: true });
+        }
+        if (req.url?.startsWith("/__fake/setting")) {
+          // One Settings row as the database holds it — what a test reads back after a write from the
+          // app — and a way to put a value there without going through the app at all.
+          const query = new URL(req.url, "http://stand").searchParams;
+          const Settings: any = (global as any).Settings;
+          if (req.method === "GET") {
+            return answer({ row: (await sails.models.settings.findOne({ key: query.get("key") })) ?? null });
+          }
+          await Settings.set(data.key, { value: data.value });
+          return answer({ row: await sails.models.settings.findOne({ key: data.key }) });
         }
         if (req.url?.startsWith("/__fake/web-stock")) {
           // What the web Stock Manager of the admin panel reads for that point — core's own function.

@@ -171,6 +171,7 @@ private fun NativeActionScreen(
     content: NativeActionContent,
 ) {
     val busy by instance.busy.collectAsState()
+    val failure by instance.nativeFailure.collectAsState()
     val key = (request.record.id() ?: "list") + ":" + request.method.name
     Column(modifier = Modifier.fillMaxSize().testTag("${context.tag}:native-${request.method.ui?.control?.screen}")) {
         content(
@@ -180,17 +181,31 @@ private fun NativeActionScreen(
                 facts = context.facts,
                 lang = context.words.lang,
                 busy = key in busy,
+                failure = failure,
                 call = { method, params -> instance.callForNative(method, params) },
-                submit = { params ->
-                    if (request.record.id() == null) {
-                        instance.actOnList(request.method, params) { instance.closeNative() }
-                    } else {
-                        instance.actWith(request.record, request.action, request.method, params) { instance.closeNative() }
-                    }
-                },
+                submit = { params -> submitNative(instance, request, params) {} },
+                submitThen = { params, saved -> submitNative(instance, request, params, saved) },
+                notice = instance::showNotice,
                 close = instance::closeNative,
             ),
         )
+    }
+}
+
+/**
+ * What a native screen's «Сохранить» does: run the action and close, with the refusal left on the
+ * screen itself (`native = true`) — it covers the notices, and the person is looking at the very
+ * value that was refused.
+ */
+private fun submitNative(instance: ServerAppInstance, request: NativeRequest, params: JsonObject, saved: () -> Unit) {
+    val done = {
+        saved()
+        instance.closeNative()
+    }
+    if (request.record.id() == null) {
+        instance.actOnList(request.method, params, native = true, onDone = done)
+    } else {
+        instance.actWith(request.record, request.action, request.method, params, native = true, onDone = done)
     }
 }
 
@@ -267,6 +282,12 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, fram
         method.ui?.view == Views.ACTION && method.ui?.on == "list" && method.ui?.placement?.contains("list") == true
     }
     var adding by remember(listAction?.name) { mutableStateOf(false) }
+    // An action of the list may ask for a screen of the client's own, exactly as an action of a record
+    // may: the transfer of the settings is one of those («Настройки», slice D). Without a screen for
+    // it registered, the declared form is drawn — which is what every other list action gets.
+    val nativeList = listAction
+        ?.takeIf { it.ui?.control?.type == Controls.NATIVE }
+        ?.let { action -> NativeActions.of(action.ui?.control?.screen)?.let { action } }
 
     PlaceSwitch(instance, context, enabled = bottom) {
         if (!bottom) BackLine(instance, context)
@@ -278,13 +299,16 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, fram
             ) {
                 AppButton(
                     text = if (adding) words.cancel else "+ ${action.title}",
-                    onClick = { adding = !adding },
+                    onClick = {
+                        if (nativeList != null) instance.openNative(JsonObject(emptyMap()), RecordAction(action.name), action)
+                        else adding = !adding
+                    },
                     variant = if (adding) ButtonVariant.Ghost else ButtonVariant.Default,
                     size = ButtonSize.Sm,
                     modifier = Modifier.testTag("$tag:add"),
                 )
             }
-            if (adding) {
+            if (adding && nativeList == null) {
                 FormCard(
                     title = action.title,
                     fields = formFields(action),
@@ -463,7 +487,10 @@ private fun DetailScreen(instance: ServerAppInstance, context: RenderContext, fr
             Text(text = context.words.loading, style = AppTheme.label, color = AppTheme.muted, modifier = Modifier.padding(20.dp))
             return@Column
         }
-        RecordCard(instance, context, method?.model, method?.ui?.item ?: ItemUi(), record)
+        // `frame.loading`: the card is drawn from the row of the list while the full record is being
+        // read. A screen of the client's own is built from that record — the editor of a setting from
+        // the JSON Schema in it — so it must not open on half of one.
+        RecordCard(instance, context, method?.model, method?.ui?.item ?: ItemUi(), record, settled = !frame.loading)
     }
 }
 
@@ -475,13 +502,21 @@ private fun HomeRecordScreen(instance: ServerAppInstance, context: RenderContext
         Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("${context.tag}:detail")) {
             TopNotices(instance, context)
             FrameChips(instance, context, method, emptyMap())
-            frame.record?.let { RecordCard(instance, context, method.model, method.ui?.item ?: ItemUi(), it) }
+            frame.record?.let { RecordCard(instance, context, method.model, method.ui?.item ?: ItemUi(), it, settled = !frame.loading) }
         }
     }
 }
 
 @Composable
-private fun RecordCard(instance: ServerAppInstance, context: RenderContext, model: String?, item: ItemUi, record: JsonObject) {
+private fun RecordCard(
+    instance: ServerAppInstance,
+    context: RenderContext,
+    model: String?,
+    item: ItemUi,
+    record: JsonObject,
+    /** False while this record is still being re-read: an action that reads the record waits for it. */
+    settled: Boolean = true,
+) {
     val tokens = AppTheme
     val busy by instance.busy.collectAsState()
     val id = record.id().orEmpty()
@@ -517,7 +552,7 @@ private fun RecordCard(instance: ServerAppInstance, context: RenderContext, mode
                     AppButton(
                         text = method.title,
                         onClick = { instance.openNative(record, action, method) },
-                        enabled = !waiting,
+                        enabled = !waiting && settled,
                         size = ButtonSize.Default,
                         modifier = Modifier.fillMaxWidth().padding(12.dp).testTag("$tag:${method.name}"),
                     )

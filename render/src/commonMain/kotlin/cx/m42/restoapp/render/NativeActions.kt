@@ -29,10 +29,29 @@ public class NativeActionScope(
     public val lang: String,
     /** True while the action it submitted is in flight. */
     public val busy: Boolean,
+    /**
+     * Why the server refused the last submit, in its own words — null when it has not.
+     *
+     * A native screen is drawn over everything and has no `TopNotices` above it, so without this a
+     * save the server threw out looked like nothing happening at all (`settings.plan.md`, slice B).
+     * The sentence is the server's: it is already in the language of the request, and it is final.
+     */
+    public val failure: String?,
     /** Any method of this app — the catalog the editor chooses products in. */
     public val call: suspend (method: String, params: JsonObject) -> JsonElement,
     /** Runs the action with these params; the screen closes once the server answers. */
     public val submit: (JsonObject) -> Unit,
+    /**
+     * The same, with something to do once the server has taken it and before the screen closes —
+     * the «restart to apply» reminder of a setting is left that way, so it is left only when there
+     * really was something to apply.
+     */
+    public val submitThen: (JsonObject, () -> Unit) -> Unit,
+    /**
+     * Leaves a line across the top of the screen underneath — «перезапустите сервер, чтобы
+     * применилось». The screen itself is about to close, and the person has to see it afterwards.
+     */
+    public val notice: (String) -> Unit,
     public val close: () -> Unit,
 )
 
