@@ -514,11 +514,23 @@ public class PosInstance(
         val order = _state.value.order ?: return
         step("pos.setAddress", params {
             put("id", JsonPrimitive(order.id))
-            put("city", JsonPrimitive(city))
+            city.takeIf { it.isNotBlank() }?.let { put("city", JsonPrimitive(it)) }
             put("street", JsonPrimitive(street))
             put("home", JsonPrimitive(home))
             apartment?.takeIf { it.isNotBlank() }?.let { put("apartment", JsonPrimitive(it)) }
             comment?.takeIf { it.isNotBlank() }?.let { put("comment", JsonPrimitive(it)) }
+        }, closeSheet = true)
+    }
+
+    /**
+     * A saved address of the customer, by its id: the whole address — the house, the flat, the
+     * entrance — is on the record, and only the server can read it off (`pos.setAddress`).
+     */
+    public fun setSavedAddress(savedId: String) {
+        val order = _state.value.order ?: return
+        step("pos.setAddress", params {
+            put("id", JsonPrimitive(order.id))
+            put("savedId", JsonPrimitive(savedId))
         }, closeSheet = true)
     }
 

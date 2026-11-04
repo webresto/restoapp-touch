@@ -10,9 +10,15 @@
  * /admin, the mobile API at /api/mobile.
  *
  * Users, all with the password `secret-password`: admin (administrator), stock (Stock Manager on
- * p1 and p2), operator (Operator, no «Блюда»), nopoints (the token with no points ticked),
- * outsider (no panel access). Places: p1 «Ленина, 5» (cooking and pickup), p2 «Мира, 3» (cooking),
- * p3 «Выдача» (pickup only, no address). Dishes: d1 Борщ 300, d2 Плов 450, d3 Морс 120.
+ * p1 and p2), operator (Operator, no «Блюда»), taker (Order Taker: «Клиенты» and the POS on p1 and
+ * p2), nopoints (the token with no points ticked), outsider (no panel access). Places: p1
+ * «Ленина, 5» (cooking and pickup), p2 «Мира, 3» (cooking), p3 «Выдача» (pickup only, no address).
+ * Dishes: d1 Борщ 300, d2 Плов 450, d3 Морс 120.
+ *
+ * Customers to find: Ольга Белова +7 999 000 00 07 (with a saved address, «ул. Мира, 3»), Иван
+ * Петров +7 999 000 00 01. A delivery of the POS needs a kitchen and a tariff, so p1 and p2 carry
+ * a coordinate, one zone covers them, and `KITCHEN_RESOLVE_CHAIN` is set — nothing of that is
+ * seeded on a lifted stand.
  *
  * Control, for the tests — the same paths the fake server answers, plus the orders:
  *   POST /__fake/stock-points {"places": ["p1"]}  regrants the points of the Stock Manager group
@@ -22,7 +28,8 @@
  *   POST /__fake/order-without-kitchen {"dish": "d1"}             places a delivery with no kitchen
  *   POST /__fake/order-delivery {"dish": "d1", "place": "p2"}     places a delivery cooked at that kitchen
  *   POST /__fake/move {"id": "...", "state": "COOKING"}           moves it on the orders board
- *   GET  /__fake/orders                           the orders with their state and lines
+ *   GET  /__fake/orders                           the orders with their state, lines, address and owner
+ *   GET  /__fake/customers                        the customers with their id, number and saved addresses
  *   POST /__fake/clear-attempts                   forgets the login attempts (the limit is 10/min/IP)
  *   POST /__fake/clear-stock                      drops every DishPlace row (a clean catalog)
  *   POST /__fake/reset-catalog                    leaves only d1, d2, d3, and no stock at all
@@ -45,8 +52,9 @@ async function fixtures(sails: any) {
   const { place: Place, dish: Dish, group: Group, groupap: GroupAp, userap: User } = sails.models;
 
   const places = [
-    { id: "p1", title: "Ленина, 5", address: "ул. Ленина, 5", isCookingPoint: true, isPickupPoint: true },
-    { id: "p2", title: "Мира, 3", address: "пр. Мира, 3", isCookingPoint: true, isPickupPoint: false },
+    // The kitchens stand on the map: that is how core's chain finds one for a delivery.
+    { id: "p1", title: "Ленина, 5", address: "ул. Ленина, 5", isCookingPoint: true, isPickupPoint: true, coordinate: { lat: 55.75, lon: 37.62 } },
+    { id: "p2", title: "Мира, 3", address: "пр. Мира, 3", isCookingPoint: true, isPickupPoint: false, coordinate: { lat: 55.76, lon: 37.64 } },
     { id: "p3", title: "Выдача", address: "", isCookingPoint: false, isPickupPoint: true },
   ];
   for (const place of places) await Place.create({ ...place, enable: true }).fetch();
@@ -74,6 +82,14 @@ async function fixtures(sails: any) {
     "read-order-model",
     "update-order-model",
   ]);
+  // «Order Taker» the hook creates itself, with `order-entry` and no points ticked: the stand ticks
+  // p1 and p2, so the POS has a terminal to work at and «Клиенты» a search to answer.
+  const taker = await group("Order Taker", [
+    "access-to-adminpanel",
+    { tokenId: "order-entry", rights: ["p1", "p2"] },
+    "read-customer-model",
+    "create-customer-model",
+  ]);
   const nopoints = await group("Stock no points", ["access-to-adminpanel", "stock-manager"]);
   const nobody = await group("Nobody", []);
 
@@ -92,10 +108,52 @@ async function fixtures(sails: any) {
   await user("admin", [], { isAdministrator: true });
   await user("stock", [stock.id]);
   await user("operator", [operator.id]);
+  await user("taker", [taker.id]);
   await user("nopoints", [nopoints.id]);
   await user("outsider", [nobody.id]);
 
+  await customers(sails);
+  await delivery(sails);
+
   return { places, dishes };
+}
+
+/**
+ * People for «Клиенты» to find, made the way the app makes them — core's own guest factory, so the
+ * number lands in `AuthIdentity` and the search by its digits has something to find.
+ */
+async function customers(sails: any) {
+  const core = require(require.resolve("@webresto/core/lib/AuthService", { paths: [dev] }));
+  const AuthService = core.default ?? core;
+
+  const olga = (await AuthService.materializeUser({ firstName: "Ольга Белова", phone: { code: "+7", number: "9990000007" } })).user;
+  await AuthService.materializeUser({ firstName: "Иван Петров", phone: { code: "+7", number: "9990000001" } });
+
+  // A saved address with the house and the flat on it: the POS takes it by its id, and core refuses
+  // a delivery whose address has no house number. The coordinate spares the stand a geocoder.
+  await sails.models.userlocation.create({
+    user: String(olga.id), formatted: "ул. Мира, 3", home: "3", apartment: "7", entrance: "2", comment: "код 1234",
+    coordinate: { lat: 55.752, lon: 37.615 },
+  }).fetch();
+}
+
+/**
+ * What a delivery needs and a lifted stand has not: the chain that names a kitchen (no settings are
+ * seeded here, so it is empty and core answers NO_KITCHEN) and one zone to price the address
+ * (without a zone there is no tariff at all, and that is refused even with soft calculation).
+ */
+async function delivery(sails: any) {
+  const Settings: any = (global as any).Settings;
+  await Settings.set("KITCHEN_RESOLVE_CHAIN", {
+    value: ["nearest-geo", "single-point"],
+    type: "json",
+    jsonSchema: { type: "array", items: { type: "string", enum: ["delivery-zone", "rms", "nearest-geo", "single-point"] }, uniqueItems: true },
+  });
+  // Points are [lon, lat]; the square holds both kitchens and the saved address.
+  await sails.models.deliveryzone.create({
+    id: "z1", name: "Центр", enable: true, sortOrder: 0, minDeliveryTime: 60, deliveryCost: 150,
+    polygon: [[37.58, 55.72], [37.68, 55.72], [37.68, 55.78], [37.58, 55.78]],
+  }).fetch();
 }
 
 /** A placed order, the way the storefront's resolvers make one (core test/places/support/storefront.ts). */
@@ -284,6 +342,22 @@ async function main() {
           const query = new URL(req.url, "http://stand").searchParams;
           return answer({ row: await sails.models.dishplace.findOne({ dish: query.get("id"), place: query.get("place") }) ?? null });
         }
+        if (req.url?.startsWith("/__fake/customers")) {
+          const people = await sails.models.user.find({ where: { isDeleted: false }, sort: "createdAt ASC" });
+          const out = [];
+          for (const person of people) {
+            const locations = await sails.models.userlocation.find({ user: String(person.id) });
+            const identities = await sails.models.authidentity.find({ user: String(person.id), provider: "phone" });
+            out.push({
+              id: String(person.id),
+              name: [person.firstName, person.lastName].filter(Boolean).join(" ").trim(),
+              phone: identities[0]?.externalId ?? null,
+              addresses: locations.map((location: any) => ({ id: String(location.id), formatted: location.formatted })),
+            });
+          }
+          return answer({ customers: out });
+        }
+
         if (req.url?.startsWith("/__fake/orders")) {
           const orders = await sails.models.order.find({ where: { state: { "!=": "CART" } }, sort: "createdAt ASC" });
           const out = [];
@@ -299,6 +373,10 @@ async function main() {
               /** The point the board and the phone lead it by, or `no-kitchen`. */
               placeId: orderPlaceKey(order),
               total: order.total ?? order.basketTotal,
+              serviceType: order.serviceType,
+              /** Whose order it is, when an account was picked or made for it. */
+              user: order.user ? String(order.user) : null,
+              address: order.address ?? null,
               lines: lines.map((line: any) => ({ dish: line.dish?.name, amount: line.amount })),
             });
           }

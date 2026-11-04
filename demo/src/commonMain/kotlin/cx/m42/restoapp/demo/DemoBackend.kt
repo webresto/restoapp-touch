@@ -690,16 +690,29 @@ public class DemoBackend(
             }
 
             "pos.setAddress" -> {
-                val city = params.string("city")
-                val street = params.string("street")
-                val home = params.string("home")
+                // Two ways in, as the server has them: a saved address of the customer by its id,
+                // or one typed — and then the house number is asked for, because core wants it.
+                val savedId = params.stringOrNull("savedId", 100)
+                val street = params.stringOrNull("street", 200)
+                val home = params.stringOrNull("home", 50)
                 val apartment = params.stringOrNull("apartment", 50)
                 step(params.string("id")) { draft ->
-                    if (draft.serviceType != "delivery") {
-                        draft to (words.t("Адрес нужен только доставке", "An address belongs to a delivery") to Tones.DANGER)
-                    } else {
-                        val line = listOfNotNull(street, home, apartment?.let { words.t("кв. $it", "apt. $it") }).joinToString(", ")
-                        draft.copy(address = line, state = "CART") to null
+                    val saved = savedId?.let { id ->
+                        current.clients.firstOrNull { it.id == draft.clientId }
+                            ?.addresses?.getOrNull(id.substringAfterLast('-').toIntOrNull() ?: -1)
+                    }
+                    when {
+                        draft.serviceType != "delivery" ->
+                            draft to (words.t("Адрес нужен только доставке", "An address belongs to a delivery") to Tones.DANGER)
+                        savedId != null && saved == null ->
+                            draft to (words.t("Этого адреса у клиента нет", "The customer has no such address") to Tones.DANGER)
+                        saved != null -> draft.copy(address = saved, state = "CART") to null
+                        street.isNullOrBlank() || home.isNullOrBlank() ->
+                            draft to (words.t("Укажите улицу и номер дома", "Name the street and the house number") to Tones.DANGER)
+                        else -> {
+                            val line = listOfNotNull(street, home, apartment?.let { words.t("кв. $it", "apt. $it") }).joinToString(", ")
+                            draft.copy(address = line, state = "CART") to null
+                        }
                     }
                 }
             }
