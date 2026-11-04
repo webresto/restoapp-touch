@@ -40,10 +40,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: adminization/superizer
+          ref: 72b8536b3d3277136ab1970460363c384a62c6b9
           path: superizer-checkout
 
+      # The contexts this app is built on (ContextPort, HostContext, Monogram) are not committed in
+      # Superizer yet. The patch is that work; when it lands there, take the ref and drop this step.
       - name: Put the library where settings.gradle.kts looks for it
-        run: mv superizer-checkout ../superizer
+        run: |
+          mv superizer-checkout ../superizer
+          git -C ../superizer apply "$PWD/.github/superizer-contexts.patch"
 
       - name: Xcode
         run: xcodebuild -version && xcrun --sdk iphoneos --show-sdk-version
