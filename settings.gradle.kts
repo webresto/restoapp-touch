@@ -55,5 +55,7 @@ include(":apps:pos")
 // A server's apps are not modules any more (plan section 4): the server declares them and one
 // renderer draws them all. The protocol, the in-process demo server, and that renderer.
 include(":protocol")
+// Apps that come as JS from the server (D12): the QuickJS runtime and the screens it produces.
+include(":script")
 include(":demo")
 include(":render")

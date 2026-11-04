@@ -9,6 +9,8 @@ kotlinxSerializationJson = "1.9.0"
 ktor = "3.4.0"
 # Contract tests only: the server's JSON Schema, checked on the JVM.
 jsonSchemaValidator = "1.5.9"
+# The JS engine of script apps (js-module.plan.md); the version the prototype in .ai-notes/quick was measured on.
+quickjs = "1.0.15"
 
 # The library. Bumped by an explicit commit, as in Unitool.
 superizer = "0.7.1"
@@ -23,6 +25,7 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 json-schema-validator = { module = "com.networknt:json-schema-validator", version.ref = "jsonSchemaValidator" }
+quickjs = { module = "io.github.dokar3:quickjs-kt", version.ref = "quickjs" }
 
 superizer-core = { module = "cx.m42.superizer:core", version.ref = "superizer" }
 superizer-ui-theme = { module = "cx.m42.superizer:ui-theme", version.ref = "superizer" }
