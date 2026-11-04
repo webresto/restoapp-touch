@@ -5,6 +5,7 @@ import cx.m42.restoapp.protocol.DeclaredApp
 import cx.m42.restoapp.protocol.DeclaredMethod
 import cx.m42.restoapp.protocol.MobileApiException
 import cx.m42.restoapp.protocol.Open
+import cx.m42.restoapp.protocol.ProtocolJson
 import cx.m42.restoapp.protocol.RecordAction
 import cx.m42.restoapp.protocol.ListPage
 import cx.m42.restoapp.protocol.Views
@@ -16,6 +17,7 @@ import cx.m42.restoapp.protocol.recordOf
 import cx.m42.superizer.app.AppChrome
 import cx.m42.superizer.app.AppId
 import cx.m42.superizer.app.AppInstance
+import cx.m42.superizer.app.asConfig
 import cx.m42.superizer.runtime.InstanceRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -92,6 +94,7 @@ internal data class NativeRequest(val record: JsonObject, val action: RecordActi
 internal class ServerAppInstance(
     private val runtime: InstanceRuntime,
     internal val server: RestoServer,
+    private val target: Open? = null,
 ) : AppInstance() {
 
     private val _frames = MutableStateFlow<List<Frame>>(emptyList())
@@ -175,8 +178,26 @@ internal class ServerAppInstance(
         started = true
         restoredPlace?.let { id -> if (server.place.value == null && server.places.value.any { it.id == id }) server.selectPlace(id) }
         if (_frames.value.isEmpty()) home?.let { setFrames(listOf(Frame(it.name))) }
+        target?.let(::openTarget)
         loadTop()
         startPolling()
+    }
+
+    /**
+     * The screen a link of another app leads to, on top of whatever this app had open: back from it is this
+     * app's own stack. The link was a hint and not a permission, so a method this person does not have now is
+     * one line of words over the home screen, and never a screen that opens empty.
+     */
+    private fun openTarget(open: Open) {
+        val method = open.method ?: return
+        if (app?.method(method) == null) {
+            _notice.value = RenderWords(runtime.locale.langTag.value).linkGone
+            return
+        }
+        open.place?.takeIf { id -> server.places.value.any { it.id == id } }?.let(server::selectPlace)
+        val current = top
+        if (current != null && current.method == method && current.params == open.params) return
+        setFrames(_frames.value + Frame(method = method, params = open.params, title = open.title, loading = true))
     }
 
     override fun saveState(): JsonObject = buildJsonObject {
@@ -502,6 +523,19 @@ internal class ServerAppInstance(
      * is a hint and not a permission: the call it leads to is checked like any other.
      */
     fun openLink(open: Open, title: String? = null, row: JsonObject? = null) {
+        // An address outside the apps: the settings page of a provider, the site of a channel, a page
+        // of the marketplace. The platform opens it in its own browser — and says so when it will not.
+        open.url?.let { url ->
+            val address = absoluteUrl(url)
+            if (address == null || !runtime.navigation.openUrl(address)) {
+                _notice.value = RenderWords(runtime.locale.langTag.value).linkNotOpened
+            }
+            return
+        }
+        val method = open.method ?: run {
+            _notice.value = RenderWords(runtime.locale.langTag.value).linkGone
+            return
+        }
         val target = open.app
         if (target != null && target != app?.id) {
             runtime.scope.launch {
@@ -511,15 +545,32 @@ internal class ServerAppInstance(
                     _notice.value = words.linkGone
                     return@launch
                 }
-                runCatching { runtime.navigation.openApp(id) }.onFailure { _notice.value = words.linkGone }
+                // Where to, along with whom: without `target` the other app opens on its home screen, and a
+                // link to one module in the catalog would lead to no module at all.
+                val config = buildJsonObject { put("target", ProtocolJson.encodeToJsonElement(Open.serializer(), open.copy(app = null))) }
+                runtime.navigation.openApp(id, config.asConfig()).onFailure { _notice.value = words.linkGone }
             }
             return
         }
-        if (app?.method(open.method) == null) {
+        if (app?.method(method) == null) {
             _notice.value = RenderWords(runtime.locale.langTag.value).linkGone
             return
         }
-        push(Frame(method = open.method, params = open.params, title = open.title ?: title, record = row, loading = true))
+        push(Frame(method = method, params = open.params, title = open.title ?: title, record = row, loading = true))
+    }
+
+    /**
+     * A link of the server is usually a path of the server itself («/admin/frontend/setup?channel=…»):
+     * the hook cannot know the address it is reached by — behind a proxy it is not its own — so the
+     * client, which does know it, puts the two together. An address is opened as it is, and only if it is
+     * http(s): the browser of the system is asked on the word of the server, and a `file:` or a scheme of some
+     * other program is not what the line said it was. Null is such an address, or a path with nothing to
+     * resolve it against.
+     */
+    private fun absoluteUrl(url: String): String? {
+        if (url.startsWith("/")) return server.address.trimEnd('/').takeIf { it.isNotEmpty() }?.plus(url)
+        val scheme = url.substringBefore("://", "").lowercase()
+        return url.takeIf { scheme == "http" || scheme == "https" }
     }
 
     private fun push(frame: Frame) {

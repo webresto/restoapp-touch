@@ -102,14 +102,21 @@ public data class RecordAction(val method: String, val input: JsonObject? = null
  * uniform one and sends only `{id}`. With [app] — another app, and [place] is given when that app is by points.
  * A link is built by the server after checking the rights, and it is a hint and not a permission: the call it
  * leads to is checked like any other.
+ *
+ * With [url] — an address outside the apps, opened in the browser of the system: the settings page of a
+ * channel's provider module, the public address of a channel, a page of the marketplace
+ * (`sales-channels.plan.md`, Q53). A path («/admin/…») is resolved against the address of this server; an
+ * http(s) address is opened as it is, and nothing else is opened at all. Exactly one of [method] and [url]
+ * is there.
  */
 @Serializable
 public data class Open(
     val app: String? = null,
-    val method: String,
+    val method: String? = null,
     val params: JsonObject = JsonObject(emptyMap()),
     val place: String? = null,
     val title: String? = null,
+    val url: String? = null,
 )
 
 /** A line of a card that leads somewhere: «Применения · 12 →». */

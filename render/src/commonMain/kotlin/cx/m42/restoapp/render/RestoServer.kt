@@ -21,6 +21,13 @@ public interface RestoServer {
     /** This app as the server declares it now; null once the server no longer declares it. */
     public val app: StateFlow<DeclaredApp?>
 
+    /**
+     * The address this server was connected by. A link that leads outside the apps (`open: {url}`) is
+     * usually a path of this very server — the settings page of a provider module — and that is what it
+     * is resolved against. Empty when there is no address to speak of (the demo server in process).
+     */
+    public val address: String get() = ""
+
     /** Currency and time zone the values are formatted in. */
     public val facts: StateFlow<ServerFacts?>
 
