@@ -208,4 +208,79 @@ class RealServerShotsTest {
             println("screenshots in ${out.absolutePath}")
         }
     }
+
+    /**
+     * «Каналы продаж» of the stand, as the person who manages them sees it: the list with the two
+     * channels, the card of the one whose provider module is not installed, and — the picture that
+     * matters most — the refusal of switching on a channel its provider has not finished setting up.
+     *
+     *   ./gradlew :composeApp:desktopTest --tests '*RealServerShotsTest' -Prestoapp.serverUrl=http://127.0.0.1:1351
+     */
+    @Test
+    fun theScreensOfTheSalesChannels() {
+        val address = base ?: run {
+            println("SKIPPED: no -Prestoapp.serverUrl=<url> of a running tools/real-server")
+            return
+        }
+        // The same screens every run: the provider of the stand's channel is not finished, and the
+        // operator's switch is off.
+        control(address, "channel-status", """{"status": "needs_setup", "message": "Не задан токен бота", "enabled": false}""")
+
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(Files.createTempDirectory("restoapp-real-channels").toFile()),
+            debug = true,
+            device = DeviceInfo("Channel shots", "desktop"),
+            solver = CryptoPuzzleSolver,
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+
+        runDesktopComposeUiTest(width = 420, height = 820) {
+            setContent { RestoApp(host) }
+            waitForIdle()
+
+            onNode(hasContentDescription("Открыть меню")).performClick()
+            waitForIdle()
+            onNodeWithTag("context:row").performClick()
+            waitForIdle()
+            onNodeWithTag("context:add").performClick()
+            waitForIdle()
+            onNodeWithTag("servers:add-custom").performClick()
+            waitForIdle()
+            onNodeWithTag("servers:address").performTextInput(address)
+            onNodeWithTag("servers:check").performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("servers:found") }
+            // The person of the stand who may switch channels on and off, not the administrator.
+            onNodeWithTag("servers:login").performTextInput("channeler")
+            onNodeWithTag("servers:password").performTextInput("secret-password")
+            onNodeWithTag("servers:connect").performClick()
+            waitUntil(timeoutMillis = 60_000L) {
+                if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
+                host.active.value.superizer.registry.get(AppId("channels")) != null && exists("home:tile-channels")
+            }
+            shot("20-channels-home")
+
+            onNodeWithTag("home:tile-channels").performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("channels:list") }
+            // The list: the badge of each channel and, under it, why it works or does not.
+            shot("21-channels-list")
+
+            // The channel whose provider module is not installed at all.
+            if (hasText("Основной сайт")) {
+                onAllNodesWithText("Основной сайт").onFirst().performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("channels:detail") }
+                shot("22-channel-provider-missing")
+                onNodeWithTag("channels:back").performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("channels:list") }
+            }
+
+            // And the refusal: a provider that is here but not finished will not let its channel on.
+            onAllNodesWithText("Бот", substring = true).onFirst().performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("channels:detail") }
+            shot("23-channel-needs-setup")
+            onNodeWithTag("channels:channels.toggle").performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("channels:error") }
+            shot("24-channel-switch-refused")
+            println("screenshots in ${out.absolutePath}")
+        }
+    }
 }

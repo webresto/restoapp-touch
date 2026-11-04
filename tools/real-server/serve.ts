@@ -12,9 +12,16 @@
  * Users, all with the password `secret-password`: admin (administrator), stock (Stock Manager on
  * p1 and p2), operator (Operator, no «Блюда»), taker (Order Taker: «Клиенты» and the POS on p1 and
  * p2), marketer («Маркетинг» with both its rights and the orders), promoter (the promotions alone),
+ * channeler («Каналы продаж», both its rights), channelview (the same section read-only),
  * nopoints (the token with no points ticked), outsider (no panel access). Places: p1
  * «Ленина, 5» (cooking and pickup), p2 «Мира, 3» (cooking), p3 «Выдача» (pickup only, no address).
  * Dishes: d1 Борщ 300, d2 Плов 450, d3 Морс 120.
+ *
+ * Sales channels: `stand-bot` «Бот стенда», whose provider module is alive here and says it is not
+ * set up — switching it on is refused with the provider's own words; and `web-main` «Основной сайт»
+ * of the type `web-storefront`, whose provider (`admin-frontend`) is not installed at all, so the
+ * card carries the «provider is not installed» notice. /admin/sales-channels-manager shows the same
+ * two, which is what «one to one» is compared against.
  *
  * Customers to find: Ольга Белова +7 999 000 00 07 (with a saved address, «ул. Мира, 3»), Иван
  * Петров +7 999 000 00 01. A delivery of the POS needs a kitchen and a tariff, so p1 and p2 carry
@@ -31,6 +38,8 @@
  *   POST /__fake/move {"id": "...", "state": "COOKING"}           moves it on the orders board
  *   GET  /__fake/orders                           the orders with their state, lines, address and owner
  *   GET  /__fake/customers                        the customers with their id, number and saved addresses
+ *   POST /__fake/channel-status {"status": "ready", "enabled": false}  what the stand's channel
+ *                                                 provider answers next, and the switch put back
  *   POST /__fake/clear-attempts                   forgets the login attempts (the limit is 10/min/IP)
  *   POST /__fake/clear-stock                      drops every DishPlace row (a clean catalog)
  *   POST /__fake/reset-catalog                    leaves only d1, d2, d3, and no stock at all
@@ -100,6 +109,10 @@ async function fixtures(sails: any) {
   // counts the money; `promoter` has one right of the section and nothing else (marketing.plan.md).
   const marketer = await group("Marketer", ["access-to-adminpanel", "promocodes-manager", "promotions-manager", "read-order-model"]);
   const promoter = await group("Promotions only", ["access-to-adminpanel", "promotions-manager"]);
+  // «Каналы продаж» has two levels of right in one screen (sales-channels.plan.md, Q52): the reader
+  // sees every channel and no action at all, the manager switches and deletes.
+  const channeler = await group("Sales channels", ["access-to-adminpanel", "sales-channels-view", "sales-channels-manage"]);
+  const channelview = await group("Sales channels read-only", ["access-to-adminpanel", "sales-channels-view"]);
 
   const user = async (login: string, groupIds: string[], extra: Record<string, unknown> = {}) =>
     User.create({
@@ -121,11 +134,14 @@ async function fixtures(sails: any) {
   await user("outsider", [nobody.id]);
   await user("marketer", [marketer.id]);
   await user("promoter", [promoter.id]);
+  await user("channeler", [channeler.id]);
+  await user("channelview", [channelview.id]);
 
   await customers(sails);
   await delivery(sails);
   await menus(sails);
   await marketing(sails);
+  await salesChannels(sails);
 
   return { places, dishes };
 }
@@ -188,6 +204,71 @@ async function marketing(sails: any) {
   await code("code-leto", "ЛЕТО10", "Скидка 10% по коду из рассылки", ["pr-summer"]);
   await code("code-autumn", "ОСЕНЬ", "Откроется к сентябрю", ["pr-lunch"], { startDate: "2099-09-01" });
   await code("code-dead", "СТАРЫЙ", "Код прошлогодней акции", ["pr-old"]);
+}
+
+/**
+ * What the channel provider of the stand answers. A real provider module is a marketplace module
+ * (`admin-frontend`, `sales-channel-telegram`); a lifted stand has none, so the stand plays one —
+ * and /__fake/channel-status is how a test makes it say «ready» or «not set up» in turn.
+ */
+const standProviderStatus = { status: "needs_setup", message: "Не задан токен бота" } as { status: string; message?: string };
+
+/**
+ * «Каналы продаж» of the stand: a channel whose provider is alive and not finished, and one whose
+ * provider module is not installed at all. Those are the two states the screen exists for — "what
+ * is wrong" and "what to do next" (sales-channels.plan.md) — and the web page shows the same.
+ */
+async function salesChannels(sails: any) {
+  const SalesChannel: any = (global as any).SalesChannel;
+  const adapterModule = require(path.join(dev, "node_modules/@webresto/core/adapters/sales-channel/SalesChannelAdapter"));
+  const SalesChannelAdapter = adapterModule.default ?? adapterModule;
+
+  class StandBotProvider extends SalesChannelAdapter {
+    constructor() {
+      super({
+        type: {
+          type: "stand-bot",
+          title: "Бот стенда",
+          category: "messenger",
+          providerModule: "sales-channel-stand",
+          marketplaceAppId: "sales-channel-stand",
+          icon: "send",
+          settingsUrl: "/admin/sales-channel-stand/setup",
+          capabilities: ["orders:create", "menu:browse", "customers:identify"],
+        },
+        defaults: { key: "stand-bot", title: "Бот стенда", platforms: ["stand-bot"] },
+      });
+    }
+
+    async getStatus() {
+      return standProviderStatus.message ? { status: standProviderStatus.status, message: standProviderStatus.message } : { status: standProviderStatus.status };
+    }
+
+    async onChannelDeleted() {
+      /* the stand's provider has nothing of its own to clean up */
+    }
+  }
+
+  // The module of that provider, as the module manager would have recorded it: without the row core
+  // reads the provider as "not installed", and a provider's own channel may then be deleted — on a
+  // real server it may not be, and that refusal is one of the things this stand is for.
+  const Module = sails.models.module;
+  if (Module && !(await Module.findOne({ appId: "sales-channel-stand" }))) {
+    await Module.create({ name: "Бот стенда", appId: "sales-channel-stand", hookName: "salesChannelStand", version: "1.0.0", enable: true, isDeleted: false }).fetch();
+  }
+
+  // alive() registers the type and creates the provider's channel: disabled, needs_setup.
+  await SalesChannel.alive(new StandBotProvider());
+
+  // The website of the stand: its provider module (`admin-frontend`) is not installed here, so core
+  // answers «Not working: provider is not installed» and the switch is not even offered.
+  if (!(await SalesChannel.findOne({ key: "web-main" }))) {
+    await SalesChannel.create({
+      key: "web-main", title: "Основной сайт", type: "web-storefront", providerModule: "admin-frontend",
+      managedBy: "operator", enabled: false, status: "needs_setup", platforms: ["web", "pwa-ios"],
+      countries: ["RU"], url: "https://example.org", sortOrder: 0,
+    }).fetch();
+  }
 }
 
 /**
@@ -406,6 +487,20 @@ async function main() {
           // Every point's own stock, back to «no row» — the walk starts from a clean catalog.
           const gone = await sails.models.dishplace.destroy({}).fetch();
           return answer({ destroyed: gone.length });
+        }
+        if (req.url === "/__fake/channel-status") {
+          // What the stand's channel provider says from now on: «ready» lets the channel be
+          // switched on, anything else is the refusal a person reads.
+          standProviderStatus.status = data.status ?? "needs_setup";
+          standProviderStatus.message = data.message === undefined ? standProviderStatus.message : data.message;
+          // `enabled` puts the operator's switch back where a walk expects to find it: a channel
+          // already on cannot be refused being switched on.
+          if (data.enabled !== undefined) {
+            await (global as any).SalesChannel.update({ type: "stand-bot" }, { enabled: Boolean(data.enabled) }).fetch();
+          }
+          // The provider pushes its news the way a real one does, so nothing stale is read.
+          const refreshed = await (global as any).SalesChannel.refreshStatus("stand-bot");
+          return answer({ ok: true, status: standProviderStatus.status, channels: refreshed });
         }
         if (req.url === "/__fake/clear-attempts") {
           // The login limit is 10 a minute per IP; a walkthrough from one machine trips it at once.

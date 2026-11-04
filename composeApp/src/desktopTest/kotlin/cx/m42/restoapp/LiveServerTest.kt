@@ -1,6 +1,8 @@
 package cx.m42.restoapp
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -153,6 +155,101 @@ class LiveServerTest {
     private fun androidx.compose.ui.test.ComposeUiTest.onNodeWithContentDescriptionOpenMenu() {
         onNode(androidx.compose.ui.test.hasContentDescription("Открыть меню")).performClick()
         waitForIdle()
+    }
+
+    /**
+     * «Каналы продаж» against the running hook: the screen exists to say **why** a channel does not
+     * work and what to do next, so what is walked here is a refusal — the switch of a channel whose
+     * provider is alive but not set up comes back as a sentence, not as a 409
+     * (`sales-channels.plan.md`, C31). Works against either server: `tools/fake-server` has the
+     * channels of the hook's own fakes, `tools/real-server` the two of the stand.
+     */
+    @Test
+    fun theChannelsSayWhyOneDoesNotWorkAndRefuseTheSwitchInWords() {
+        val base = fakeServer() ?: return
+        val dir = Files.createTempDirectory("restoapp-channels").toFile()
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(dir),
+            debug = true,
+            device = DeviceInfo("Live test", "desktop"),
+            solver = CryptoPuzzleSolver,
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+
+        // On the stand: the provider of its channel says it is not set up, and the switch is off —
+        // the state a walk starts from. The fake server has no such path and answers 404; its own
+        // channels are already in that state.
+        runCatching { control(base, "channel-status", """{"status": "needs_setup", "message": "Не задан токен бота", "enabled": false}""") }
+
+        runComposeUiTest {
+            setContent { RestoApp(host) }
+            waitForIdle()
+            signIn(base, "channeler")
+            waitUntil(timeoutMillis = 30_000L) { host.active.value.superizer.registry.get(AppId("channels")) != null }
+            waitForIdle()
+
+            onNodeWithTag("home:tile-channels").performClick()
+            waitUntil(timeoutMillis = 15_000L) { exists("channels:list") }
+
+            // A channel whose provider module is not installed says so on its own row, with the appId
+            // to install — the notice of the web page, in one line.
+            assertTrue(
+                onAllNodesWithText("Не работает: провайдер не установлен", substring = true).fetchSemanticsNodes().isNotEmpty(),
+                "no channel on this server says its provider is not installed",
+            )
+
+            // The channel whose provider is here and not finished: open it and try the switch.
+            onAllNodesWithText("Бот", substring = true).onFirst().performClick()
+            waitUntil(timeoutMillis = 15_000L) { exists("channels:detail") }
+            onNodeWithTag("channels:channels.toggle").performClick()
+            waitUntil(timeoutMillis = 15_000L) { exists("channels:error") }
+            assertTrue(
+                onAllNodesWithText("Сначала настройте канал", substring = true).fetchSemanticsNodes().isNotEmpty(),
+                "the refusal of the switch is not shown in words",
+            )
+        }
+
+        // The same screen for somebody who may only look: every channel, and nothing to press.
+        val reader = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(Files.createTempDirectory("restoapp-channels-reader").toFile()),
+            debug = true,
+            device = DeviceInfo("Live reader", "desktop"),
+            solver = CryptoPuzzleSolver,
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+
+        runComposeUiTest {
+            setContent { RestoApp(reader) }
+            waitForIdle()
+            signIn(base, "channelview")
+            waitUntil(timeoutMillis = 30_000L) { reader.active.value.superizer.registry.get(AppId("channels")) != null }
+            onNodeWithTag("home:tile-channels").performClick()
+            waitUntil(timeoutMillis = 15_000L) { exists("channels:list") }
+            onAllNodesWithText("Бот", substring = true).onFirst().performClick()
+            waitUntil(timeoutMillis = 15_000L) { exists("channels:detail") }
+            onNodeWithTag("channels:channels.toggle").assertDoesNotExist()
+            onNodeWithTag("channels:channels.delete").assertDoesNotExist()
+        }
+    }
+
+    private fun androidx.compose.ui.test.ComposeUiTest.exists(tag: String) =
+        runCatching { onNodeWithTag(tag).assertExists() }.isSuccess
+
+    /** Connect the server by its address and sign in — the CAPTCHA solved by the Kotlin solver. */
+    private fun androidx.compose.ui.test.ComposeUiTest.signIn(base: String, login: String) {
+        onNodeWithContentDescriptionOpenMenu()
+        onNodeWithTag("context:row").performClick()
+        waitForIdle()
+        onNodeWithTag("context:add").performClick()
+        waitForIdle()
+        onNodeWithTag("servers:add-custom").performClick()
+        waitForIdle()
+        onNodeWithTag("servers:address").performTextInput(base)
+        onNodeWithTag("servers:check").performClick()
+        waitUntil(timeoutMillis = 15_000L) { exists("servers:found") }
+        onNodeWithTag("servers:login").performTextInput(login)
+        onNodeWithTag("servers:password").performTextInput("secret-password")
+        onNodeWithTag("servers:connect").performClick()
     }
 
     /**
