@@ -82,8 +82,12 @@ internal class RenderContext(
 
     fun field(model: String?, name: String?): Field? = name?.let { app.fields(model).firstOrNull { it.name == name } }
 
+    /**
+     * The value a row or the head of a card names. The same rule as for the lines of a card: a field the record
+     * does not carry at all is not drawn — a «—» pill says nothing — and one that is there and empty is a «—».
+     */
     fun show(record: JsonObject, model: String?, name: String?): Shown? =
-        name?.let { showValue(record[it], field(model, it), facts, words, now) }
+        name?.takeIf(record::containsKey)?.let { showValue(record[it], field(model, it), facts, words, now) }
 
     /** The record's actions this app declares, drawn at [placement]. */
     fun actions(record: JsonObject, placement: String): List<Pair<RecordAction, DeclaredMethod>> =
@@ -559,7 +563,7 @@ private fun RecordCard(instance: ServerAppInstance, context: RenderContext, mode
         Card {
             links.forEachIndexed { index, link ->
                 if (index > 0) RowDivider()
-                LinkRow(instance, context, link)
+                LinkRow(instance, context, link, index)
             }
         }
     }
@@ -568,16 +572,17 @@ private fun RecordCard(instance: ServerAppInstance, context: RenderContext, mode
 
 /** One line of `_links`: its words, what it says about itself, and a «›» to say it opens. */
 @Composable
-private fun LinkRow(instance: ServerAppInstance, context: RenderContext, link: RecordLink) {
+private fun LinkRow(instance: ServerAppInstance, context: RenderContext, link: RecordLink, index: Int) {
     ListRow(
         title = link.title,
         subtitle = link.meta,
         meta = null,
-        value = "›",
+        // A line that leaves the app says so: «↗» for the browser of the system, «›» for one more screen.
+        value = if (link.open.url != null) "↗" else "›",
         valueTone = null,
         badge = null,
         badgeTone = null,
-        tag = "${context.tag}:link-${link.open.method}",
+        tag = "${context.tag}:link-${link.open.method ?: "url-$index"}",
         onClick = { instance.openLink(link.open, link.title) },
     )
 }

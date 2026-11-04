@@ -270,6 +270,9 @@ internal class ServerSession(
     }
 
     inner class Bound(private val appId: String) : RestoServer {
+        /** What this server was connected by: a link of its own («/admin/…») is resolved against it. */
+        override val address: String get() = profile.address
+
         override val app: StateFlow<DeclaredApp?> =
             _declaration.map { it?.app(appId) }.stateIn(scope, SharingStarted.Eagerly, _declaration.value?.app(appId))
 

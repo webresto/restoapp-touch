@@ -148,7 +148,7 @@ class HttpMobileApiLiveTest {
         assertEquals(listOf("marketing.promocodes", "marketing.promotions", "marketing.applications"), links.map { it.open.method })
 
         // The link is followed, as the client follows it: one more frame, with the server's own params.
-        val codes = api.call(token, links.first().open.method, links.first().open.params, null, "ru")
+        val codes = api.call(token, links.first().open.method!!, links.first().open.params, null, "ru")
         Contract.assertValid("listResult", codes.value)
         val leto = ListPage.of(codes.value).items.first { it["code"] == JsonPrimitive("LETO10") }
         assertEquals(JsonPrimitive("active"), leto["status"])

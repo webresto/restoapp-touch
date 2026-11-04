@@ -2,6 +2,7 @@ package cx.m42.restoapp.render
 
 import androidx.compose.runtime.Composable
 import cx.m42.restoapp.protocol.DeclaredApp
+import cx.m42.restoapp.protocol.Open
 import cx.m42.superizer.app.AppConfigSpec
 import cx.m42.superizer.app.AppIcon
 import cx.m42.superizer.app.AppId
@@ -14,9 +15,12 @@ import cx.m42.superizer.runtime.InstanceRuntime
 import cx.m42.superizer.runtime.require
 import kotlinx.serialization.Serializable
 
-/** Nothing to configure: what an app shows is the server's declaration. */
+/**
+ * What an app shows is the server's declaration, so there is nothing to configure — apart from [target], the
+ * screen a link of another app leads to: «Установить провайдера» opens «Систему» on its catalog, on that module.
+ */
 @Serializable
-public data class ServerAppConfig(val schemaVersion: Int = 1)
+public data class ServerAppConfig(val schemaVersion: Int = 1, val target: Open? = null)
 
 /**
  * One app a server declares (plan section 4): its id, title, icon and category come from the
@@ -42,7 +46,7 @@ public class ServerApp(declared: DeclaredApp, lang: String) : SuperizerApp<Serve
     override val configSpec: AppConfigSpec<ServerAppConfig> = AppConfigSpec(ServerAppConfig.serializer(), ServerAppConfig())
 
     override fun launch(runtime: InstanceRuntime, config: ServerAppConfig): AppInstance =
-        ServerAppInstance(runtime, runtime.require(RestoServer.Key))
+        ServerAppInstance(runtime, runtime.require(RestoServer.Key), config.target)
 
     public companion object {
         /** Ids the menu can take: the declaration's ids are kebab-case by the contract, but a server may be wrong. */

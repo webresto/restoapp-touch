@@ -69,16 +69,17 @@
     },
 
     "open": {
-      "description": "Where a tap leads. Without `app` — a method of the same app, with any params (`ui.open` is the default link of a uniform list and sends only `{id}`). With `app` — another app, and `place` is required when that app is by points. A link is built by the server after checking the rights (`ctx.canOpen`), and it is a hint and not a permission: the call it leads to is checked like any other.",
+      "description": "Where a tap leads. Without `app` — a method of the same app, with any params (`ui.open` is the default link of a uniform list and sends only `{id}`). With `app` — another app, and `place` is required when that app is by points. With `url` — an address outside the apps, http(s) or a path, which the client opens in the browser of the system (runtime.navigation.openUrl) and refuses otherwise: the settings page of a channel's provider module, the public address of a channel, a page of the marketplace. A path («/admin/…») is resolved by the client against the address of this server — the hook cannot know the address it is reached by. Exactly one of `method` and `url` is given. A link is built by the server after checking the rights (`ctx.canOpen`), and it is a hint and not a permission: the call it leads to is checked like any other; a client that understands neither key draws no line at all.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["method"],
+      "oneOf": [{ "required": ["method"] }, { "required": ["url"] }],
       "properties": {
         "app": { "$ref": "#/definitions/id" },
         "method": { "$ref": "#/definitions/methodName" },
         "params": { "type": "object" },
         "place": { "type": "string" },
-        "title": { "$ref": "#/definitions/text" }
+        "title": { "$ref": "#/definitions/text" },
+        "url": { "type": "string", "minLength": 1, "maxLength": 2000, "pattern": "^(https?://|/)" }
       }
     },
 

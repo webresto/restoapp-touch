@@ -194,10 +194,10 @@ class DemoContractTest {
         assertEquals(JsonPrimitive("ЛЕТО10"), links.first().open.params["code"])
 
         // The link of the card is followed: the applications of that code, and its promotions.
-        val ofCode = demo.call("demo", links.first().open.method, links.first().open.params, null, "ru").value
+        val ofCode = demo.call("demo", links.first().open.method!!, links.first().open.params, null, "ru").value
         Contract.assertValid("listResult", ofCode)
         assertTrue(ListPage.of(ofCode).items.all { it["code"] == JsonPrimitive("ЛЕТО10") })
-        val promotions = demo.call("demo", links[1].open.method, links[1].open.params, null, "ru").value
+        val promotions = demo.call("demo", links[1].open.method!!, links[1].open.params, null, "ru").value
         assertEquals(listOf("Летняя скидка"), ListPage.of(promotions).items.map { (it["name"] as JsonPrimitive).content })
 
         // A percentage and a flat amount are different fields: neither is ever read as the other.
@@ -263,6 +263,37 @@ class DemoContractTest {
         Contract.assertInvalid("ui", """{"view":"list","colour":"red"}""")
         Contract.assertInvalid("control", """{"type":"slider"}""")
         Contract.assertInvalid("field", """{"name":"x","title":"X","format":"markdown"}""")
+    }
+
+    /** A line leads to a method or to an address (Q53): one of the two, and an address a phone can open. */
+    @Test
+    fun aLinkLeadsToAMethodOrToAnAddress() {
+        Contract.assertValid("open", ProtocolJson.parseToJsonElement("""{"method":"channels.types"}"""))
+        Contract.assertValid("open", ProtocolJson.parseToJsonElement("""{"url":"/admin/frontend/setup?channel=1"}"""))
+        Contract.assertValid("open", ProtocolJson.parseToJsonElement("""{"url":"https://example.org"}"""))
+        Contract.assertInvalid("open", """{}""")
+        Contract.assertInvalid("open", """{"method":"channels.types","url":"/admin"}""")
+        Contract.assertInvalid("open", """{"url":""}""")
+        Contract.assertInvalid("open", """{"url":"javascript:alert(1)"}""")
+        Contract.assertInvalid("open", """{"url":"file:///etc/passwd"}""")
+
+        val card = ProtocolJson.parseToJsonElement(
+            """{"id":"c","_links":[{"title":"Настроить","open":{"url":"/admin/setup"}},{"title":"Каталог","open":{"app":"system","method":"system.catalog","params":{"appId":"a"}}}]}""",
+        ) as JsonObject
+        val links = card.links()
+        assertEquals("/admin/setup", links[0].open.url)
+        assertEquals(null, links[0].open.method)
+        assertEquals("system.catalog", links[1].open.method)
+        assertEquals(null, links[1].open.url)
+    }
+
+    /** A server newer than this client: a key of a link it does not know is not a reason to lose the line. */
+    @Test
+    fun aLinkWithAKeyTheClientDoesNotKnowIsStillALink() {
+        val card = ProtocolJson.parseToJsonElement(
+            """{"id":"c","_links":[{"title":"Настройки","future":1,"open":{"url":"/admin/setup","target":"blank"}}]}""",
+        ) as JsonObject
+        assertEquals("/admin/setup", card.links().single().open.url)
     }
 
     @Test

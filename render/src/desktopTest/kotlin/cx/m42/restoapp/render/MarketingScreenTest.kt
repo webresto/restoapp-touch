@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollTo
 import com.composeunstyled.Text
@@ -18,7 +19,16 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import cx.m42.restoapp.protocol.Answer
+import cx.m42.restoapp.protocol.ProtocolJson
+import cx.m42.superizer.app.asConfig
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -243,5 +253,145 @@ class MarketingScreenTest {
         assertAbsent("marketing:field-applications")
         assertAbsent("marketing:link-marketing.applications")
         ui.onNodeWithText("Промокоды · 4").assertExists()
+    }
+
+    /** A row that lacks what the list names under its title: nothing is drawn there, not a «—» pill. */
+    @Test
+    fun aRowWithoutAFieldDrawsNothingInItsPlace() {
+        val demo = DemoServer.demo(DemoRole.Admin)
+        val named = runBlocking { demo.describe("demo", "ru").value }.app("marketing")!!.method("marketing.promocodes")!!.ui!!.item!!
+        val api = object : cx.m42.restoapp.protocol.MobileApi by demo {
+            override suspend fun call(token: String, method: String, params: JsonObject, place: String?, lang: String): Answer<JsonElement> {
+                val answer = demo.call(token, method, params, place, lang)
+                if (method != "marketing.promocodes") return answer
+                val root = answer.value.jsonObject
+                val rows = root.getValue("items").jsonArray.map { row ->
+                    JsonObject(row.jsonObject - setOfNotNull(named.subtitle, named.meta, named.badge, named.value))
+                }
+                return answer.copy(value = JsonObject(root + ("items" to JsonArray(rows))))
+            }
+        }
+        val server = DemoServer(api, "marketing")
+        runAppTest(ServerApp(server.app.value!!, "ru"), prepare = { it.provide(RestoServer.Key, server) }) {
+            idle()
+            tap("marketing:link-marketing.promocodes")
+            idle()
+            node("marketing:row-code-leto").assertExists()
+            assertTrue(ui.onAllNodesWithText("—", substring = true).fetchSemanticsNodes().isEmpty())
+        }
+    }
+
+    // ---- a line that leaves the screen: an address (Q53) or another app ----
+
+    /** The home screen of «Маркетинг», with the lines a server may add to any card. */
+    private fun withLines(lines: String, address: String = "https://resto.example", block: AppTestScope<ServerAppConfig>.() -> Unit) {
+        val demo = DemoServer.demo(DemoRole.Admin)
+        val api = object : cx.m42.restoapp.protocol.MobileApi by demo {
+            override suspend fun call(token: String, method: String, params: JsonObject, place: String?, lang: String): Answer<JsonElement> {
+                val answer = demo.call(token, method, params, place, lang)
+                if (method != "marketing.home") return answer
+                val root = answer.value.jsonObject
+                val item = root.getValue("item").jsonObject
+                val links = ProtocolJson.parseToJsonElement(lines)
+                return answer.copy(value = JsonObject(root + ("item" to JsonObject(item + ("_links" to links)))))
+            }
+        }
+        val server = DemoServer(api, "marketing", address = address)
+        runAppTest(ServerApp(server.app.value!!, "ru"), prepare = { it.provide(RestoServer.Key, server) }) {
+            idle()
+            block()
+        }
+    }
+
+    @Test
+    fun aLineWithAPathOpensThePageOfThisServerInTheBrowser() =
+        withLines("""[{"title":"Настроить","open":{"url":"/admin/frontend/setup?channel=c1"}}]""") {
+            ui.onNodeWithText("Настроить").assertExists()
+            // A line that leaves the app says so, and the screen stays where it was.
+            ui.onNodeWithText("↗").assertExists()
+            tap("marketing:link-url-0")
+            idle()
+            assertEquals(listOf("https://resto.example/admin/frontend/setup?channel=c1"), runtime.navigation.urls)
+            assertEquals(1, screen.frames.value.size)
+        }
+
+    @Test
+    fun aLineWithAnAddressOpensItAsItIs() =
+        withLines("""[{"title":"Открыть","open":{"url":"https://shop.example/menu"}}]""") {
+            tap("marketing:link-url-0")
+            idle()
+            assertEquals(listOf("https://shop.example/menu"), runtime.navigation.urls)
+        }
+
+    @Test
+    fun anAddressOfAnotherProgramIsNotOpenedAndTheScreenSaysSo() =
+        withLines("""[{"title":"Открыть","open":{"url":"file:///etc/passwd"}}]""") {
+            tap("marketing:link-url-0")
+            idle()
+            assertTrue(runtime.navigation.urls.isEmpty())
+            assertShown("marketing:notice")
+            ui.onNodeWithText("Не удалось открыть ссылку").assertExists()
+        }
+
+    @Test
+    fun aPathWithNoAddressToResolveItAgainstIsNotOpened() =
+        withLines("""[{"title":"Настроить","open":{"url":"/admin/setup"}}]""", address = "") {
+            tap("marketing:link-url-0")
+            idle()
+            assertTrue(runtime.navigation.urls.isEmpty())
+            assertShown("marketing:notice")
+        }
+
+    @Test
+    fun aLineIntoAnotherAppCarriesWhereItLeads() =
+        withLines("""[{"title":"Установить провайдера","open":{"app":"system","method":"system.catalog","params":{"appId":"sales-channel-kiosk"}}}]""") {
+            tap("marketing:link-system.catalog")
+            idle()
+            val (id, config) = runtime.navigation.opened.single()
+            assertEquals("system", id.value)
+            val target = config.json.getValue("target").jsonObject
+            assertEquals(JsonPrimitive("system.catalog"), target["method"])
+            assertEquals(JsonPrimitive("sales-channel-kiosk"), target.getValue("params").jsonObject["appId"])
+        }
+
+    @Test
+    fun aLineIntoAnAppThatIsNotThereSaysSo() =
+        withLines("""[{"title":"Установить провайдера","open":{"app":"system","method":"system.catalog"}}]""") {
+            runtime.navigation.unknown += cx.m42.superizer.app.AppId("system")
+            tap("marketing:link-system.catalog")
+            idle()
+            assertShown("marketing:notice")
+            ui.onNodeWithText("Этот переход сейчас недоступен").assertExists()
+        }
+
+    @Test
+    fun anAppOpenedByALineOpensOnThatScreenAndBackIsItsOwnHome() {
+        val server = DemoServer(DemoServer.demo(DemoRole.Admin), "marketing")
+        val config = buildJsonObject {
+            put("target", buildJsonObject { put("method", "marketing.promotions") })
+        }.asConfig()
+        runAppTest(ServerApp(server.app.value!!, "ru"), config = config, prepare = { it.provide(RestoServer.Key, server) }) {
+            idle()
+            assertShown("marketing:list")
+            assertEquals(listOf("marketing.home", "marketing.promotions"), screen.frames.value.map { it.method })
+            screen.back()
+            idle()
+            assertShown("marketing:detail")
+            assertEquals(1, screen.frames.value.size)
+        }
+    }
+
+    @Test
+    fun aLineToAMethodThisPersonDoesNotHaveLeavesTheHomeScreenAndSaysSo() {
+        val server = DemoServer(DemoServer.demo(DemoRole.Admin), "marketing")
+        val config = buildJsonObject {
+            put("target", buildJsonObject { put("method", "marketing.nothing") })
+        }.asConfig()
+        runAppTest(ServerApp(server.app.value!!, "ru"), config = config, prepare = { it.provide(RestoServer.Key, server) }) {
+            idle()
+            assertShown("marketing:detail")
+            assertEquals(1, screen.frames.value.size)
+            assertShown("marketing:notice")
+        }
     }
 }

@@ -33,6 +33,7 @@ class DemoServer(
     val api: MobileApi,
     private val appId: String,
     private val lang: String = "ru",
+    override val address: String = "",
 ) : RestoServer {
     private var declaration: Declaration = runBlocking { api.describe("demo", lang).value }
 
