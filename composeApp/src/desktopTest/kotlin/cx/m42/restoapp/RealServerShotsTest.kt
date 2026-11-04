@@ -110,6 +110,20 @@ class RealServerShotsTest {
             waitUntil(timeoutMillis = 30_000L) { exists("system:detail") }
             shot("system-02-server-card")
 
+            // The question before the dangerous button, and the plan the harmless one makes.
+            onNodeWithTag("system:system.restart-now").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 10_000L) { exists("system:system.restart-now:confirm") }
+            shot("system-10-restart-asks")
+            onNodeWithTag("system:system.restart-now:no").performClick()
+            waitForIdle()
+            if (exists("system:system.restart-midnight")) {
+                onNodeWithTag("system:system.restart-midnight").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:field-restartText:value") }
+            }
+            onNodeWithTag("system:field-restartText:value").performScrollTo()
+            shot("system-11-restart-planned")
+            onNodeWithTag("system:link-system.modules").performScrollTo()
+
             onNodeWithTag("system:link-system.modules").performScrollTo().performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("system:row-restocore") }
             shot("system-03-programs")
@@ -147,6 +161,12 @@ class RealServerShotsTest {
             // The right is the door: the same server, a stock manager, and no «Система» on Home.
             signIn(address, "stock", "home:tile-dishes")
             shot("system-09-no-system-for-stock")
+
+            // The refusal of the restart: the card of the server, and no button on it.
+            signIn(address, "settler", "home:tile-system")
+            onNodeWithTag("home:tile-system").performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("system:detail") }
+            shot("system-12-no-restart-for-settings")
             println("screenshots in ${out.absolutePath}")
         }
     }

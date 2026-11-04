@@ -668,6 +668,29 @@ class RealServerWalkTest {
             onNodeWithTag("system:link-settings.list").assertDoesNotExist()
             onNodeWithTag("system:link-channels.list").assertDoesNotExist()
 
+            // 2a. The restart. «Сейчас» drops everybody's connection, so it asks in words, and «нет»
+            // leaves the server alone. The plan stays in the stand's memory between runs of this
+            // walk, so «в полночь» is pressed only where it is still offered.
+            onNodeWithTag("system:system.restart-now").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 10_000L) { exists("system:system.restart-now:confirm") }
+            onNodeWithText(
+                "Перезапустить сервер сейчас? Приложение на несколько секунд перестанет отвечать, " +
+                    "а заказы, которые оформляются в эту минуту, могут не пройти.",
+            ).assertExists()
+            onNodeWithTag("system:system.restart-now:no").performClick()
+            waitForIdle()
+            onNodeWithTag("system:system.restart-now").assertExists()
+            // A plan for the night asks nothing: it is harmless. The card says so at once, and of
+            // the two buttons only «сейчас» is left.
+            if (exists("system:system.restart-midnight")) {
+                onNodeWithTag("system:system.restart-midnight").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:field-restartText:value") }
+            }
+            onNodeWithTag("system:field-restartText:value").performScrollTo()
+                .assertTextEquals("Перезагрузка запланирована на 00:00 по времени сервера.")
+            onNodeWithTag("system:system.restart-midnight").assertDoesNotExist()
+            onNodeWithTag("system:system.restart-now").assertExists()
+
             // 3. The programs of this server, as the «Extensions» page lists them: the core of the
             // installation is among them and is marked a system one.
             onNodeWithTag("system:link-system.modules").performScrollTo().performClick()
@@ -710,6 +733,59 @@ class RealServerWalkTest {
             waitForIdle()
             connect(address, "stock", "home:tile-dishes")
             onNodeWithTag("home:tile-system").assertDoesNotExist()
+
+            // 8. The right closes the restart too: somebody who only leads the settings has the
+            // card of the server, with no button on it and not a word of a plan they cannot act on.
+            connect(address, "settler", "home:tile-system")
+            onNodeWithTag("home:tile-system").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
+            onNodeWithTag("system:field-timezone:value").assertTextEquals("Europe/Moscow")
+            onNodeWithTag("system:system.restart-now").assertDoesNotExist()
+            onNodeWithTag("system:system.restart-midnight").assertDoesNotExist()
+            onNodeWithTag("system:field-restartText:value").assertDoesNotExist()
+        }
+    }
+
+    /**
+     * The one press that takes the stand down, so it is asked for by name and runs alone:
+     *
+     *   RESTOAPP_RESTART_STAND=1 ./gradlew :composeApp:desktopTest \
+     *     --tests '*RealServerWalkTest.theRestartNowAgainstTheRealServer' -Prestoapp.serverUrl=<url>
+     */
+    @Test
+    fun theRestartNowAgainstTheRealServer() {
+        val address = base ?: return
+        if (System.getenv("RESTOAPP_RESTART_STAND") != "1") {
+            println("SKIPPED: this walk exits the stand, set RESTOAPP_RESTART_STAND=1")
+            return
+        }
+        control("clear-attempts")
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(Files.createTempDirectory("restoapp-real-restart").toFile()),
+            debug = true,
+            device = DeviceInfo("Real restart walk", "desktop"),
+            solver = CryptoPuzzleSolver,
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+
+        runComposeUiTest {
+            setContent { RestoApp(host) }
+            waitForIdle()
+            connect(address, "admin", "home:tile-system")
+            onNodeWithTag("home:tile-system").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
+
+            onNodeWithTag("system:system.restart-now").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 10_000L) { exists("system:system.restart-now:confirm") }
+            onNodeWithTag("system:system.restart-now:yes").performClick()
+
+            // The answer gets out before the process goes: the card says what is going on, and
+            // nothing is left to press.
+            waitUntil(timeoutMillis = 10_000L) { exists("system:field-restartText:value") }
+            onNodeWithTag("system:field-restartText:value").performScrollTo()
+                .assertTextEquals("Сервер перезапускается")
+            onNodeWithTag("system:system.restart-now").assertDoesNotExist()
+            onNodeWithTag("system:system.restart-midnight").assertDoesNotExist()
         }
     }
 
