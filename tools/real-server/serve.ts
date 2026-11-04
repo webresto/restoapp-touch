@@ -33,6 +33,7 @@
  *   POST /__fake/clear-attempts                   forgets the login attempts (the limit is 10/min/IP)
  *   POST /__fake/clear-stock                      drops every DishPlace row (a clean catalog)
  *   POST /__fake/reset-catalog                    leaves only d1, d2, d3, and no stock at all
+ *   POST /__fake/reset-menus                      the site's menus back as seeded (simple-navigation)
  *   POST /__fake/bulk-dishes {"count": 60}        adds that many dishes, for the paging
  *   POST /__fake/drop-bulk-dishes                 removes them again
  *   GET  /__fake/web-stock?place=p1&id=d1         what the web Stock Manager reads there
@@ -350,6 +351,15 @@ async function main() {
           const gone = await sails.models.dish.destroy({ id: { nin: ["d1", "d2", "d3"] } }).fetch();
           await sails.models.dishplace.destroy({}).fetch();
           return answer({ destroyed: gone.length });
+        }
+        if (req.url === "/__fake/reset-menus") {
+          // The menus of simple-navigation, as they were seeded: the screenshots of «Навигация» are
+          // then the same every run, however the last one dragged and saved them.
+          if (sails.models.navigation) {
+            await sails.models.navigation.destroy({}).fetch();
+            await menus(sails);
+          }
+          return answer({ ok: true });
         }
         if (req.url === "/__fake/clear-stock") {
           // Every point's own stock, back to «no row» — the walk starts from a clean catalog.

@@ -7,16 +7,28 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,7 +45,10 @@ import cx.m42.superizer.ui.components.ButtonVariant
 import com.composeunstyled.Text
 import cx.m42.superizer.ui.platform.SystemBackHandler
 import cx.m42.superizer.theme.AppTheme
+import kotlin.math.roundToInt
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * The screen a script drew (js-module.plan.md, stage 0): a tree of nodes, drawn by the components
@@ -105,11 +120,7 @@ private fun ScriptNodeView(node: ScriptNode, instance: ScriptAppInstance, words:
             if (node.items.isEmpty()) {
                 EmptyState(node.empty ?: words.nothingFound, null, null, null, "$tag:empty")
             } else {
-                LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                    items(node.items, key = { it.key ?: it.title.orEmpty() }) { row ->
-                        ScriptRowView(row, instance, words, "$tag:row-${row.key ?: row.title}")
-                    }
-                }
+                ScriptListView(node, instance, words, tag)
             }
 
         "button" -> ConfirmButton(
@@ -142,9 +153,93 @@ private fun ScriptNodeView(node: ScriptNode, instance: ScriptAppInstance, words:
     }
 }
 
-/** A row of a list: its switch is drawn beside it, and its actions under it. */
+/**
+ * A list, dragged into order when the script asked for it (`ui.list({ onReorder })`).
+ *
+ * The drag is the host's whole business: the row follows the finger, its neighbours make room, and
+ * JS hears about it once — on release, with `{from, to}`. So a long list costs the script nothing
+ * while it is being dragged, and a drop that changes nothing is not even a call.
+ *
+ * A list without `onReorder` is a plain column of rows, exactly as before.
+ */
 @Composable
-private fun ScriptRowView(row: ScriptRow, instance: ScriptAppInstance, words: RenderWords, tag: String) {
+private fun ScriptListView(node: ScriptNode, instance: ScriptAppInstance, words: RenderWords, tag: String) {
+    val reorder = node.onReorder
+    if (reorder == null) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            node.items.forEach { row -> ScriptRowView(row, instance, words, "$tag:row-${row.key ?: row.title}", null) }
+        }
+        return
+    }
+
+    var dragging by remember(node.items.size) { mutableStateOf<Int?>(null) }
+    var offset by remember(node.items.size) { mutableFloatStateOf(0f) }
+    var rowHeight by remember { mutableStateOf(1f) }
+
+    /** Where the dragged row would land if it were dropped now. */
+    fun target(from: Int): Int =
+        (from + (offset / rowHeight).roundToInt()).coerceIn(0, node.items.lastIndex)
+
+    Column(modifier = Modifier.fillMaxWidth().testTag("$tag:list")) {
+        node.items.forEachIndexed { index, row ->
+            val from = dragging
+            val shift = when {
+                from == null -> 0f
+                index == from -> offset
+                // The row the dragged one is passing steps aside by exactly one row.
+                from < index && index <= target(from) -> -rowHeight
+                from > index && index >= target(from) -> rowHeight
+                else -> 0f
+            }
+            Box(
+                modifier = Modifier
+                    .zIndex(if (index == from) 1f else 0f)
+                    .graphicsLayer { translationY = shift }
+                    .onGloballyPositioned { placed -> if (placed.size.height > 0) rowHeight = placed.size.height.toFloat() },
+            ) {
+                ScriptRowView(
+                    row = row,
+                    instance = instance,
+                    words = words,
+                    tag = "$tag:row-${row.key ?: row.title}",
+                    drag = DragSpec(
+                        active = index == from,
+                        onStart = { dragging = index; offset = 0f },
+                        onDrag = { delta -> offset += delta },
+                        onEnd = {
+                            val to = target(index)
+                            dragging = null
+                            offset = 0f
+                            if (to != index) {
+                                instance.handle(
+                                    reorder,
+                                    buildJsonObject {
+                                        put("from", JsonPrimitive(index))
+                                        put("to", JsonPrimitive(to))
+                                    },
+                                )
+                            }
+                        },
+                        onCancel = { dragging = null; offset = 0f },
+                    ),
+                )
+            }
+        }
+    }
+}
+
+/** What a row needs to be dragged: the handle reports to the list, and the list moves the rows. */
+private data class DragSpec(
+    val active: Boolean,
+    val onStart: () -> Unit,
+    val onDrag: (Float) -> Unit,
+    val onEnd: () -> Unit,
+    val onCancel: () -> Unit,
+)
+
+/** A row of a list: its switch is drawn beside it, its handle after it, and its actions under it. */
+@Composable
+private fun ScriptRowView(row: ScriptRow, instance: ScriptAppInstance, words: RenderWords, tag: String, drag: DragSpec?) {
     Column(modifier = Modifier.fillMaxWidth()) {
         ListRow(
             title = row.title.orEmpty(),
@@ -170,6 +265,7 @@ private fun ScriptRowView(row: ScriptRow, instance: ScriptAppInstance, words: Re
                         tag = "$tag:toggle",
                     )
                 }
+                drag?.let { DragHandle(it, words, "$tag:drag") }
             },
         )
         if (row.actions.isNotEmpty()) {
@@ -188,6 +284,40 @@ private fun ScriptRowView(row: ScriptRow, instance: ScriptAppInstance, words: Re
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * The handle a row is dragged by: three lines, and the pointer is taken only on it, so the row's own
+ * tap, its switch and its actions keep working while the list is reorderable.
+ */
+@Composable
+private fun DragHandle(drag: DragSpec, words: RenderWords, tag: String) {
+    val tokens = AppTheme
+    Column(
+        modifier = Modifier
+            .padding(start = 4.dp)
+            .clip(RoundedCornerShape(tokens.radius))
+            .background(if (drag.active) tokens.muted.copy(alpha = 0.18f) else Color.Transparent)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .semantics { contentDescription = words.reorder }
+            .testTag(tag)
+            .pointerInput(drag.onEnd) {
+                detectDragGestures(
+                    onDragStart = { drag.onStart() },
+                    onDragEnd = { drag.onEnd() },
+                    onDragCancel = { drag.onCancel() },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        drag.onDrag(amount.y)
+                    },
+                )
+            },
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        repeat(3) {
+            Box(modifier = Modifier.size(width = 14.dp, height = 2.dp).background(tokens.muted, RoundedCornerShape(1.dp)))
         }
     }
 }

@@ -63,7 +63,14 @@ internal val PRELUDE: String = """
     section: function (title, children) { return { type: "section", title: title, children: flat(children) }; },
     text: function (value) { return { type: "text", title: String(value) }; },
     list: function (props) {
-      return { type: "list", items: (props.items || []).map(row), empty: props.empty === undefined ? null : props.empty };
+      return {
+        type: "list",
+        items: (props.items || []).map(row),
+        empty: props.empty === undefined ? null : props.empty,
+        // With it the rows are dragged by a handle; the handler is called once, on release,
+        // with { from, to } — the script moves the item itself and returns the new state.
+        onReorder: keep(props.onReorder),
+      };
     },
     button: function (props) {
       return {

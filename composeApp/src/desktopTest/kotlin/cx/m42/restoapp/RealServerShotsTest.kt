@@ -1,5 +1,6 @@
 package cx.m42.restoapp
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import cx.m42.restoapp.protocol.CryptoPuzzleSolver
@@ -43,6 +45,18 @@ class RealServerShotsTest {
     private val base = System.getProperty("restoapp.serverUrl")?.takeIf { it.isNotBlank() }
     private val out = File("build/screenshots-real").apply { mkdirs() }
 
+    private fun control(base: String, path: String, body: String = "{}") {
+        runCatching {
+            java.net.http.HttpClient.newHttpClient().send(
+                java.net.http.HttpRequest.newBuilder(java.net.URI.create("$base/__fake/$path"))
+                    .header("Content-Type", "application/json")
+                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
+                    .build(),
+                java.net.http.HttpResponse.BodyHandlers.ofString(),
+            )
+        }
+    }
+
     private fun ComposeUiTest.shot(name: String) {
         waitForIdle()
         ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(out, "$name.png"))
@@ -61,6 +75,9 @@ class RealServerShotsTest {
             println("SKIPPED: no -Prestoapp.serverUrl=<url> of a running tools/real-server")
             return
         }
+        // The same screens every run: the menus of the module back as the stand seeded them.
+        control(address, "reset-menus")
+
         val host = RestoAppHost(
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
             store = DesktopServerStore(Files.createTempDirectory("restoapp-real-shots").toFile()),
@@ -109,18 +126,42 @@ class RealServerShotsTest {
                     waitUntil(timeoutMillis = 30_000L) { exists("script:back") }
                     shot("05-navigation-items")
 
-                    // Switch an item off: the script marks the screen dirty and draws «Сохранить».
+                    // Drag the first item below the second by its handle: the host drags, and the
+                    // script is told once, on the drop.
+                    val handles = nodesTagged(":drag")
+                    if (handles.fetchSemanticsNodes().size > 1) {
+                        val rowHeight = handles.fetchSemanticsNodes().let { nodes ->
+                            (nodes[1].positionInRoot.y - nodes[0].positionInRoot.y).coerceAtLeast(1f)
+                        }
+                        handles.onFirst().performMouseInput {
+                            moveTo(center)
+                            press()
+                            moveTo(center + Offset(0f, rowHeight * 0.5f))
+                            moveTo(center + Offset(0f, rowHeight * 1.1f))
+                            release()
+                        }
+                        waitUntil(timeoutMillis = 10_000L) { hasText("Сохранить") }
+                        shot("06-navigation-dragged")
+                    }
+
+                    // Switch an item off, and save: both go through the methods the script named.
                     val toggles = nodesTagged(":toggle")
                     if (toggles.fetchSemanticsNodes().isNotEmpty()) {
                         toggles.onFirst().performClick()
-                        waitUntil(timeoutMillis = 10_000L) { hasText("Сохранить") }
-                        shot("06-navigation-changed")
-
-                        // And saving goes back to the server through the method the script named.
+                        waitForIdle()
+                        shot("07-navigation-switched")
+                    }
+                    if (hasText("Сохранить")) {
                         onAllNodesWithText("Сохранить").onFirst().performClick()
                         waitUntil(timeoutMillis = 30_000L) { hasText("Сохранено") || !hasText("Сохранить") }
-                        shot("07-navigation-saved")
+                        shot("08-navigation-saved")
                     }
+                    // Back out and in again: what the server kept is what the screen shows now.
+                    if (exists("script:back")) onNodeWithTag("script:back").performClick()
+                    waitUntil(timeoutMillis = 20_000L) { hasText("Шапка") && !exists("script:back") }
+                    onAllNodesWithText("Шапка").onFirst().performClick()
+                    waitUntil(timeoutMillis = 30_000L) { exists("script:back") }
+                    shot("09-navigation-reopened")
                     if (exists("script:back")) onNodeWithTag("script:back").performClick()
                     waitForIdle()
                 }
@@ -129,16 +170,16 @@ class RealServerShotsTest {
             // And the apps the universal renderer draws, from the same server.
             onNode(hasContentDescription("Открыть меню")).performClick()
             waitForIdle()
-            shot("08-drawer-apps")
+            shot("10-drawer-apps")
             onAllNodesWithText("Блюда").onFirst().performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("dishes:list") }
-            shot("09-dishes")
+            shot("11-dishes")
 
             onNode(hasContentDescription("Открыть меню")).performClick()
             waitForIdle()
             onAllNodesWithText("Клиенты").onFirst().performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("clients:list") || exists("clients:empty") }
-            shot("10-clients")
+            shot("12-clients")
             println("screenshots in ${out.absolutePath}")
         }
     }

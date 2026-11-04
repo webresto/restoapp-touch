@@ -35,6 +35,7 @@ kotlin {
         }
         val desktopTest by getting
         desktopTest.dependencies {
+            implementation(libs.superizer.testing)
             implementation(compose.desktop.currentOs)
             implementation(libs.compose.ui.test)
             implementation(libs.kotlinx.coroutines.test)

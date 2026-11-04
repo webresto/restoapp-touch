@@ -30,6 +30,8 @@ public data class ScriptNode(
     val children: List<ScriptNode> = emptyList(),
     val items: List<ScriptRow> = emptyList(),
     val empty: String? = null,
+    /** The list is dragged into order: the handler is called with `{from, to}` when a row is dropped. */
+    val onReorder: Int? = null,
     /** An action the host performs itself. */
     val press: ScriptAction? = null,
     /** A handler in JS: `handle(it)` runs it and gives back the new screen. */
