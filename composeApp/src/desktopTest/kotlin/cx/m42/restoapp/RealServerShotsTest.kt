@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
@@ -269,7 +270,11 @@ class RealServerShotsTest {
                 onAllNodesWithText("Основной сайт").onFirst().performClick()
                 waitUntil(timeoutMillis = 30_000L) { exists("channels:detail") }
                 shot("22-channel-provider-missing")
-                onNodeWithTag("channels:back").performClick()
+                // The bottom of the same card: the line to the channel's own address.
+                onNodeWithTag("channels:link-url-0").performScrollTo()
+                waitForIdle()
+                shot("22b-channel-open-line")
+                onNodeWithTag("channels:back").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 30_000L) { exists("channels:list") }
             }
 
@@ -280,6 +285,29 @@ class RealServerShotsTest {
             onNodeWithTag("channels:channels.toggle").performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("channels:error") }
             shot("24-channel-switch-refused")
+            onNodeWithTag("channels:link-url-0").performScrollTo()
+            waitForIdle()
+            shot("24b-channel-setup-line")
+            onNodeWithTag("channels:back").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("channels:list") }
+
+            // The catalog of types: what is recommended for the country of the project, then everything.
+            onNodeWithTag("channels:row-channel-types").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 30_000L) { hasText("Telegram bot") }
+            shot("25-channel-types-recommended")
+            onNodeWithTag("channels:chip-all").performClick()
+            waitUntil(timeoutMillis = 30_000L) { hasText("Self-order kiosk") }
+            shot("26-channel-types-all")
+
+            // A type coming soon, and one whose provider is not installed here.
+            onNodeWithTag("channels:row-telegram-bot").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("channels:detail") }
+            shot("27-channel-type-coming-soon")
+            onNodeWithTag("channels:back").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("channels:list") }
+            onNodeWithTag("channels:row-web-storefront").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("channels:detail") }
+            shot("28-channel-type-not-installed")
             println("screenshots in ${out.absolutePath}")
         }
     }

@@ -220,6 +220,8 @@ const standProviderStatus = { status: "needs_setup", message: "Не задан �
  */
 async function salesChannels(sails: any) {
   const SalesChannel: any = (global as any).SalesChannel;
+  // The country of the project: what «Рекомендуем» of the catalog of types goes by.
+  await (global as any).Settings.set("COUNTRY_ISO", { value: "RU", type: "string" });
   const adapterModule = require(path.join(dev, "node_modules/@webresto/core/adapters/sales-channel/SalesChannelAdapter"));
   const SalesChannelAdapter = adapterModule.default ?? adapterModule;
 
