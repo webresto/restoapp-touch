@@ -98,6 +98,7 @@ kotlin {
             // And the one native action: the editor of a promotion (marketing.plan.md).
             implementation(project(":apps:marketing"))
             implementation(project(":apps:settings"))
+            implementation(project(":apps:system"))
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)

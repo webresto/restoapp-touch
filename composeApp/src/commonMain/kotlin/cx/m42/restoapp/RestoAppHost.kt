@@ -18,6 +18,7 @@ import cx.m42.restoapp.protocol.ServerAbout
 import cx.m42.restoapp.protocol.normalizeAddress
 import cx.m42.restoapp.marketing.MarketingScreens
 import cx.m42.restoapp.settings.SettingsScreens
+import cx.m42.restoapp.system.SystemScreens
 import cx.m42.restoapp.render.RestoServer
 import cx.m42.restoapp.pos.PosApp
 import cx.m42.restoapp.script.ScriptApp
@@ -148,6 +149,7 @@ public class RestoAppHost(
         MarketingScreens.register()
         // And the two of «Настройки»: the editor of a value by the schema it came with, and the transfer.
         SettingsScreens.register()
+        SystemScreens.register()
         // Only now: what the server says may rebuild the Superizer, and that needs `active`.
         _active.value.session.refreshInBackground()
     }

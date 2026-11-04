@@ -13,7 +13,8 @@
  * p1 and p2), operator (Operator, no «Блюда»), taker (Order Taker: «Клиенты» and the POS on p1 and
  * p2), marketer («Маркетинг» with both its rights and the orders), promoter (the promotions alone),
  * channeler («Каналы продаж», both its rights), channelview (the same section read-only),
- * nopoints (the token with no points ticked), outsider (no panel access). Places: p1
+ * settler (the settings alone: «Система» opens, and its restart does not), nopoints (the token with
+ * no points ticked), outsider (no panel access). Places: p1
  * «Ленина, 5» (cooking and pickup), p2 «Мира, 3» (cooking), p3 «Выдача» (pickup only, no address).
  * Dishes: d1 Борщ 300, d2 Плов 450, d3 Морс 120.
  *
@@ -55,6 +56,14 @@
  *   POST /__fake/setting {"key": "...", "value": …} writes one, for a test that needs a value back
  *   GET  /__fake/web-stock?place=p1&id=d1         what the web Stock Manager reads there
  *   GET  /__fake/dish-place?place=p1&id=d1        the DishPlace row behind it
+ *   POST /__fake/license {"value": "stand-license"}  sets the licence; "" takes it away again
+ *   POST /__fake/publish {"appId": "stand-hello", "version": "1.1.0"}  a new version in the marketplace
+ *   POST /__fake/reset-marketplace                the marketplace as seeded, and no `stand-*` program installed
+ *   GET  /__fake/modules                          the rows of the module manager
+ *
+ * The marketplace of the stand is a fake (`tests/support/fakeRegistry.ts` of the server): the stand
+ * cannot reach the real one. `stand-*` programs are installed into `modules/` of the server checkout,
+ * so the walks end with `reset-marketplace`.
  */
 import * as fs from "fs";
 import * as http from "http";
@@ -120,6 +129,7 @@ async function fixtures(sails: any) {
   // sees every channel and no action at all, the manager switches and deletes.
   const channeler = await group("Sales channels", ["access-to-adminpanel", "sales-channels-view", "sales-channels-manage"]);
   const channelview = await group("Sales channels read-only", ["access-to-adminpanel", "sales-channels-view"]);
+  const settler = await group("Settings only", ["access-to-adminpanel", "settings-manager"]);
 
   const user = async (login: string, groupIds: string[], extra: Record<string, unknown> = {}) =>
     User.create({
@@ -143,6 +153,7 @@ async function fixtures(sails: any) {
   await user("promoter", [promoter.id]);
   await user("channeler", [channeler.id]);
   await user("channelview", [channelview.id]);
+  await user("settler", [settler.id]);
 
   await customers(sails);
   await delivery(sails);
@@ -408,7 +419,53 @@ async function moveOrder(id: string, nextState: string, user: object): Promise<{
   });
 }
 
+/** `MM_SYSTEM_MODULES` of the stand: the real directories core and graphql live in. */
+function systemModulePaths(): string {
+  const found: string[] = [];
+  for (const name of ["@webresto/core", "@webresto/graphql"]) {
+    try {
+      found.push(require("fs").realpathSync(path.join(dev, "node_modules", name)));
+    } catch {
+      // A server built without one of them is a server without that system module.
+    }
+  }
+  return found.join(";");
+}
+
+/** The marketplace of the stand; a checkout without the fake gets a dead address, never the real one. */
+async function fakeMarketplace(): Promise<any> {
+  try {
+    const { startFakeRegistry } = require(path.join(dev, "tests/support/fakeRegistry"));
+    return await startFakeRegistry();
+  } catch {
+    return { url: "http://127.0.0.1:9", publish() {}, reset() {}, setDown() {} };
+  }
+}
+
+/** Takes every `stand-*` program off the server, without asking: a walk starts and ends clean. */
+async function dropStandModules(sails: any) {
+  const fs = require("fs");
+  const modulesPath = sails.config.modulemanager.modulesPath;
+  for (const name of fs.readdirSync(modulesPath)) {
+    if (name.startsWith("stand-")) fs.rmSync(path.join(modulesPath, name), { recursive: true, force: true });
+  }
+  await sails.models.module.destroy({ appId: { startsWith: "stand-" } });
+  const ModuleHelper = require(path.join(dev, "api/hooks/app-manager-proto/helpers/moduleHelper")).default;
+  for (const appId of Object.keys(ModuleHelper.getModules())) {
+    if (appId.startsWith("stand-")) ModuleHelper.deleteModule(appId);
+  }
+  const listFile = process.env.WEBRESTO_MODULES_LISTFILE as string;
+  if (fs.existsSync(listFile)) {
+    fs.writeFileSync(listFile, fs.readFileSync(listFile, "utf8").split("\n").filter((line: string) => !line.startsWith("stand-")).join("\n"));
+  }
+}
+
 async function main() {
+  const marketplace = await fakeMarketplace();
+  process.env.MODULE_STORAGE_URL = marketplace.url;
+  process.env.WEBRESTO_REGISTRY = marketplace.url;
+  process.env.WEBRESTO_MODULES_LISTFILE ??= path.join(require("os").tmpdir(), "restoapp-real-modules.list");
+
   // Run under `npx tsx`: its ESM loader is what resolves adminizer's directory imports.
   const rc = require(require.resolve("rc", { paths: [dev] }));
   const SailsFactory = require(require.resolve("sails", { paths: [dev] })).Sails;
@@ -420,7 +477,11 @@ async function main() {
     ADMINPANEL_LAZY_GEN_ADMIN_DISABLE: "1",
     WEBRESTO_MODULES_PATH: path.join(dev, "modules"),
     MM_SETTINGS_MODEL_DENY: "1",
-    MM_SYSTEM_MODULES: path.join(dev, "node_modules/@webresto/core"),
+    // Real paths, not the symlinks of `node_modules`: `loadHelper` of the module manager skips a
+    // module path whose `lstat` is not a directory (C47 of `system.plan.md`), so a symlinked module
+    // never gets a `Module` row and never reaches the memory the manager answers with. With the
+    // real directories the stand has what a server has: core and graphql as system modules.
+    MM_SYSTEM_MODULES: systemModulePaths(),
     AP_PASSWORD_SALT: SALT,
     // Core seeds its 102 settings from settings/*.json only when asked (hook/afterHook.ts): a
     // legacy install gets them through the module manager instead. The stand asks, so «Настройки»
@@ -467,7 +528,28 @@ async function main() {
         res.setHeader("content-type", "application/json");
         res.end(JSON.stringify(value));
       };
+      const forgetModules = () => require(path.join(dev, "api/hooks/app-mobile-api/adapters/system")).systemAdapter(sails).invalidate();
       try {
+        if (req.url === "/__fake/license") {
+          process.env.WEBRESTO_LICENSE = data.value ?? "";
+          forgetModules();
+          return answer({ ok: true });
+        }
+        if (req.url === "/__fake/publish") {
+          marketplace.publish(data.appId, data.version);
+          forgetModules();
+          return answer({ ok: true });
+        }
+        if (req.url === "/__fake/reset-marketplace") {
+          marketplace.reset();
+          await dropStandModules(sails);
+          forgetModules();
+          return answer({ ok: true });
+        }
+        if (req.url === "/__fake/modules") {
+          const rows = await sails.models.module.find({ isDeleted: { "!=": true } });
+          return answer({ modules: rows.map((row: any) => ({ appId: row.appId, version: row.version, enable: row.enable })) });
+        }
         if (req.url === "/__fake/stock-points") {
           await sails.models.groupap.updateOne({ name: "Stock Manager" }, {
             tokens: ["access-to-adminpanel", { tokenId: "stock-manager", rights: data.places }],
