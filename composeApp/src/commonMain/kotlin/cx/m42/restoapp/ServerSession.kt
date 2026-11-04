@@ -141,6 +141,16 @@ internal class ServerSession(
         }
     }
 
+    /**
+     * The code of a script app, by the link of the declaration: from the storage when it is there,
+     * downloaded otherwise. The token stays here — an app never holds one, not even to fetch itself.
+     */
+    suspend fun script(app: DeclaredApp): String {
+        val ref = app.script ?: throw MobileApiException(MobileApiException.NOT_FOUND, "${app.id} came without a script")
+        val token = stored?.token ?: throw MobileApiException(MobileApiException.UNAUTHORIZED, "Not signed in")
+        return scripts.load(app.id, token, ref).body
+    }
+
     /** Every script app of this declaration, downloaded and checked against its hash, one by one. */
     private suspend fun downloadScripts(declaration: Declaration, token: String) {
         for (app in declaration.apps) {

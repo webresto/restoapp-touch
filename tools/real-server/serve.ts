@@ -114,8 +114,38 @@ async function fixtures(sails: any) {
 
   await customers(sails);
   await delivery(sails);
+  await menus(sails);
 
   return { places, dishes };
+}
+
+/**
+ * The menus of `simple-navigation`, when that module is installed: the app «Навигация» of the mobile
+ * API reads them, and its screen comes from the server as JS (js-module.plan.md). Without the module
+ * there is no model and nothing to seed.
+ */
+async function menus(sails: any) {
+  const Navigation = sails.models?.navigation;
+  if (!Navigation) return;
+  const rows = [
+    {
+      name: "Шапка",
+      mnemonicId: "header",
+      navigation_menu: [
+        { label: "Меню", link: "/menu", active: true, visible: true },
+        { label: "Акции", link: "/stocks", active: true, visible: true },
+        { label: "О нас", link: "/static/about", active: true, visible: false },
+      ],
+    },
+    {
+      name: "Подвал",
+      mnemonicId: "footer",
+      navigation_menu: [{ label: "Доставка и оплата", link: "/static/delivery", active: true, visible: true }],
+    },
+  ];
+  for (const row of rows) {
+    if (!(await Navigation.findOne({ mnemonicId: row.mnemonicId }))) await Navigation.create(row).fetch();
+  }
 }
 
 /**

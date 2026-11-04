@@ -136,6 +136,12 @@ internal val PRELUDE: String = """
 
   globalThis.__setLang = function (value) { lang = String(value || "en"); };
 
+  /** Which route opens first: what the script said, or the first one it declared. */
+  globalThis.__home = function () {
+    if (!app || !app.routes) return null;
+    return app.home || Object.keys(app.routes)[0] || null;
+  };
+
   /** The screen as data: handlers are numbers the host sends back to `__handle`. */
   globalThis.__render = function () {
     if (!route) return JSON.stringify({ error: "nothing entered" });

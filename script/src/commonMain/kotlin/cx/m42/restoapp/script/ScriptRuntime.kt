@@ -152,6 +152,10 @@ public class ScriptRuntime(
         api.eval("__setLang(${jsText(lang)})")
     }
 
+    /** The route the script opens first: its own `home`, or the first it declared. */
+    public suspend fun home(): String =
+        turns.withLock { api.eval("__home()") ?: throw ScriptException("the script declared no routes") }
+
     /** Opens a route: `enter` runs, which may call the server, and the screen comes back drawn as data. */
     public suspend fun enter(route: String, params: JsonObject = JsonObject(emptyMap())): ScriptScreen =
         turns.withLock {

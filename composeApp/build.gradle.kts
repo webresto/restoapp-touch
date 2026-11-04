@@ -91,6 +91,8 @@ kotlin {
             implementation(project(":protocol"))
             implementation(project(":demo"))
             implementation(project(":render"))
+            // Apps whose code comes from the server (js-module.plan.md): the runtime that runs them.
+            implementation(project(":script"))
             // The one native app of a server: the POS (order-entry.plan.md).
             implementation(project(":apps:pos"))
         }
