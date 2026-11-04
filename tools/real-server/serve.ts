@@ -12,7 +12,8 @@
  * Users, all with the password `secret-password`: admin (administrator), stock (Stock Manager on
  * p1 and p2), operator (Operator, no «Блюда»), taker (Order Taker: «Клиенты» and the POS on p1 and
  * p2), marketer («Маркетинг» with both its rights and the orders), promoter (the promotions alone),
- * nopoints (the token with no points ticked), outsider (no panel access). Places: p1
+ * settler (the settings alone: «Система» opens, and its restart does not), nopoints (the token with
+ * no points ticked), outsider (no panel access). Places: p1
  * «Ленина, 5» (cooking and pickup), p2 «Мира, 3» (cooking), p3 «Выдача» (pickup only, no address).
  * Dishes: d1 Борщ 300, d2 Плов 450, d3 Морс 120.
  *
@@ -100,6 +101,7 @@ async function fixtures(sails: any) {
   // counts the money; `promoter` has one right of the section and nothing else (marketing.plan.md).
   const marketer = await group("Marketer", ["access-to-adminpanel", "promocodes-manager", "promotions-manager", "read-order-model"]);
   const promoter = await group("Promotions only", ["access-to-adminpanel", "promotions-manager"]);
+  const settler = await group("Settings only", ["access-to-adminpanel", "settings-manager"]);
 
   const user = async (login: string, groupIds: string[], extra: Record<string, unknown> = {}) =>
     User.create({
@@ -121,6 +123,7 @@ async function fixtures(sails: any) {
   await user("outsider", [nobody.id]);
   await user("marketer", [marketer.id]);
   await user("promoter", [promoter.id]);
+  await user("settler", [settler.id]);
 
   await customers(sails);
   await delivery(sails);
