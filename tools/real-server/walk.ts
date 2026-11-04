@@ -389,6 +389,134 @@ async function main() {
   const rejected = await call(operator, "orders.setState", { params: { id: waiting, to: "REJECT" }, place: "p1" });
   ok(rejected.body?.result?.item?.state === "REJECT", "rejecting it from the phone", rejected.body?.error ?? rejected.body?.result?.item?.state);
 
+  console.log(`\n== «Настройки» ==`);
+  const adminToken = tokens.admin;
+  // In Russian on purpose: the words of a value and of a state are the hook's own, in the language
+  // of the request, and that is half of what this section is checking.
+  const callRu = (method: string, body: unknown) => request("POST", `/api/mobile/call/${method}?lang=ru`, { token: adminToken, body });
+  const settingsPage = (await callRu("settings.list", { params: {} })).body.result;
+  ok(settingsPage.total === 107, "all 107 settings of this server are there", settingsPage.total);
+  ok(settingsPage.items.length === 50 && Boolean(settingsPage.nextCursor), "the first page is 50 of them",
+    { items: settingsPage.items.length, next: Boolean(settingsPage.nextCursor) });
+  const pagedKeys = settingsPage.items.map((entry: any) => entry.key);
+  same(pagedKeys.slice(0, 3), [...pagedKeys].sort().slice(0, 3), "sorted by key, as the web page sorts");
+  ok(settingsPage.items[0].id === settingsPage.items[0].key, "a row is opened by its key", settingsPage.items[0].id);
+  console.log(`       counts ${JSON.stringify(settingsPage.counts)}`);
+  ok(settingsPage.counts.all === 107 && settingsPage.counts.env === 1 && settingsPage.counts.restart === 14,
+    "the chips count the states", settingsPage.counts);
+
+  const searchedByKey = (await callRu("settings.list", { params: { q: "project" } })).body.result;
+  ok(searchedByKey.items.some((entry: any) => entry.key === "PROJECT_NAME"), "the search finds PROJECT_NAME by part of its key",
+    searchedByKey.items.map((entry: any) => entry.key));
+  const searchedByName = (await callRu("settings.list", { params: { q: "namespace" } })).body.result;
+  ok(searchedByName.items.some((entry: any) => entry.key === "UUID_NAMESPACE"), "and by part of its name",
+    searchedByName.items.map((entry: any) => entry.key));
+  const searchedByModule = (await callRu("settings.list", { params: { q: "graphql" } })).body.result;
+  ok(searchedByModule.total === 5, "and by the module that declared it", searchedByModule.total);
+
+  const secondPage = (await callRu("settings.list", { params: { cursor: settingsPage.nextCursor } })).body.result;
+  const everyRow = [...settingsPage.items, ...secondPage.items];
+  const rowFor = (key: string) => everyRow.find((entry: any) => entry.key === key);
+  ok(rowFor("BONUS_SPENDING_STRATEGY")?.valueText === "bonus_from_order_total", "a string is its own value",
+    rowFor("BONUS_SPENDING_STRATEGY")?.valueText);
+  ok(rowFor("ALLOW_BONUS_SPENDING")?.valueText === "Нет", "a flag is «Да» or «Нет»", rowFor("ALLOW_BONUS_SPENDING")?.valueText);
+  // Neither a value of its own nor a default: that one really is empty, and says so.
+  ok(rowFor("CURRENCY_SIGN")?.valueText === "—", "a setting with nothing in it says «—»", rowFor("CURRENCY_SIGN")?.valueText);
+  const onDefault = everyRow.find((entry: any) => entry.state.includes("Значение по умолчанию"));
+  ok(Boolean(onDefault), "a setting working off its declared default says so", onDefault?.key);
+  ok(rowFor("KITCHEN_RESOLVE_CHAIN")?.valueText === "nearest-geo, single-point", "a short array is written out",
+    rowFor("KITCHEN_RESOLVE_CHAIN")?.valueText);
+  ok(/^полей: /.test(rowFor("NOTIFICATION_CHANNELS_STATE")?.valueText ?? ""), "a map is counted by its keys",
+    rowFor("NOTIFICATION_CHANNELS_STATE")?.valueText);
+
+  console.log(`\n== the secret stays in the database ==`);
+  ok(rowFor("JWT_SECRET")?.valueText === "••••••••", "the list shows dots for it", rowFor("JWT_SECRET")?.valueText);
+  const secretCard = (await callRu("settings.get", { params: { id: "JWT_SECRET" } })).body.result.item;
+  ok(secretCard.value === null && secretCard.hasValue === true, "the card says «set» and sends no value",
+    { value: secretCard.value, hasValue: secretCard.hasValue });
+  ok(secretCard.state.includes("Секрет"), "and the state says it is a secret", secretCard.state);
+  ok(secretCard.patternHint === "latin letters, digits, underscores and hyphens, at least 36 characters",
+    "with the human wording of its pattern, not the regexp", secretCard.patternHint);
+  const dumpedFile = (await callRu("settings.dump", { params: {} })).body.result;
+  ok(dumpedFile.count === 106 && !dumpedFile.settings.some((entry: any) => entry.key === "JWT_SECRET"),
+    "and the export leaves it out", dumpedFile.count);
+
+  console.log(`\n== the card carries its own schema ==`);
+  const tzCard = (await callRu("settings.get", { params: { id: "TZ" } })).body.result.item;
+  ok((tzCard.jsonSchema?.enum ?? []).length === 459, "TZ brings 459 choices with it", (tzCard.jsonSchema?.enum ?? []).length);
+  ok(tzCard.envOverride?.valid === true, "pinned by the environment on this stand", tzCard.envOverride);
+  ok(!tzCard._actions?.some((action: any) => action.method === "settings.update"), "so it has no «Изменить» at all", tzCard._actions);
+  const ownedCard = (await callRu("settings.get", { params: { id: "RMS_LAST_SUCCESSFUL_MENU_DISHES_SYNC_AT" } })).body.result.item;
+  ok(!ownedCard._actions?.some((action: any) => action.method === "settings.update"),
+    "a setting the application owns has none either", ownedCard._actions);
+  const nameCard = (await callRu("settings.get", { params: { id: "PROJECT_NAME" } })).body.result.item;
+  ok(nameCard._actions?.some((action: any) => action.method === "settings.update"), "an ordinary one does", nameCard._actions);
+  ok(nameCard.patternHint === "lowercase latin letters, digits and hyphens, for example: resto-acceptance", "with its hint", nameCard.patternHint);
+  ok(typeof nameCard.boot === "string" && nameCard.boot.length > 0, "and the id of this run of the server", nameCard.boot);
+  const hoursCard = (await callRu("settings.get", { params: { id: "WORK_TIME" } })).body.result.item;
+  ok(hoursCard.jsonSchema?.items?.type === "object", "WORK_TIME is an array of objects",
+    hoursCard.jsonSchema?.items?.properties && Object.keys(hoursCard.jsonSchema.items.properties));
+  const zoneCard = (await callRu("settings.get", { params: { id: "DELIVERY_ZONE_SYNC_CONFIG" } })).body.result.item;
+  ok(zoneCard.jsonSchema?.additionalProperties === true, "the zone config is an object with a loose tail",
+    zoneCard.jsonSchema?.additionalProperties);
+
+  console.log(`\n== writing one, and being refused in words ==`);
+  // PROJECT_NAME has no value on a fresh stand; the walk leaves it at one of its own.
+  const nameWas = "resto-stand";
+  const nameWritten = await callRu("settings.update", { params: { id: "PROJECT_NAME", value: "walk-stand" } });
+  ok(nameWritten.body?.result?.item?.valueText === "walk-stand", "a value the schema accepts is written",
+    nameWritten.body?.error ?? nameWritten.body?.result?.item?.valueText);
+  const storedName = await (await fetch(`${base}/__fake/setting?key=PROJECT_NAME`)).json();
+  ok(storedName.row?.value === "walk-stand", "and it is in the database", storedName.row?.value);
+  const nameRefused = await callRu("settings.update", { params: { id: "PROJECT_NAME", value: "Walk Stand!" } });
+  ok(nameRefused.status === 400 && nameRefused.body?.error?.code === "invalid", "a value it does not accept is refused", nameRefused.body?.error);
+  ok(nameRefused.body?.error?.message?.includes("lowercase latin letters"), "with the rule in words, not a code",
+    nameRefused.body?.error?.message);
+  const nameTooShort = await callRu("settings.update", { params: { id: "PROJECT_NAME", value: "ab" } });
+  ok(nameTooShort.body?.error?.message?.includes("3"), "and «at least 3 characters» when it is too short", nameTooShort.body?.error?.message);
+  const pinnedWrite = await callRu("settings.update", { params: { id: "TZ", value: "Europe/Berlin" } });
+  ok(pinnedWrite.body?.error?.code === "forbidden", "the setting the environment pins refuses the write", pinnedWrite.body?.error);
+  const ownedWrite = await callRu("settings.update", { params: { id: "RMS_LAST_SUCCESSFUL_MENU_DISHES_SYNC_AT", value: "now" } });
+  ok(ownedWrite.body?.error?.code === "forbidden", "so does the one the application owns", ownedWrite.body?.error);
+  const unknownWrite = await callRu("settings.update", { params: { id: "NO_SUCH_SETTING", value: 1 } });
+  ok(unknownWrite.body?.error?.code === "not_found", "and an unknown key is not found", unknownWrite.body?.error);
+  // A composite value, written whole: the array of objects of the hours.
+  const hoursWritten = await callRu("settings.update", {
+    params: { id: "WORK_TIME", value: [{ dayOfWeek: ["monday"], start: "09:00", stop: "18:00" }] },
+  });
+  ok(hoursWritten.body?.result?.item?.valueText === "элементов: 1", "an array of objects is written whole",
+    hoursWritten.body?.error ?? hoursWritten.body?.result?.item?.valueText);
+  const hoursBroken = await callRu("settings.update", {
+    params: { id: "WORK_TIME", value: [{ dayOfWeek: ["monday"], start: "9 утра", stop: "18:00" }] },
+  });
+  ok(hoursBroken.body?.error?.message?.includes("0.start"), "and a wrong hour inside it is named by its path",
+    hoursBroken.body?.error?.message);
+
+  console.log(`\n== the transfer: what a file would change ==`);
+  const fileRows = [
+    { key: "PROJECT_NAME", value: "from-the-file" },
+    { key: "ALLOW_BONUS_SPENDING", value: false },
+    { key: "TZ", value: "Europe/Berlin" },
+    { key: "NO_SUCH_SETTING", value: 1 },
+  ];
+  const previewed = (await callRu("settings.transfer", { params: { settings: fileRows, preview: true } })).body.result.diff;
+  same(previewed.map((entry: any) => entry.status), ["changed", "unchanged", "changed", "not_found"], "every key is told apart");
+  ok(previewed[2].envOverride === true, "the pinned one is marked as locked", previewed[2]);
+  const transferred = (await callRu("settings.transfer", {
+    params: { settings: fileRows, keys: ["PROJECT_NAME", "TZ", "NO_SUCH_SETTING"] },
+  })).body.result.results;
+  same(transferred.map((entry: any) => `${entry.key}:${entry.status}`),
+    ["PROJECT_NAME:applied", "TZ:skipped", "NO_SUCH_SETTING:skipped"], "only what may be written is written");
+  ok(transferred[1].error?.includes("environment"), "and each skip says why", transferred[1].error);
+  await callRu("settings.update", { params: { id: "PROJECT_NAME", value: nameWas } });
+
+  console.log(`\n== only behind the token of the web page ==`);
+  const stockDeclaration = (await request("GET", "/api/mobile/describe?lang=ru", { token: tokens.stock })).body.result;
+  ok(!stockDeclaration.apps.some((app: any) => app.id === "settings"), "a user without «Settings» does not see the app",
+    stockDeclaration.apps.map((app: any) => app.id));
+  const settingsBarred = await call(tokens.stock, "settings.list", { params: {} });
+  ok(settingsBarred.body?.error?.code === "forbidden", "and cannot call it either", settingsBarred.body?.error);
+
   console.log(`\n== a dish added in the web panel, seen from the app ==`);
   await forgetAttempts();
   const name = `Харчо ${new Date().toISOString().slice(11, 19)}`;

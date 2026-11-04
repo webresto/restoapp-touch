@@ -56,6 +56,9 @@ include(":apps:pos")
 // The section itself — the summary, the lists, the cards — is the declaration and :render.
 include(":apps:marketing")
 
+/** The screens of «Настройки»: the editor of a value by its JSON Schema, and the transfer. */
+include(":apps:settings")
+
 // A server's apps are not modules any more (plan section 4): the server declares them and one
 // renderer draws them all. The protocol, the in-process demo server, and that renderer.
 include(":protocol")
