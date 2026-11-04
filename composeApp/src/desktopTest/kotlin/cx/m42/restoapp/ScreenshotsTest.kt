@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import java.io.File
@@ -39,6 +40,13 @@ class ScreenshotsTest {
     }
 
     private fun ComposeUiTest.tap(tag: String) {
+        onNodeWithTag(tag).performClick()
+        waitForIdle()
+    }
+
+    /** The same, for a row that sits below the fold of a long card: scroll to it first. */
+    private fun ComposeUiTest.reach(tag: String) {
+        runCatching { onNodeWithTag(tag).performScrollTo() }
         onNodeWithTag(tag).performClick()
         waitForIdle()
     }
@@ -154,6 +162,64 @@ class ScreenshotsTest {
         tap("clients:form:submit")
         waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("clients:detail").assertExists() }.isSuccess }
         shot("19-client-card")
+    }
+
+    /** «Маркетинг» of slice A-D (marketing.plan.md): the summary, the codes, a card, and the editor. */
+    @Test
+    fun theMarketingSection() = runDesktopComposeUiTest(width = 420, height = 820) {
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(Files.createTempDirectory("restoapp-marketing-shots").toFile()),
+            debug = true,
+            clock = { 1_700_000_000_000 },
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+        setContent { RestoApp(host) }
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("home:tile-marketing").assertExists() }.isSuccess }
+
+        tap("home:tile-marketing")
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("marketing:title").assertExists() }.isSuccess }
+        shot("20-marketing-summary")
+
+        reach("marketing:link-marketing.promocodes")
+        waitUntil(timeoutMillis = 5_000L) { onAllNodes(tagStartsWith("marketing:row-")).fetchSemanticsNodes().isNotEmpty() }
+        shot("21-marketing-codes")
+
+        onAllNodes(tagStartsWith("marketing:row-")).onFirst().performClick()
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("marketing:detail").assertExists() }.isSuccess }
+        shot("22-marketing-code")
+
+        reach("marketing:link-marketing.applications")
+        waitUntil(timeoutMillis = 5_000L) { onAllNodes(tagStartsWith("marketing:row-")).fetchSemanticsNodes().isNotEmpty() }
+        shot("23-marketing-applications")
+
+        // Back down the stack to the summary: the applications, the code, the codes.
+        tap("marketing:back")
+        tap("marketing:back")
+        tap("marketing:back")
+        reach("marketing:link-marketing.promotions")
+        waitUntil(timeoutMillis = 5_000L) { onAllNodes(tagStartsWith("marketing:row-")).fetchSemanticsNodes().isNotEmpty() }
+        shot("24-marketing-promotions")
+
+        onAllNodes(tagStartsWith("marketing:row-")).onFirst().performClick()
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("marketing:detail").assertExists() }.isSuccess }
+        shot("25-marketing-promotion")
+
+        // The one screen of the section the client draws itself: the editor of a promotion (Q43).
+        reach("marketing:marketing.savePromotion")
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("marketing:editor").assertExists() }.isSuccess }
+        shot("26-marketing-editor")
+
+        reach("marketing:editor-dishes")
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("marketing:picker").assertExists() }.isSuccess }
+        shot("27-marketing-editor-catalog")
+
+        // And the same section for somebody who may not read an order: no money, no applications.
+        tap("marketing:picker-back")
+        tap("marketing:editor-cancel")
+        host.setDemoRole(cx.m42.restoapp.demo.DemoRole.Marketer)
+        waitUntil(timeoutMillis = 5_000L) { host.active.value.superizer.registry.get(cx.m42.superizer.app.AppId("clients")) == null }
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("marketing:title").assertExists() }.isSuccess }
+        shot("28-marketing-marketer")
     }
 
     private fun tagStartsWith(prefix: String) = SemanticsMatcher("tag starts with $prefix") {

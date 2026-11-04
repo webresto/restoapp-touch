@@ -37,7 +37,9 @@ import cx.m42.restoapp.protocol.DeclaredMethod
 import cx.m42.restoapp.protocol.Field
 import cx.m42.restoapp.protocol.ItemUi
 import cx.m42.restoapp.protocol.MobileApiException
+import cx.m42.restoapp.protocol.Open
 import cx.m42.restoapp.protocol.RecordAction
+import cx.m42.restoapp.protocol.RecordLink
 import cx.m42.restoapp.protocol.ServerFacts
 import cx.m42.restoapp.protocol.Tones
 import cx.m42.restoapp.protocol.Views
@@ -49,6 +51,8 @@ import cx.m42.restoapp.protocol.schemaType
 import cx.m42.restoapp.protocol.actions
 import cx.m42.restoapp.protocol.enumValues
 import cx.m42.restoapp.protocol.id
+import cx.m42.restoapp.protocol.links
+import cx.m42.restoapp.protocol.open
 import cx.m42.restoapp.protocol.property
 import cx.m42.restoapp.protocol.titles
 import cx.m42.superizer.runtime.LocalAppRuntime
@@ -113,20 +117,76 @@ internal fun ServerAppScreen(instance: ServerAppInstance) {
             declared.byPlace && places.isEmpty() -> EmptyState(words.noPlaces, null, null, null, "${declared.id}:no-places")
             else -> {
                 val context = RenderContext(declared, facts, words, runtime.clock.now())
-                val detail by instance.detail.collectAsState()
-                val home = declared.method(declared.home)
+                val frames by instance.frames.collectAsState()
+                val request by instance.native.collectAsState()
+                val native = request?.let { NativeActions.of(it.method.ui?.control?.screen)?.to(it) }
+                val frame = frames.lastOrNull()
+                val view = frame?.let { declared.method(it.method)?.ui?.view }
                 when {
-                    home == null -> EmptyState(words.unknownView, null, null, null, "${declared.id}:unknown")
-                    detail != null && home.ui?.view == Views.LIST -> {
-                        SystemBackHandler(enabled = true) { instance.back() }
-                        DetailScreen(instance, context, detail!!)
+                    // A screen of the client's own, over everything: it has its own way back.
+                    native != null -> {
+                        SystemBackHandler(enabled = true) { instance.closeNative() }
+                        NativeActionScreen(instance, context, native.second, native.first)
                     }
-                    home.ui?.view == Views.LIST -> ListScreen(instance, context, home)
-                    home.ui?.view == Views.DETAIL -> HomeRecordScreen(instance, context, home)
+                    frame == null -> EmptyState(words.unknownView, null, null, null, "${declared.id}:unknown")
+                    frames.size > 1 -> {
+                        SystemBackHandler(enabled = true) { instance.back() }
+                        when (view) {
+                            Views.LIST -> ListScreen(instance, context, frame, bottom = false)
+                            Views.DETAIL -> DetailScreen(instance, context, frame)
+                            else -> EmptyState(words.unknownView, null, null, null, "${declared.id}:unknown")
+                        }
+                    }
+                    view == Views.LIST -> ListScreen(instance, context, frame, bottom = true)
+                    view == Views.DETAIL -> HomeRecordScreen(instance, context, frame)
                     else -> EmptyState(words.unknownView, null, null, null, "${declared.id}:unknown")
                 }
             }
         }
+    }
+}
+
+/** «← Назад» of a frame that stands on another one: the shell does not draw it, the stack does. */
+@Composable
+private fun BackLine(instance: ServerAppInstance, context: RenderContext) {
+    AppButton(
+        text = "← " + context.words.back,
+        onClick = instance::back,
+        variant = ButtonVariant.Ghost,
+        size = ButtonSize.Sm,
+        modifier = Modifier.padding(8.dp).testTag("${context.tag}:back"),
+    )
+}
+
+/** The screen of one action the client draws itself, and what it is given (`NativeActions`). */
+@Composable
+private fun NativeActionScreen(
+    instance: ServerAppInstance,
+    context: RenderContext,
+    request: NativeRequest,
+    content: NativeActionContent,
+) {
+    val busy by instance.busy.collectAsState()
+    val key = (request.record.id() ?: "list") + ":" + request.method.name
+    Column(modifier = Modifier.fillMaxSize().testTag("${context.tag}:native-${request.method.ui?.control?.screen}")) {
+        content(
+            NativeActionScope(
+                record = request.record,
+                method = request.method,
+                facts = context.facts,
+                lang = context.words.lang,
+                busy = key in busy,
+                call = { method, params -> instance.callForNative(method, params) },
+                submit = { params ->
+                    if (request.record.id() == null) {
+                        instance.actOnList(request.method, params) { instance.closeNative() }
+                    } else {
+                        instance.actWith(request.record, request.action, request.method, params) { instance.closeNative() }
+                    }
+                },
+                close = instance::closeNative,
+            ),
+        )
     }
 }
 
@@ -154,15 +214,21 @@ private fun TopNotices(instance: ServerAppInstance, context: RenderContext) {
 }
 
 @Composable
-private fun PlaceSwitch(instance: ServerAppInstance, context: RenderContext, content: @Composable ColumnScope.() -> Unit) {
+private fun PlaceSwitch(
+    instance: ServerAppInstance,
+    context: RenderContext,
+    enabled: Boolean = true,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     val places by instance.server.places.collectAsState()
     val place by instance.server.place.collectAsState()
     var choosing by remember { mutableStateOf(false) }
     val tag = context.tag
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // One point: nothing to choose, and its name is in the bar already.
-            if (context.app.byPlace && places.size > 1) {
+            // One point: nothing to choose, and its name is in the bar already. A frame standing on another
+            // one does not offer the switch either: the point belongs to the app, not to a screen of it.
+            if (enabled && context.app.byPlace && places.size > 1) {
                 place?.let { PlaceLine(it.title, it.address, { choosing = true }, "$tag:place") }
             }
             content()
@@ -183,10 +249,11 @@ private fun PlaceSwitch(instance: ServerAppInstance, context: RenderContext, con
 }
 
 @Composable
-private fun ListScreen(instance: ServerAppInstance, context: RenderContext, home: DeclaredMethod) {
-    val state by instance.list.collectAsState()
+private fun ListScreen(instance: ServerAppInstance, context: RenderContext, frame: Frame, bottom: Boolean) {
+    val method = context.app.method(frame.method) ?: return
+    val state = frame.list
     val busy by instance.busy.collectAsState()
-    val ui = home.ui!!
+    val ui = method.ui!!
     val words = context.words
     val tokens = AppTheme
     val tag = context.tag
@@ -197,7 +264,8 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, home
     }
     var adding by remember(listAction?.name) { mutableStateOf(false) }
 
-    PlaceSwitch(instance, context) {
+    PlaceSwitch(instance, context, enabled = bottom) {
+        if (!bottom) BackLine(instance, context)
         TopNotices(instance, context)
         listAction?.let { action ->
             Row(
@@ -226,19 +294,7 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, home
             }
         }
         ui.search?.let { SearchBox(state.query, words.search, instance::search, "$tag:search") }
-        ui.chips?.let { chips ->
-            val schema = home.input.property(chips)
-            if (schema != null) {
-                Chips(
-                    values = schema.enumValues(),
-                    titles = schema.titles(),
-                    counts = state.counts,
-                    selected = instance.currentChip(),
-                    onSelect = instance::chip,
-                    tag = "$tag:chip",
-                )
-            }
-        }
+        FrameChips(instance, context, method, state.counts)
         Column(modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).testTag("$tag:list")) {
             when {
                 !state.loaded && state.loading -> Text(
@@ -266,7 +322,7 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, home
                 } else if (index > 0) {
                     RowDivider()
                 }
-                RecordRow(instance, context, home, ui.item ?: ItemUi(), record, busy)
+                RecordRow(instance, context, method, ui.item ?: ItemUi(), record, busy)
             }
             if (state.nextCursor != null) {
                 AppButton(
@@ -292,28 +348,45 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, home
     }
 }
 
+/** The chips of the frame's method: its `enum` parameter, its titles, and the counts the answer brought. */
+@Composable
+private fun FrameChips(instance: ServerAppInstance, context: RenderContext, method: DeclaredMethod, counts: Map<String, Int>) {
+    val chips = method.ui?.chips ?: return
+    val schema = method.input.property(chips) ?: return
+    Chips(
+        values = schema.enumValues(),
+        titles = schema.titles(),
+        counts = counts,
+        selected = instance.currentChip(),
+        onSelect = instance::chip,
+        tag = "${context.tag}:chip",
+    )
+}
+
 @Composable
 private fun RecordRow(
     instance: ServerAppInstance,
     context: RenderContext,
-    home: DeclaredMethod,
+    method: DeclaredMethod,
     item: ItemUi,
     record: JsonObject,
     busy: Set<String>,
 ) {
     val id = record.id() ?: return
-    val model = home.model
+    val model = method.model
     val tag = "${context.tag}:row-$id"
     val actions = context.actions(record, "row")
     val stepper = actions.firstOrNull { it.second.ui?.control?.type == Controls.STEPPER }
     val value = context.show(record, model, item.value)
     val badge = context.show(record, model, item.badge)
-    val opens = home.ui?.open?.let { context.app.method(it) } != null
+    // The row's own link beats the default one of the list (`client-lookup.plan.md`): a mixed list leads
+    // each of its rows where that row belongs.
+    val opens = record.open() != null || method.ui?.open?.let { context.app.method(it) } != null
 
     ListRow(
         title = item.title?.let { plain(record[it]) } ?: id,
         // Under a group's heading its name would only repeat it.
-        subtitle = item.subtitle?.takeIf { it != home.ui?.groupBy }?.let { context.show(record, model, it)?.text },
+        subtitle = item.subtitle?.takeIf { it != method.ui?.groupBy }?.let { context.show(record, model, it)?.text },
         meta = context.show(record, model, item.meta)?.text,
         // A stepper in the row draws the value between its − and +.
         value = if (stepper != null && stepBase(record, stepper, item) != null) null else value?.text,
@@ -321,7 +394,7 @@ private fun RecordRow(
         badge = badge?.text,
         badgeTone = badge?.tone,
         tag = tag,
-        onClick = if (opens) ({ instance.open(id, record) }) else null,
+        onClick = if (opens) ({ instance.openRow(record) }) else null,
     ) {
         actions.forEach { (action, method) ->
             val control = method.ui?.control ?: return@forEach
@@ -373,38 +446,32 @@ private fun stepRange(action: RecordAction, method: DeclaredMethod): IntRange {
     return maxOf(min, 0)..max
 }
 
-/** A record opened from the list: its header, its actions, its fields by section. */
+/** A record opened from a list: its header, its actions, its fields by section, and where it leads next. */
 @Composable
-private fun DetailScreen(instance: ServerAppInstance, context: RenderContext, detail: DetailState) {
-    val home = context.app.method(context.app.home)
-    val open = home?.ui?.open?.let { context.app.method(it) }
-    val record = detail.record
+private fun DetailScreen(instance: ServerAppInstance, context: RenderContext, frame: Frame) {
+    val method = context.app.method(frame.method)
+    val record = frame.record
     val tag = context.tag
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("$tag:detail")) {
-        AppButton(
-            text = "← " + context.words.back,
-            onClick = instance::back,
-            variant = ButtonVariant.Ghost,
-            size = ButtonSize.Sm,
-            modifier = Modifier.padding(8.dp).testTag("$tag:back"),
-        )
+        BackLine(instance, context)
         TopNotices(instance, context)
         if (record == null) {
             Text(text = context.words.loading, style = AppTheme.label, color = AppTheme.muted, modifier = Modifier.padding(20.dp))
             return@Column
         }
-        RecordCard(instance, context, open?.model ?: home?.model, open?.ui?.item ?: home?.ui?.item ?: ItemUi(), record)
+        RecordCard(instance, context, method?.model, method?.ui?.item ?: ItemUi(), record)
     }
 }
 
-/** A home method that answers one record: the card alone. */
+/** A home method that answers one record — the summary of «Маркетинг»: its chips, its card, its links. */
 @Composable
-private fun HomeRecordScreen(instance: ServerAppInstance, context: RenderContext, home: DeclaredMethod) {
-    val state by instance.list.collectAsState()
+private fun HomeRecordScreen(instance: ServerAppInstance, context: RenderContext, frame: Frame) {
+    val method = context.app.method(frame.method) ?: return
     PlaceSwitch(instance, context) {
         Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("${context.tag}:detail")) {
             TopNotices(instance, context)
-            state.items.firstOrNull()?.let { RecordCard(instance, context, home.model, home.ui?.item ?: ItemUi(), it) }
+            FrameChips(instance, context, method, emptyMap())
+            frame.record?.let { RecordCard(instance, context, method.model, method.ui?.item ?: ItemUi(), it) }
         }
     }
 }
@@ -441,6 +508,17 @@ private fun RecordCard(instance: ServerAppInstance, context: RenderContext, mode
     context.actions(record, "detail").forEach { (action, method) ->
         val waiting = "$id:${method.name}" in busy
         when (method.ui?.control?.type) {
+            Controls.NATIVE -> if (NativeActions.of(method.ui?.control?.screen) != null) {
+                Card {
+                    AppButton(
+                        text = method.title,
+                        onClick = { instance.openNative(record, action, method) },
+                        enabled = !waiting,
+                        size = ButtonSize.Default,
+                        modifier = Modifier.fillMaxWidth().padding(12.dp).testTag("$tag:${method.name}"),
+                    )
+                }
+            }
             Controls.STEPPER -> StepperCard(instance, context, model, record, action, method, waiting)
             Controls.TOGGLE -> Card {
                 val control = method.ui?.control
@@ -459,7 +537,11 @@ private fun RecordCard(instance: ServerAppInstance, context: RenderContext, mode
     }
 
     // Fields by section, in the declaration's order; the title is the header already.
-    val shownFields = context.app.fields(model).filter { it.name != item.title }
+    //
+    // A field the record does not carry at all is left out: a promotion has either a percentage or a flat
+    // amount, and a «—» where the other one would be says something false. A field that is there and empty
+    // (`null`) still shows «—» — that is a value nobody has set, which is worth seeing.
+    val shownFields = context.app.fields(model).filter { it.name != item.title && record.containsKey(it.name) }
     shownFields.groupBy { it.section }.forEach { (section, fields) ->
         val lines: @Composable () -> Unit = {
             fields.forEachIndexed { index, field ->
@@ -470,7 +552,34 @@ private fun RecordCard(instance: ServerAppInstance, context: RenderContext, mode
         }
         if (section == null) Card(content = lines) else Section(title = section, content = lines)
     }
+
+    // Where the card leads: the lines the server built, each of them a link it checked the rights for.
+    val links = record.links()
+    if (links.isNotEmpty()) {
+        Card {
+            links.forEachIndexed { index, link ->
+                if (index > 0) RowDivider()
+                LinkRow(instance, context, link)
+            }
+        }
+    }
     Spacer(Modifier.height(24.dp))
+}
+
+/** One line of `_links`: its words, what it says about itself, and a «›» to say it opens. */
+@Composable
+private fun LinkRow(instance: ServerAppInstance, context: RenderContext, link: RecordLink) {
+    ListRow(
+        title = link.title,
+        subtitle = link.meta,
+        meta = null,
+        value = "›",
+        valueTone = null,
+        badge = null,
+        badgeTone = null,
+        tag = "${context.tag}:link-${link.open.method}",
+        onClick = { instance.openLink(link.open, link.title) },
+    )
 }
 
 /** A white block on the grey page, untitled: what [Section] is without its heading. */

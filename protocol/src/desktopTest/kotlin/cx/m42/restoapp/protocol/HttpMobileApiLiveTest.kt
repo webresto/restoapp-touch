@@ -122,6 +122,60 @@ class HttpMobileApiLiveTest {
         assertEquals(JsonPrimitive(0), recordOf(stopped.value)!!["balance"])
     }
 
+    /**
+     * «Маркетинг» against the hook itself: the section either right of it opens, the summary with the links the
+     * server built, and the words of a code — all of it from `apps/marketing.ts`, not from a fake of the client.
+     */
+    @Test
+    fun theSectionOfMarketingOpensBySummaryAndLeadsOnByItsLinks(): Unit = runBlocking {
+        val api = server() ?: return@runBlocking
+        val token = api.signIn("marketer")
+        val declaration = api.describe(token, "ru").value
+        val marketing = assertNotNull(declaration.app("marketing"), "the section is in the declaration")
+        assertEquals("Маркетинг", marketing.title)
+        assertEquals("marketing.home", marketing.home)
+        assertEquals(Views.DETAIL, marketing.method("marketing.home")!!.ui!!.view)
+        assertEquals("days", marketing.method("marketing.home")!!.ui!!.chips)
+        assertEquals(Controls.NATIVE, marketing.method("marketing.savePromotion")!!.ui!!.control!!.type)
+        assertEquals("promotion-editor", marketing.method("marketing.savePromotion")!!.ui!!.control!!.screen)
+        assertEquals(Formats.PERCENT, marketing.fields("promotion").first { it.name == "discountPercent" }.format)
+
+        val summary = api.call(token, "marketing.home", JsonObject(emptyMap()), null, "ru")
+        Contract.assertValid("itemResult", summary.value)
+        val card = assertNotNull(recordOf(summary.value))
+        assertEquals(JsonPrimitive(3), card["codesTotal"])
+        val links = card.links()
+        assertEquals(listOf("marketing.promocodes", "marketing.promotions", "marketing.applications"), links.map { it.open.method })
+
+        // The link is followed, as the client follows it: one more frame, with the server's own params.
+        val codes = api.call(token, links.first().open.method, links.first().open.params, null, "ru")
+        Contract.assertValid("listResult", codes.value)
+        val leto = ListPage.of(codes.value).items.first { it["code"] == JsonPrimitive("LETO10") }
+        assertEquals(JsonPrimitive("active"), leto["status"])
+        assertEquals("−10% на всю корзину", (leto["gives"] as JsonPrimitive).content)
+        assertEquals(listOf("marketing.setCodeEnabled"), leto.actions().map { it.method })
+
+        val codeCard = recordOf(api.call(token, "marketing.promocode", jsonObjectOf("id" to JsonPrimitive(leto.id()!!)), null, "ru").value)!!
+        assertEquals(
+            listOf("marketing.applications", "marketing.promotions"),
+            codeCard.links().map { it.open.method },
+        )
+
+        // The toggle of a row, live: the status follows the switch.
+        val off = api.call(token, "marketing.setCodeEnabled", jsonObjectOf("id" to JsonPrimitive(leto.id()!!), "enable" to JsonPrimitive(false)), null, "ru")
+        assertEquals(JsonPrimitive("disabled"), recordOf(off.value)!!["status"])
+
+        // One right of the section is a section without the other's numbers, and its methods are refused.
+        val promoter = api.signIn("promoter")
+        val theirs = api.describe(promoter, "ru").value.app("marketing")!!
+        assertEquals(
+            listOf("promotionsTotal", "promotionsSelf", "promotionsByCodeOnly"),
+            theirs.fields("summary").map { it.name },
+        )
+        val refused = assertFailsWith<MobileApiException> { api.call(promoter, "marketing.promocodes", JsonObject(emptyMap()), null, "ru") }
+        assertEquals(MobileApiException.FORBIDDEN, refused.code)
+    }
+
     @Test
     fun theServerRefusesByCodeWhatTheDeclarationDoesNotAllow(): Unit = runBlocking {
         val api = server() ?: return@runBlocking

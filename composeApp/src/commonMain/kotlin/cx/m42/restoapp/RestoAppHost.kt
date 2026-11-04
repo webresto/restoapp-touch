@@ -16,6 +16,7 @@ import cx.m42.restoapp.protocol.PowSolver
 import cx.m42.restoapp.protocol.ProtocolJson
 import cx.m42.restoapp.protocol.ServerAbout
 import cx.m42.restoapp.protocol.normalizeAddress
+import cx.m42.restoapp.marketing.MarketingScreens
 import cx.m42.restoapp.render.RestoServer
 import cx.m42.restoapp.pos.PosApp
 import cx.m42.restoapp.script.ScriptApp
@@ -140,6 +141,10 @@ public class RestoAppHost(
     public val active: StateFlow<Connection> get() = _active.asStateFlow()
 
     init {
+        // The screens this build has for one *action* of a declared app: the editor of a promotion
+        // (`marketing.plan.md`, Q43). A server asking for one this build has not got loses the button
+        // and nothing else, which is the contract of `control: {type: "native"}`.
+        MarketingScreens.register()
         // Only now: what the server says may rebuild the Superizer, and that needs `active`.
         _active.value.session.refreshInBackground()
     }

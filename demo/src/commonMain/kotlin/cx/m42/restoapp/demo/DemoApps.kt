@@ -32,6 +32,7 @@ internal const val DISHES = "dishes"
 internal const val ORDERS = "orders"
 internal const val CLIENTS = "clients"
 internal const val POS = "pos"
+internal const val MARKETING = "marketing"
 
 /** The hook's `locales/` for «Блюда», and the plan's words for «Заказы». */
 internal class DemoWords(lang: String) {
@@ -512,5 +513,374 @@ private fun posMethods(words: DemoWords): List<DeclaredMethod> {
         mutation("pos.promocode", words.t("Промокод", "Promo code"), listOf("id"), id + mapOf("code" to stringProperty(100))),
         mutation("pos.check", words.t("Проверить заказ", "Check the order"), listOf("id"), id),
         mutation("pos.place", words.t("Оформить заказ", "Place the order"), listOf("id"), id),
+    )
+}
+
+/** Material Symbols "local_activity", as the hook has it. */
+private const val MARKETING_ICON =
+    "M20 12c0-1.1.9-2 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v4c1.1 0 2 .9 2 2s-.9 2-2 2v4c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-4c-1.1 0-2-.9-2-2zm-9 4.5h-2v-2h2v2zm0-4h-2v-2h2v2zm0-4h-2v-2h2v2z"
+
+/**
+ * «Маркетинг» as the hook declares it (`apps/marketing.ts`): one app, the summary as its home screen, and the
+ * lists of codes, of promotions and of applications opened from it by the links of a record.
+ *
+ * [money] is what a person who may also read the orders sees — the numbers of the applications. In the hook those
+ * fields carry an `access` and are dropped from the declaration of everybody else; here the demo simply does not
+ * declare them, which is the same thing on the wire.
+ */
+internal fun marketingApp(words: DemoWords, money: Boolean): DeclaredApp {
+    val codes = words.t("Промокоды", "Promo codes")
+    val promotions = words.t("Акции", "Promotions")
+    val applications = words.t("Применения", "Applications")
+    val gives = words.t("Что даёт", "What it gives")
+    val term = words.t("Срок", "Term")
+    val details = words.t("Подробности", "Details")
+    val discount = words.t("Скидка", "Discount")
+    val gift = words.t("Подарок", "Gift")
+    val behaviour = words.t("Поведение", "Behaviour")
+    val order = words.t("Заказ", "Order")
+
+    val statusSpecials = listOf(
+        Special(JsonPrimitive("active"), words.t("Действует", "Works"), Tones.SUCCESS),
+        Special(JsonPrimitive("scheduled"), words.t("Запланирован", "Scheduled"), Tones.WARNING),
+        Special(JsonPrimitive("expired"), words.t("Истёк", "Expired"), Tones.WARNING),
+        Special(JsonPrimitive("disabled"), words.t("Выключен", "Switched off"), Tones.DANGER),
+    )
+    val appliesSpecials = listOf(
+        Special(JsonPrimitive("self"), words.t("Работает сама", "Applies by itself"), Tones.SUCCESS),
+        Special(JsonPrimitive("code-only"), words.t("Только по коду", "Only by code"), Tones.INFO),
+        Special(JsonPrimitive("out-of-hours"), words.t("Вне расписания", "Out of hours"), Tones.WARNING),
+        Special(JsonPrimitive("disabled"), words.t("Выключена", "Switched off"), Tones.DANGER),
+    )
+    val outcomeSpecials = listOf(
+        Special(JsonPrimitive("applied"), words.t("Применён", "Applied"), Tones.SUCCESS),
+        Special(JsonPrimitive("invalid"), words.t("Не подошёл", "Did not fit"), Tones.WARNING),
+    )
+
+    val statusFilter = enumProperty(
+        listOf("all", "active", "scheduled", "expired", "disabled"), "all",
+        mapOf(
+            "all" to words.t("Все", "All"),
+            "active" to words.t("Действует", "Works"),
+            "scheduled" to words.t("Запланирован", "Scheduled"),
+            "expired" to words.t("Истёк", "Expired"),
+            "disabled" to words.t("Выключен", "Switched off"),
+        ),
+    )
+    val promotionFilter = enumProperty(
+        listOf("all", "self", "code-only", "off", "configured"), "all",
+        mapOf(
+            "all" to words.t("Все", "All"),
+            "self" to words.t("Работают сами", "Apply by themselves"),
+            "code-only" to words.t("Только по коду", "Only by code"),
+            "off" to words.t("Выключенные", "Switched off"),
+            "configured" to words.t("Настроенные", "Configured"),
+        ),
+    )
+    val outcomeFilter = enumProperty(
+        listOf("all", "applied", "invalid"), "all",
+        mapOf("all" to words.t("Все", "All"), "applied" to words.t("Применён", "Applied"), "invalid" to words.t("Не подошёл", "Did not fit")),
+    )
+    val days = enumProperty(
+        listOf("7", "30", "90"), "30",
+        mapOf("7" to words.t("7 дней", "7 days"), "30" to words.t("30 дней", "30 days"), "90" to words.t("90 дней", "90 days")),
+    )
+
+    val id = mapOf("id" to stringProperty(100, minLength = 1))
+
+    return DeclaredApp(
+        id = MARKETING,
+        version = "1.0.0",
+        title = words.t("Маркетинг", "Marketing"),
+        icon = Icon(MARKETING_ICON),
+        category = words.restaurant,
+        home = "marketing.home",
+        scope = DeclaredApp.SCOPE_SERVER,
+        models = mapOf(
+            "summary" to Model(
+                listOfNotNull(
+                    Field("codesTotal", words.t("Промокодов", "Promo codes"), Formats.NUMBER, readonly = true, section = codes),
+                    Field("codesActive", words.t("Действуют", "Working"), Formats.NUMBER, readonly = true, section = codes),
+                    Field("promotionsTotal", words.t("Акций", "Promotions"), Formats.NUMBER, readonly = true, section = promotions),
+                    Field("promotionsSelf", words.t("Работают сами", "Apply by themselves"), Formats.NUMBER, readonly = true, section = promotions),
+                    Field("promotionsByCodeOnly", words.t("Только по коду", "Only by code"), Formats.NUMBER, readonly = true, section = promotions),
+                    Field("applications", words.t("Вводов кода", "Codes typed"), Formats.NUMBER, readonly = true, section = applications).takeIf { money },
+                    Field("totalDiscount", words.t("Скидок всего", "Discounts in total"), Formats.MONEY, readonly = true, section = applications).takeIf { money },
+                    Field("avgDiscount", words.t("Средняя скидка", "Average discount"), Formats.MONEY, readonly = true, section = applications).takeIf { money },
+                ),
+            ),
+            "promocode" to Model(
+                listOf(
+                    Field("status", words.t("Статус", "Status"), Formats.ENUM, readonly = true, specials = statusSpecials),
+                    Field("worksNow", words.t("Действует сейчас", "Works now"), Formats.BOOLEAN, readonly = true),
+                    Field("description", words.t("Описание", "Description"), Formats.TEXT, readonly = true),
+                    Field("gives", gives, Formats.TEXT, readonly = true, section = gives),
+                    Field("promotions", promotions, Formats.TEXT, readonly = true, section = gives),
+                    Field("period", term, Formats.TEXT, readonly = true, section = term),
+                    Field("schedule", words.t("Расписание", "Hours"), Formats.TEXT, readonly = true, section = term),
+                    Field("enable", words.t("Включён", "Switched on"), Formats.BOOLEAN, readonly = true, section = term),
+                    Field(
+                        "type", words.t("Тип", "Type"), Formats.ENUM, readonly = true, section = details,
+                        titles = mapOf("static" to words.t("Один код", "One code")),
+                    ),
+                ),
+            ),
+            "promotion" to Model(
+                listOf(
+                    Field("appliesNow", words.t("Применяется", "Applies"), Formats.ENUM, readonly = true, specials = appliesSpecials),
+                    Field("enable", words.t("Работает", "Works"), Formats.BOOLEAN, readonly = true),
+                    Field("onlyByCode", words.t("Только по промокоду", "Only by promo code"), Formats.BOOLEAN, readonly = true),
+                    Field(
+                        "kind", words.t("Откуда", "Where from"), Formats.ENUM, readonly = true,
+                        titles = mapOf(
+                            "configured" to words.t("Настроенная", "Configured"),
+                            "programmed" to words.t("Запрограммированная", "Programmed"),
+                        ),
+                    ),
+                    Field(
+                        "discountType", words.t("Тип скидки", "Discount type"), Formats.ENUM, readonly = true, section = discount,
+                        titles = mapOf(
+                            "percentage" to words.t("Процент", "Percentage"),
+                            "flat" to words.t("Фиксированная сумма", "Flat amount"),
+                        ),
+                    ),
+                    // One of the two is in a record, never both: a percentage shown as money would be a lie.
+                    Field("discountPercent", discount, Formats.PERCENT, readonly = true, section = discount),
+                    Field("discountFlat", discount, Formats.MONEY, readonly = true, section = discount),
+                    Field("minBasketTotal", words.t("Корзина от", "Basket from"), Formats.MONEY, readonly = true, section = discount),
+                    Field("serviceTypes", words.t("Способы получения", "Ways to receive"), Formats.TEXT, readonly = true, section = discount),
+                    Field("gift", gift, Formats.TEXT, readonly = true, section = gift),
+                    Field(
+                        "isJoint", words.t("С другими", "With others"), Formats.ENUM, readonly = true, section = behaviour,
+                        titles = mapOf("joint" to words.t("Суммируется", "Stacks"), "exclusive" to words.t("Монопольная", "Exclusive")),
+                    ),
+                    Field("isPublic", words.t("Видна на витрине", "Shown on the storefront"), Formats.BOOLEAN, readonly = true, section = behaviour),
+                    Field("sortOrder", words.t("Приоритет", "Priority"), Formats.NUMBER, readonly = true, section = behaviour),
+                    Field("promotionCodes", codes, Formats.TEXT, readonly = true, section = term),
+                ),
+            ),
+            "application" to Model(
+                listOf(
+                    Field("status", words.t("Результат", "Outcome"), Formats.ENUM, readonly = true, specials = outcomeSpecials),
+                    Field("code", words.t("Код", "Code"), Formats.TEXT, readonly = true),
+                    Field("why", words.t("Почему", "Why"), Formats.TEXT, readonly = true),
+                    Field("discount", discount, Formats.MONEY, readonly = true, section = order),
+                    Field("createdAt", words.t("Когда", "When"), Formats.DATETIME, readonly = true, section = order),
+                    Field("orderState", words.t("Статус заказа", "Order state"), Formats.TEXT, readonly = true, section = order),
+                ),
+            ),
+        ),
+        methods = listOfNotNull(
+            DeclaredMethod(
+                name = "marketing.home",
+                kind = DeclaredMethod.KIND_QUERY,
+                title = words.t("Маркетинг", "Marketing"),
+                model = "summary",
+                input = objectSchema(emptyList(), mapOf("days" to days)),
+                ui = Ui(view = Views.DETAIL, item = ItemUi(title = "title", subtitle = "subtitle"), chips = "days"),
+            ),
+            DeclaredMethod(
+                name = "marketing.promocodes",
+                kind = DeclaredMethod.KIND_QUERY,
+                title = codes,
+                model = "promocode",
+                input = objectSchema(emptyList(), mapOf("q" to stringProperty(100), "status" to statusFilter, "cursor" to stringProperty(200))),
+                ui = Ui(
+                    view = Views.LIST,
+                    item = ItemUi(title = "code", subtitle = "description", meta = "period", value = "promotionsCount", badge = "status"),
+                    search = "q",
+                    chips = "status",
+                    open = "marketing.promocode",
+                    empty = words.t("Промокодов нет", "No promo codes"),
+                ),
+            ),
+            DeclaredMethod(
+                name = "marketing.promocode",
+                kind = DeclaredMethod.KIND_QUERY,
+                title = words.t("Промокод", "Promo code"),
+                model = "promocode",
+                input = objectSchema(listOf("id"), id),
+                ui = Ui(view = Views.DETAIL, item = ItemUi(title = "code", subtitle = "description", badge = "status")),
+            ),
+            DeclaredMethod(
+                name = "marketing.setCodeEnabled",
+                kind = DeclaredMethod.KIND_MUTATION,
+                title = words.t("Код действует", "The code works"),
+                input = objectSchema(listOf("id", "enable"), id + mapOf("enable" to booleanProperty())),
+                ui = Ui(
+                    view = Views.ACTION,
+                    on = "promocode",
+                    placement = listOf("row", "detail"),
+                    control = Control(type = Controls.TOGGLE, param = "enable", bind = "enable"),
+                    confirm = words.t("Выключить промокод? Он перестанет работать сразу.", "Switch the promo code off? It stops working at once."),
+                ),
+            ),
+            DeclaredMethod(
+                name = "marketing.promotions",
+                kind = DeclaredMethod.KIND_QUERY,
+                title = promotions,
+                model = "promotion",
+                input = objectSchema(
+                    emptyList(),
+                    mapOf("q" to stringProperty(100), "filter" to promotionFilter, "code" to stringProperty(100), "cursor" to stringProperty(200)),
+                ),
+                ui = Ui(
+                    view = Views.LIST,
+                    item = ItemUi(title = "name", subtitle = "gives", meta = "schedule", badge = "appliesNow"),
+                    search = "q",
+                    chips = "filter",
+                    open = "marketing.promotion",
+                    empty = words.t("Акций нет", "No promotions"),
+                ),
+            ),
+            DeclaredMethod(
+                name = "marketing.promotion",
+                kind = DeclaredMethod.KIND_QUERY,
+                title = words.t("Акция", "Promotion"),
+                model = "promotion",
+                input = objectSchema(listOf("id"), id),
+                ui = Ui(view = Views.DETAIL, item = ItemUi(title = "name", subtitle = "gives", badge = "appliesNow")),
+            ),
+            DeclaredMethod(
+                name = "marketing.setPromotionEnabled",
+                kind = DeclaredMethod.KIND_MUTATION,
+                title = words.t("Работает", "Works"),
+                input = objectSchema(listOf("id", "enable"), id + mapOf("enable" to booleanProperty())),
+                ui = Ui(
+                    view = Views.ACTION,
+                    on = "promotion",
+                    placement = listOf("row", "detail"),
+                    control = Control(type = Controls.TOGGLE, param = "enable", bind = "enable"),
+                    confirm = words.t("Выключить акцию? Она перестанет применяться и по промокодам.", "Switch the promotion off? It stops applying, promo codes included."),
+                ),
+            ),
+            DeclaredMethod(
+                name = "marketing.setPromotionOnlyByCode",
+                kind = DeclaredMethod.KIND_MUTATION,
+                title = words.t("Только по промокоду", "Only by promo code"),
+                input = objectSchema(listOf("id", "onlyByCode"), id + mapOf("onlyByCode" to booleanProperty())),
+                ui = Ui(
+                    view = Views.ACTION,
+                    on = "promotion",
+                    placement = listOf("detail"),
+                    control = Control(type = Controls.TOGGLE, param = "onlyByCode", bind = "onlyByCode"),
+                ),
+            ),
+            DeclaredMethod(
+                name = "marketing.savePromotion",
+                kind = DeclaredMethod.KIND_MUTATION,
+                title = words.t("Настроить акцию", "Set the promotion up"),
+                input = savePromotionInput(),
+                // The client draws this one itself: a catalog, a gift and hours are no form.
+                ui = Ui(
+                    view = Views.ACTION,
+                    on = "promotion",
+                    placement = listOf("detail", "list"),
+                    control = Control(type = Controls.NATIVE, screen = "promotion-editor"),
+                ),
+            ),
+            DeclaredMethod(
+                name = "marketing.catalog",
+                kind = DeclaredMethod.KIND_QUERY,
+                title = words.t("Каталог", "Catalog"),
+                input = objectSchema(
+                    emptyList(),
+                    mapOf(
+                        "q" to stringProperty(100),
+                        "group" to stringProperty(100),
+                        "ids" to buildJsonObject { put("type", "array"); put("maxItems", 100); put("items", stringProperty(100)) },
+                    ),
+                ),
+            ),
+            DeclaredMethod(
+                name = "marketing.applications",
+                kind = DeclaredMethod.KIND_QUERY,
+                title = applications,
+                model = "application",
+                input = objectSchema(
+                    emptyList(),
+                    mapOf("code" to stringProperty(100), "status" to outcomeFilter, "cursor" to stringProperty(200)),
+                ),
+                ui = Ui(
+                    view = Views.LIST,
+                    item = ItemUi(title = "title", subtitle = "why", meta = "createdAt", value = "discount", badge = "status"),
+                    chips = "status",
+                    open = "marketing.application",
+                    empty = words.t("Код пока никто не вводил", "Nobody has typed a code yet"),
+                ),
+            ).takeIf { money },
+            DeclaredMethod(
+                name = "marketing.application",
+                kind = DeclaredMethod.KIND_QUERY,
+                title = words.t("Применение", "Application"),
+                model = "application",
+                input = objectSchema(listOf("id"), id),
+                ui = Ui(view = Views.DETAIL, item = ItemUi(title = "title", subtitle = "why", badge = "status")),
+            ).takeIf { money },
+        ),
+    )
+}
+
+/** The input of the editor of a promotion, as the hook declares it: what the native screen sends back. */
+private fun savePromotionInput(): JsonObject = buildJsonObject {
+    put("type", "object")
+    putJsonArray("required") {
+        add(JsonPrimitive("name"))
+        add(JsonPrimitive("description"))
+    }
+    put(
+        "properties",
+        buildJsonObject {
+            put("id", stringProperty(100, minLength = 1))
+            put("name", stringProperty(200, minLength = 1))
+            put("description", stringProperty(1000, minLength = 1))
+            put("enable", booleanProperty())
+            put("onlyByCode", booleanProperty())
+            put("isJoint", booleanProperty())
+            put("isPublic", booleanProperty())
+            put("sortOrder", intProperty(-1000, 1000))
+            put(
+                "configDiscount",
+                buildJsonObject {
+                    put("type", "object")
+                    put(
+                        "properties",
+                        buildJsonObject {
+                            put("discountType", enumProperty(listOf("percentage", "flat"), null, emptyMap()))
+                            put("discountAmount", buildJsonObject { put("type", "number"); put("minimum", 0); put("maximum", 1000000) })
+                            put("dishes", buildJsonObject { put("type", "array"); put("items", stringProperty(100)) })
+                            put("groups", buildJsonObject { put("type", "array"); put("items", stringProperty(100)) })
+                            put("serviceType", buildJsonObject { put("type", "array"); put("items", stringProperty(20)) })
+                            put("minBasketTotal", buildJsonObject { put("type", "number"); put("minimum", 0); put("maximum", 1000000) })
+                            put(
+                                "gift",
+                                buildJsonObject {
+                                    put("type", "object")
+                                    put(
+                                        "properties",
+                                        buildJsonObject {
+                                            put("minBasketTotal", buildJsonObject { put("type", "number"); put("minimum", 0); put("maximum", 1000000) })
+                                            put(
+                                                "dishes",
+                                                buildJsonObject {
+                                                    put("type", "array")
+                                                    put(
+                                                        "items",
+                                                        objectSchema(
+                                                            listOf("dishId", "amount"),
+                                                            mapOf("dishId" to stringProperty(100, minLength = 1), "amount" to intProperty(1, 99)),
+                                                        ),
+                                                    )
+                                                },
+                                            )
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                    )
+                },
+            )
+        },
     )
 }

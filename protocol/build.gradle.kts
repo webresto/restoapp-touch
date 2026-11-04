@@ -31,13 +31,15 @@ kotlin {
 }
 
 // The live test starts the hook of ../restoapp-dev on fake deps (tools/fake-server); it finds the
-// checkout through this, and skips itself when there is none.
+// checkout through this, and skips itself when there is none. `-Prestoapp.dev=…` points it at
+// another one — a git worktree of the server, which is where a change of both sides is written.
 tasks.withType<Test>().configureEach {
-    // A worktree of its own server checkout wins: `restoapp-dev` in the project root (a symlink in
-    // every workspace) before the `../restoapp-dev` next door, so two workspaces never share a server.
-    systemProperty(
-        "restoapp.dev",
-        (rootProject.file("restoapp-dev").takeIf { it.exists() } ?: rootProject.file("../restoapp-dev")).absolutePath,
-    )
+    // Which checkout of the server: `-Prestoapp.dev=…` when given, then `restoapp-dev` in the project
+    // root (a symlink in a workspace with a server of its own, so two workspaces never share one),
+    // then the `../restoapp-dev` next door.
+    val dev = (findProperty("restoapp.dev") as String?)?.let { file(it) }
+        ?: rootProject.file("restoapp-dev").takeIf { it.exists() }
+        ?: rootProject.file("../restoapp-dev")
+    systemProperty("restoapp.dev", dev.absolutePath)
     systemProperty("restoapp.tools", rootProject.file("tools").absolutePath)
 }

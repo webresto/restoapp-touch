@@ -20,6 +20,13 @@ public enum class DemoRole {
 
     /** «Блюда» only, at every point: the group `Stock Manager` with `stock-manager`. */
     Stock,
+
+    /**
+     * «Маркетинг» only: the group `Marketer` with `promocodes-manager` and `promotions-manager`, and without
+     * the right to read an order — so the summary counts the codes and the promotions and says nothing about
+     * the money, exactly as the declaration of such a person has it (`marketing.plan.md`).
+     */
+    Marketer,
 }
 
 /** A dish of the catalog — core's `Dish`, cut to what the stock manager sees. */
@@ -169,6 +176,67 @@ internal data class DemoDraft(
     }
 }
 
+/**
+ * A promotion of the demo — core's `Promotion` with the two switches of C22: `enable` is "works at all" and
+ * `onlyByCode` is "does not apply by itself".
+ */
+@Serializable
+internal data class DemoPromotion(
+    val id: String,
+    val name: String,
+    val enable: Boolean = true,
+    val onlyByCode: Boolean = false,
+    /** false — written by a module: only its switches and its order may be changed. */
+    val configured: Boolean = true,
+    val percent: Int = 0,
+    val flat: Int = 0,
+    /** How many items the gift is, and from which basket; 0 — no gift. */
+    val giftAmount: Int = 0,
+    val giftFrom: Int = 0,
+    val minBasketTotal: Int = 0,
+    val joint: Boolean = true,
+    val onStorefront: Boolean = true,
+    val sortOrder: Int = 0,
+    val serviceTypes: List<String> = emptyList(),
+    val dishes: List<String> = emptyList(),
+    val groups: List<String> = emptyList(),
+)
+
+/**
+ * A promo code of the demo — core's `PromotionCode`. Its status and the words of its term are kept as they are
+ * rather than computed from days: the demo shows the screens, and core is what judges a date.
+ */
+@Serializable
+internal data class DemoCode(
+    val id: String,
+    val code: String,
+    val description: String,
+    val enable: Boolean = true,
+    /** `active`, `scheduled` or `expired`; switched off, a code is `disabled` whatever this says. */
+    val status: String = "active",
+    val period: String = "без ограничения",
+    val schedule: String = "круглосуточно",
+    val promotions: List<String> = emptyList(),
+) {
+    val effectiveStatus: String get() = if (!enable) "disabled" else status
+
+    val worksNow: Boolean get() = effectiveStatus == "active"
+}
+
+/** Where a code was typed: core has no model of it either — it is read off the orders. */
+@Serializable
+internal data class DemoApplication(
+    val orderId: String,
+    val shortId: Int,
+    val code: String,
+    val applied: Boolean,
+    val discount: Int,
+    val createdAt: Long,
+    /** Why it gave nothing; null — it applied. */
+    val reason: String? = null,
+    val orderState: String = "DONE",
+)
+
 /** Everything the demo server keeps, as one JSON in the server's own storage. */
 @Serializable
 internal data class DemoState(
@@ -183,6 +251,10 @@ internal data class DemoState(
     val drafts: List<DemoDraft> = emptyList(),
     /** Numbers the demo gives new drafts. */
     val nextDraft: Int = 1,
+    /** «Маркетинг»: the promotions, the codes and the applications of them. */
+    val promotions: List<DemoPromotion> = emptyList(),
+    val codes: List<DemoCode> = emptyList(),
+    val applications: List<DemoApplication> = emptyList(),
 )
 
 internal object DemoCatalog {
@@ -377,5 +449,51 @@ internal object DemoEvening {
     private fun phone(random: Random): String {
         fun digits(n: Int) = (1..n).joinToString("") { random.nextInt(10).toString() }
         return "+7 9${digits(2)} ${digits(3)}-${digits(2)}-${digits(2)}"
+    }
+}
+
+/**
+ * «Маркетинг» of the demo: three codes — one that works, one planned and one that ended — and three promotions:
+ * one that applies by itself, one only by its code, and one that gives a present. Exactly the set the plan asks
+ * the demo server for, so every word and tone of the section has something to stand on.
+ */
+internal object DemoMarketing {
+
+    val promotions: List<DemoPromotion> = listOf(
+        DemoPromotion(id = "pr-summer", name = "Летняя скидка", onlyByCode = true, percent = 10, onStorefront = false),
+        DemoPromotion(id = "pr-lunch", name = "Бизнес-ланч", flat = 150, minBasketTotal = 700, serviceTypes = listOf("dine-in"), sortOrder = 1),
+        DemoPromotion(id = "pr-gift", name = "Подарок к заказу", giftAmount = 2, giftFrom = 1449, sortOrder = 2),
+        DemoPromotion(id = "pr-old", name = "Прошлогодняя акция", enable = false, configured = false, percent = 5, sortOrder = 9),
+    )
+
+    val codes: List<DemoCode> = listOf(
+        DemoCode(
+            id = "code-leto", code = "ЛЕТО10", description = "Скидка 10% по коду из рассылки",
+            status = "active", period = "с 01.06.2026 по 31.08.2026", schedule = "пн-пт 10:00-22:00",
+            promotions = listOf("pr-summer"),
+        ),
+        DemoCode(
+            id = "code-autumn", code = "ОСЕНЬ", description = "Откроется к сентябрю",
+            status = "scheduled", period = "с 01.09.2026", promotions = listOf("pr-gift"),
+        ),
+        DemoCode(
+            id = "code-spring", code = "ВЕСНА", description = "Весенняя рассылка, закончилась",
+            status = "expired", period = "по 31.05.2026", promotions = listOf("pr-lunch"),
+        ),
+        DemoCode(
+            id = "code-dead", code = "СТАРЫЙ", description = "Код прошлогодней акции",
+            status = "active", promotions = listOf("pr-old"),
+        ),
+    )
+
+    /** Where the codes were typed: a day apart, so the chips of the period have something to cut. */
+    fun applications(now: Long): List<DemoApplication> {
+        val day = 24 * 60 * 60 * 1000L
+        return listOf(
+            DemoApplication(orderId = "ap-1", shortId = 1042, code = "ЛЕТО10", applied = true, discount = 118, createdAt = now - 2 * 60 * 60 * 1000),
+            DemoApplication(orderId = "ap-2", shortId = 1041, code = "ЛЕТО10", applied = false, discount = 0, createdAt = now - day, reason = "корзина меньше 700 ₽", orderState = "CART"),
+            DemoApplication(orderId = "ap-3", shortId = 1035, code = "СТАРЫЙ", applied = false, discount = 0, createdAt = now - 10 * day, reason = "все акции кода выключены — код ничего не даёт", orderState = "CART"),
+            DemoApplication(orderId = "ap-4", shortId = 1012, code = "ВЕСНА", applied = false, discount = 0, createdAt = now - 40 * day, reason = "код не подошёл или истёк", orderState = "CART"),
+        )
     }
 }

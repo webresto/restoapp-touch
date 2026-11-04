@@ -6,6 +6,7 @@ import cx.m42.restoapp.demo.DemoStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
@@ -53,10 +54,16 @@ class DemoContractTest {
 
         demo.setRole(DemoRole.Admin)
         val admin = demo.describe("demo", "ru").value
-        // The administrator has everything: the two apps by points, the customers (no points), and
-        // the POS, which is by points and drawn by the client itself.
+        // The administrator has everything: the two apps by points, the customers and «Маркетинг» (no points),
+        // and the POS, which is by points and drawn by the client itself.
         assertEquals(
-            mapOf("dishes" to listOf("p1", "p2"), "orders" to listOf("p1", "p2"), "clients" to emptyList(), "pos" to listOf("p1", "p2")),
+            mapOf(
+                "dishes" to listOf("p1", "p2"),
+                "orders" to listOf("p1", "p2"),
+                "clients" to emptyList(),
+                "pos" to listOf("p1", "p2"),
+                "marketing" to emptyList(),
+            ),
             ids(admin),
         )
         assertEquals("pos", admin.app("pos")?.native)
@@ -76,6 +83,20 @@ class DemoContractTest {
         assertEquals(MobileApiException.FORBIDDEN, forbidden.code)
         val point = assertFailsWith<MobileApiException> { demo.call("demo", "orders.list", JsonObject(emptyMap()), "p2", "ru") }
         assertEquals(MobileApiException.PLACE_FORBIDDEN, point.code)
+
+        // The marketer has the section and nothing else, and the money of the applications is not theirs:
+        // the method is not in their declaration, so the server refuses it (`marketing.plan.md`).
+        demo.setRole(DemoRole.Marketer)
+        val marketer = demo.describe("demo", "ru").value
+        assertEquals(mapOf("marketing" to emptyList<String>()), ids(marketer))
+        val section = marketer.app("marketing")!!
+        assertEquals(null, section.method("marketing.applications"))
+        assertEquals(
+            listOf("codesTotal", "codesActive", "promotionsTotal", "promotionsSelf", "promotionsByCodeOnly"),
+            section.fields("summary").map { it.name },
+        )
+        val money = assertFailsWith<MobileApiException> { demo.call("demo", "marketing.applications", JsonObject(emptyMap()), null, "ru") }
+        assertEquals(MobileApiException.FORBIDDEN, money.code)
     }
 
     /** The POS is drawn by the client, so its answers have their own file — the hook's `pos.schema.json`. */
@@ -139,6 +160,75 @@ class DemoContractTest {
         Contract.assertValid("listResult", orders)
         val order = ListPage.of(orders).items.first()
         assertTrue(order.actions().single().input!!.property("to")!!.enumValues().isNotEmpty())
+    }
+
+    /**
+     * «Маркетинг» end to end on the demo: the summary leads to the codes by a link, a code to its applications
+     * and to its promotions, and every answer is the envelope of the contract — `_open` and `_links` included.
+     */
+    @Test
+    fun theSectionOfMarketingAnswersWithTheLinksOfTheContract(): Unit = runBlocking {
+        val demo = demo()
+        val summary = demo.call("demo", "marketing.home", JsonObject(emptyMap()), null, "ru").value
+        Contract.assertValid("itemResult", summary)
+        val card = recordOf(summary)!!
+        assertEquals(4, (card["codesTotal"] as JsonPrimitive).content.toInt())
+        assertEquals(
+            listOf("marketing.promocodes", "marketing.promotions", "marketing.applications"),
+            card.links().map { it.open.method },
+        )
+
+        val codes = demo.call("demo", "marketing.promocodes", JsonObject(emptyMap()), null, "ru").value
+        Contract.assertValid("listResult", codes)
+        val leto = ListPage.of(codes).items.first { it["code"] == JsonPrimitive("ЛЕТО10") }
+        assertEquals(JsonPrimitive("active"), leto["status"])
+        assertEquals("−10% на всю корзину", (leto["gives"] as JsonPrimitive).content)
+        // A code whose every promotion is switched off says so instead of showing a discount (C22).
+        val dead = ListPage.of(codes).items.first { it["code"] == JsonPrimitive("СТАРЫЙ") }
+        assertEquals("все акции кода выключены — код ничего не даёт", (dead["gives"] as JsonPrimitive).content)
+
+        val codeCard = demo.call("demo", "marketing.promocode", jsonObjectOf("id" to JsonPrimitive(leto.id()!!)), null, "ru").value
+        Contract.assertValid("itemResult", codeCard)
+        val links = recordOf(codeCard)!!.links()
+        assertEquals(listOf("marketing.applications", "marketing.promotions"), links.map { it.open.method })
+        assertEquals(JsonPrimitive("ЛЕТО10"), links.first().open.params["code"])
+
+        // The link of the card is followed: the applications of that code, and its promotions.
+        val ofCode = demo.call("demo", links.first().open.method, links.first().open.params, null, "ru").value
+        Contract.assertValid("listResult", ofCode)
+        assertTrue(ListPage.of(ofCode).items.all { it["code"] == JsonPrimitive("ЛЕТО10") })
+        val promotions = demo.call("demo", links[1].open.method, links[1].open.params, null, "ru").value
+        assertEquals(listOf("Летняя скидка"), ListPage.of(promotions).items.map { (it["name"] as JsonPrimitive).content })
+
+        // A percentage and a flat amount are different fields: neither is ever read as the other.
+        val all = ListPage.of(demo.call("demo", "marketing.promotions", JsonObject(emptyMap()), null, "ru").value).items
+        val percentage = all.first { it["name"] == JsonPrimitive("Летняя скидка") }
+        val flat = all.first { it["name"] == JsonPrimitive("Бизнес-ланч") }
+        assertEquals(JsonPrimitive(10), percentage["discountPercent"])
+        assertNull(percentage["discountFlat"])
+        assertEquals(JsonPrimitive(150), flat["discountFlat"])
+        assertNull(flat["discountPercent"])
+
+        Contract.assertValid(
+            "itemResult",
+            demo.call("demo", "marketing.setPromotionOnlyByCode", jsonObjectOf("id" to JsonPrimitive("pr-lunch"), "onlyByCode" to JsonPrimitive(true)), null, "ru").value,
+        )
+        val switched = recordOf(demo.call("demo", "marketing.promotion", jsonObjectOf("id" to JsonPrimitive("pr-lunch")), null, "ru").value)!!
+        assertEquals(JsonPrimitive("code-only"), switched["appliesNow"])
+
+        // Switched off, a promotion has nothing to say about "by itself": the action is not on the record.
+        val off = recordOf(demo.call("demo", "marketing.setPromotionEnabled", jsonObjectOf("id" to JsonPrimitive("pr-lunch"), "enable" to JsonPrimitive(false)), null, "ru").value)!!
+        assertEquals(JsonPrimitive("disabled"), off["appliesNow"])
+        assertTrue(off.actions().none { it.method == "marketing.setPromotionOnlyByCode" })
+        // And a promotion a module wrote is not edited from the phone at all.
+        val programmed = recordOf(demo.call("demo", "marketing.promotion", jsonObjectOf("id" to JsonPrimitive("pr-old")), null, "ru").value)!!
+        assertTrue(programmed.actions().none { it.method == "marketing.savePromotion" })
+
+        val application = ListPage.of(demo.call("demo", "marketing.applications", JsonObject(emptyMap()), null, "ru").value).items.first()
+        Contract.assertValid(
+            "itemResult",
+            demo.call("demo", "marketing.application", jsonObjectOf("id" to JsonPrimitive(application.id()!!)), null, "ru").value,
+        )
     }
 
     @Test

@@ -50,12 +50,17 @@ internal class HostWords(lang: String) {
         DemoRole.Admin -> t("Администратор", "Administrator")
         DemoRole.Operator -> t("Оператор", "Operator")
         DemoRole.Stock -> t("Склад", "Stock manager")
+        DemoRole.Marketer -> t("Маркетолог", "Marketer")
     }
 
     fun roleHint(role: DemoRole) = when (role) {
         DemoRole.Admin -> t("Всё на всех точках", "Everything at every point")
         DemoRole.Operator -> t("Только «Заказы», только первая точка — группа Operator", "«Orders» only, at the first point — the Operator group")
         DemoRole.Stock -> t("Только «Блюда», на всех точках — группа Stock Manager", "«Dishes» only, at every point — the Stock Manager group")
+        DemoRole.Marketer -> t(
+            "Только «Маркетинг» — группа Marketer; заказы читать нельзя, поэтому денег в сводке нет",
+            "«Marketing» only — the Marketer group; no right to read an order, so no money on the summary",
+        )
     }
 
     fun demoRole(role: DemoRole) = t("Демо · роль: ", "Demo · role: ") + roleTitle(role)

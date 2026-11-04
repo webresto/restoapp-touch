@@ -4,14 +4,17 @@ import androidx.compose.runtime.Composable
 import cx.m42.restoapp.protocol.DeclaredApp
 import cx.m42.restoapp.protocol.DeclaredMethod
 import cx.m42.restoapp.protocol.MobileApiException
+import cx.m42.restoapp.protocol.Open
 import cx.m42.restoapp.protocol.RecordAction
 import cx.m42.restoapp.protocol.ListPage
 import cx.m42.restoapp.protocol.Views
 import cx.m42.restoapp.protocol.defaultString
 import cx.m42.restoapp.protocol.id
+import cx.m42.restoapp.protocol.open
 import cx.m42.restoapp.protocol.property
 import cx.m42.restoapp.protocol.recordOf
 import cx.m42.superizer.app.AppChrome
+import cx.m42.superizer.app.AppId
 import cx.m42.superizer.app.AppInstance
 import cx.m42.superizer.runtime.InstanceRuntime
 import kotlinx.coroutines.CancellationException
@@ -25,15 +28,18 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
-/** The list of the home method: what the chips, the search and the pages have brought. */
+/** The list of a frame: what the chips, the search and the pages have brought. */
 internal data class ListState(
     val chip: String? = null,
     val query: String = "",
@@ -48,27 +54,54 @@ internal data class ListState(
     val pages: Int = 0,
 )
 
-/** One record opened from the list; [record] is the row's copy until the open method answers. */
+/**
+ * One screen of the stack: the method it is read with, the params it was opened with, and what came back.
+ *
+ * The method's `ui.view` says whether a frame is a list or a card (`client-lookup.plan.md`, «Стек экранов»):
+ * the home method is the bottom frame, and a link of a record (`_open`, `_links`) pushes the next one — the
+ * summary of «Маркетинг» leads to the codes, a code to its applications, an application to one order.
+ */
+internal data class Frame(
+    val method: String,
+    /** What the frame was opened with: `{id}` of a card, `{code}` of a list of one code's records. */
+    val params: JsonObject = JsonObject(emptyMap()),
+    /** The words of the link that opened it: what the bar says while it is on top. */
+    val title: String? = null,
+    val list: ListState = ListState(),
+    /** A card's record; the row's own copy until the method answers. */
+    val record: JsonObject? = null,
+    val loading: Boolean = false,
+)
+
+/** One record opened from a list — kept for the screens, which ask for "the open card" and not for the stack. */
 internal data class DetailState(val id: String, val record: JsonObject?, val loading: Boolean)
 
 /** A failure the screen shows on top, by the protocol's code. */
 internal data class ScreenError(val code: String, val text: String)
 
+/** An action whose screen the client draws itself: what it acts on, and how its input is narrowed. */
+internal data class NativeRequest(val record: JsonObject, val action: RecordAction, val method: DeclaredMethod)
+
 /**
- * One open server app: the home screen, at most one record opened from it, and the point.
+ * One open server app: a stack of frames, and the point.
  *
- * Changing the point resets everything (plan section 4): chips, search, pages and the open record
- * go, and the screen is read again — nothing of the previous point stays on it. A mutation's answer
- * replaces the record in place; the list is then re-read quietly, so counts and filters follow.
+ * Changing the point resets everything (plan section 4): chips, search, pages and every frame above the home one
+ * go, and the screen is read again — nothing of the previous point stays on it. A mutation's answer replaces the
+ * record wherever it is shown; the frame on top is then re-read quietly, so counts and filters follow.
  */
 internal class ServerAppInstance(
     private val runtime: InstanceRuntime,
     internal val server: RestoServer,
 ) : AppInstance() {
 
+    private val _frames = MutableStateFlow<List<Frame>>(emptyList())
+    val frames: StateFlow<List<Frame>> get() = _frames.asStateFlow()
+
+    /** The list of the topmost frame that is one: what the list screen draws. */
     private val _list = MutableStateFlow(ListState())
     val list: StateFlow<ListState> get() = _list.asStateFlow()
 
+    /** The card on top, when the top frame is one. */
     private val _detail = MutableStateFlow<DetailState?>(null)
     val detail: StateFlow<DetailState?> get() = _detail.asStateFlow()
 
@@ -82,6 +115,10 @@ internal class ServerAppInstance(
     private val _busy = MutableStateFlow<Set<String>>(emptySet())
     val busy: StateFlow<Set<String>> get() = _busy.asStateFlow()
 
+    /** The native screen of an action that is open on top of everything (`control: native`), and what it acts on. */
+    private val _native = MutableStateFlow<NativeRequest?>(null)
+    val native: StateFlow<NativeRequest?> get() = _native.asStateFlow()
+
     private val _chrome = MutableStateFlow(AppChrome())
     override val chrome: StateFlow<AppChrome> get() = _chrome.asStateFlow()
 
@@ -90,11 +127,17 @@ internal class ServerAppInstance(
     private var searchJob: Job? = null
     private var quietJob: Job? = null
     private var pollJob: Job? = null
-    private var detailJob: Job? = null
     private var restoredPlace: String? = null
 
     private val app: DeclaredApp? get() = server.app.value
     private val home: DeclaredMethod? get() = app?.let { it.method(it.home) }
+
+    /** The frame on top: the screen the person is looking at. */
+    internal val top: Frame? get() = _frames.value.lastOrNull()
+
+    private fun methodOf(frame: Frame?): DeclaredMethod? = frame?.let { app?.method(it.method) }
+
+    private fun viewOf(frame: Frame?): String? = methodOf(frame)?.ui?.view
 
     override suspend fun onLaunch() {
         runtime.scope.launch {
@@ -103,42 +146,97 @@ internal class ServerAppInstance(
         }
         runtime.scope.launch { server.notices.collect { _notice.value = it } }
         runtime.scope.launch {
-            combine(server.app, server.place, _detail) { app, place, detail -> Triple(app, place, detail) }.collect { (app, place, detail) ->
-                val titleField = app?.method(app.home)?.ui?.open?.let { app.method(it) }?.ui?.item?.title
-                    ?: app?.method(app.home)?.ui?.item?.title
-                val title = detail?.record?.get(titleField ?: "name")?.let { plain(it) }?.takeIf { it != NO_VALUE }
+            combine(server.app, server.place, _frames) { app, place, frames -> Triple(app, place, frames) }.collect { (app, place, frames) ->
                 _chrome.value = AppChrome(
-                    title = if (detail != null) title else null,
+                    title = frames.size.takeIf { it > 1 }?.let { titleOf(app, frames.last()) },
                     subtitle = if (app?.byPlace == true) place?.title else null,
-                    canGoBack = detail != null,
+                    canGoBack = frames.size > 1,
                 )
             }
         }
         runtime.analytics.screen("server-app")
     }
 
-    /** After [restore], from the first frame: reads the home screen, and the open record if any. */
+    /** What the bar says about a frame: the words of the link that opened it, or the title of its record. */
+    private fun titleOf(app: DeclaredApp?, frame: Frame): String? {
+        frame.title?.let { return it }
+        val method = app?.method(frame.method)
+        val field = method?.ui?.item?.title
+        val record = frame.record
+        if (record != null && field != null) {
+            plain(record[field]).takeIf { it != NO_VALUE }?.let { return it }
+        }
+        return method?.title?.takeIf { it.isNotEmpty() }
+    }
+
+    /** After [restore], from the first frame: reads the stack, and the screen on top of it. */
     fun start() {
         if (started) return
         started = true
         restoredPlace?.let { id -> if (server.place.value == null && server.places.value.any { it.id == id }) server.selectPlace(id) }
-        reload()
-        _detail.value?.let { open(it.id, null) }
+        if (_frames.value.isEmpty()) home?.let { setFrames(listOf(Frame(it.name))) }
+        loadTop()
         startPolling()
     }
 
     override fun saveState(): JsonObject = buildJsonObject {
         server.place.value?.let { put("place", JsonPrimitive(it.id)) }
-        _list.value.chip?.let { put("chip", JsonPrimitive(it)) }
-        if (_list.value.query.isNotEmpty()) put("query", JsonPrimitive(_list.value.query))
-        _detail.value?.let { put("open", JsonPrimitive(it.id)) }
+        // Nothing is written for a stack that was never opened: a snapshot has to survive a round trip
+        // through a fresh instance, and a frame invented on the way back would not be in it.
+        if (_frames.value.isNotEmpty()) {
+            put(
+                "frames",
+                buildJsonArray {
+                    for (frame in _frames.value) {
+                        add(
+                            buildJsonObject {
+                                put("method", JsonPrimitive(frame.method))
+                                if (frame.params.isNotEmpty()) put("params", frame.params)
+                                frame.title?.let { put("title", JsonPrimitive(it)) }
+                                frame.list.chip?.let { put("chip", JsonPrimitive(it)) }
+                                if (frame.list.query.isNotEmpty()) put("query", JsonPrimitive(frame.list.query))
+                            },
+                        )
+                    }
+                },
+            )
+        }
     }
 
+    /**
+     * The snapshot of the stack. A snapshot of an older build has no stack in it — a chip, a search and the id of
+     * one open record — and is read as the two frames it stood for, so an update does not throw a screen away.
+     */
     override fun restore(state: JsonObject) {
         fun text(key: String) = runCatching { state[key]?.jsonPrimitive?.contentOrNull }.getOrNull()
         restoredPlace = text("place")
-        _list.value = _list.value.copy(chip = text("chip"), query = text("query").orEmpty())
-        text("open")?.let { _detail.value = DetailState(it, record = null, loading = true) }
+        val saved = runCatching { (state["frames"] as? JsonArray)?.map { it.jsonObject } }.getOrNull()
+        if (saved != null && saved.isNotEmpty()) {
+            setFrames(
+                saved.map { frame ->
+                    Frame(
+                        method = frame["method"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        params = frame["params"] as? JsonObject ?: JsonObject(emptyMap()),
+                        title = frame["title"]?.jsonPrimitive?.contentOrNull,
+                        list = ListState(
+                            chip = frame["chip"]?.jsonPrimitive?.contentOrNull,
+                            query = frame["query"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        ),
+                    )
+                }.filter { it.method.isNotEmpty() },
+            )
+            return
+        }
+        val chip = text("chip")
+        val query = text("query").orEmpty()
+        val open = text("open")
+        // Nothing of a screen in it: `start` opens the home frame, and this snapshot has nothing to add.
+        if (chip == null && query.isEmpty() && open == null) return
+        val homeFrame = Frame(method = home?.name ?: return, list = ListState(chip = chip, query = query))
+        val opened = open?.let { id ->
+            home?.ui?.open?.let { Frame(method = it, params = buildJsonObject { put("id", JsonPrimitive(id)) }, loading = true) }
+        }
+        setFrames(listOfNotNull(homeFrame, opened))
     }
 
     override fun onForeground() {
@@ -153,126 +251,159 @@ internal class ServerAppInstance(
         pollJob = null
     }
 
-    // ---- the list ----
+    // ---- the stack ----
 
-    private fun params(cursor: String?, since: Long? = null): JsonObject {
-        val ui = home?.ui
-        val state = _list.value
+    private fun setFrames(frames: List<Frame>) {
+        _frames.value = frames
+        val top = frames.lastOrNull()
+        // The screens ask for "the list" and "the card": the top frame, by what its method draws.
+        _list.value = frames.lastOrNull { viewOf(it) == Views.LIST }?.list ?: ListState()
+        _detail.value = top
+            ?.takeIf { viewOf(it) == Views.DETAIL && frames.size > 1 }
+            ?.let { DetailState(it.params["id"]?.jsonPrimitive?.contentOrNull ?: it.record?.id() ?: "", it.record, it.loading) }
+    }
+
+    private fun updateTop(change: (Frame) -> Frame) {
+        val frames = _frames.value
+        if (frames.isEmpty()) return
+        setFrames(frames.dropLast(1) + change(frames.last()))
+    }
+
+    private fun updateList(change: (ListState) -> ListState) = updateTop { frame -> frame.copy(list = change(frame.list)) }
+
+    /** Params of a call of [frame]: what it was opened with, plus its chip, its search and the paging. */
+    private fun params(frame: Frame, cursor: String? = null, since: Long? = null): JsonObject {
+        val ui = methodOf(frame)?.ui
         return buildJsonObject {
-            ui?.chips?.let { chips -> chipOrDefault(state.chip)?.let { put(chips, JsonPrimitive(it)) } }
-            ui?.search?.let { search -> state.query.trim().takeIf { it.isNotEmpty() }?.let { put(search, JsonPrimitive(it)) } }
+            for ((key, value) in frame.params) put(key, value)
+            ui?.chips?.let { chips -> chipOrDefault(frame, chips)?.let { put(chips, JsonPrimitive(it)) } }
+            ui?.search?.let { search -> frame.list.query.trim().takeIf { it.isNotEmpty() }?.let { put(search, JsonPrimitive(it)) } }
             cursor?.let { put("cursor", JsonPrimitive(it)) }
             since?.let { put(SINCE, JsonPrimitive(it)) }
         }
     }
 
-    private fun chipOrDefault(chip: String?): String? {
-        val chips = home?.ui?.chips ?: return null
-        return chip ?: home?.input?.property(chips)?.defaultString()
+    private fun chipOrDefault(frame: Frame, chips: String? = null): String? {
+        val key = chips ?: methodOf(frame)?.ui?.chips ?: return null
+        return frame.list.chip ?: methodOf(frame)?.input?.property(key)?.defaultString()
     }
 
-    /** The chip in force: the chosen one, or the input's default. */
-    fun currentChip(): String? = chipOrDefault(_list.value.chip)
+    /** The chip in force on the top frame: the chosen one, or the input's default. */
+    fun currentChip(): String? = top?.let { chipOrDefault(it) }
+
+    /** Reads the frame on top — loudly: with a spinner, and an error if it fails. */
+    private fun loadTop() {
+        val frame = top ?: return
+        val method = methodOf(frame) ?: return
+        loadJob?.cancel()
+        when (method.ui?.view) {
+            Views.LIST -> {
+                updateList { it.copy(loading = true) }
+                loadJob = runtime.scope.launch {
+                    try {
+                        val page = ListPage.of(server.call(method.name, params(frame, cursor = null)))
+                        if (top?.method == frame.method) {
+                            updateList {
+                                it.copy(
+                                    items = page.items, nextCursor = page.nextCursor, counts = page.counts, total = page.total,
+                                    loading = false, loaded = true, pages = 1,
+                                )
+                            }
+                        }
+                        _error.value = null
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: MobileApiException) {
+                        updateList { it.copy(loading = false) }
+                        fail(failure)
+                    }
+                }
+            }
+            Views.DETAIL -> {
+                updateTop { it.copy(loading = true) }
+                loadJob = runtime.scope.launch {
+                    try {
+                        val record = recordOf(server.call(method.name, params(frame)))
+                        if (top?.method == frame.method) updateTop { it.copy(record = record ?: it.record, loading = false) }
+                        _error.value = null
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: MobileApiException) {
+                        updateTop { it.copy(loading = false) }
+                        if (failure.code == MobileApiException.NOT_FOUND && _frames.value.size > 1) back()
+                        fail(failure)
+                    }
+                }
+            }
+            else -> Unit
+        }
+    }
 
     fun reload() {
-        val method = home ?: return
-        if (method.ui?.view != Views.LIST) return reloadHomeRecord(method)
-        loadJob?.cancel()
-        _list.value = _list.value.copy(loading = true)
-        loadJob = runtime.scope.launch {
-            try {
-                val page = ListPage.of(server.call(method.name, params(cursor = null)))
-                _list.value = _list.value.copy(
-                    items = page.items, nextCursor = page.nextCursor, counts = page.counts, total = page.total,
-                    loading = false, loaded = true, pages = 1,
-                )
-                _error.value = null
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: MobileApiException) {
-                _list.value = _list.value.copy(loading = false)
-                fail(failure)
-            }
-        }
+        loadTop()
     }
 
-    /** A home method that is a card, not a list: its record lives in [detail] with no list under it. */
-    private fun reloadHomeRecord(method: DeclaredMethod) {
-        if (method.ui?.view != Views.DETAIL) return
-        loadJob?.cancel()
-        loadJob = runtime.scope.launch {
-            try {
-                val record = recordOf(server.call(method.name, JsonObject(emptyMap())))
-                _list.value = _list.value.copy(items = listOfNotNull(record), loaded = true)
-                _error.value = null
-            } catch (failure: MobileApiException) {
-                fail(failure)
-            }
-        }
-    }
-
-    /** Re-reads the list without a spinner — after an action, or back from a record. */
+    /** Re-reads the frame on top without a spinner — after an action, or back from a frame above it. */
     fun quietReload(delayMs: Long = 0) {
         quietJob?.cancel()
         quietJob = runtime.scope.launch {
             if (delayMs > 0) delay(delayMs)
-            val method = home?.takeIf { it.ui?.view == Views.LIST } ?: return@launch
+            val frame = top ?: return@launch
+            val method = methodOf(frame) ?: return@launch
             if (loadJob?.isActive == true) return@launch
             try {
-                val page = ListPage.of(server.call(method.name, params(cursor = null)))
-                val state = _list.value
-                _list.value = if (state.pages <= 1) {
-                    state.copy(items = page.items, nextCursor = page.nextCursor, counts = page.counts, total = page.total, loaded = true, pages = 1)
-                } else {
-                    // Pages the person scrolled to stay; the records the first page brings are refreshed.
-                    val fresh = page.items.associateBy { it.id() }
-                    state.copy(items = state.items.map { fresh[it.id()] ?: it }, counts = page.counts, total = page.total)
+                when (method.ui?.view) {
+                    Views.LIST -> {
+                        val page = ListPage.of(server.call(method.name, params(frame, cursor = null)))
+                        if (top?.method != frame.method) return@launch
+                        updateList { state ->
+                            if (state.pages <= 1) {
+                                state.copy(items = page.items, nextCursor = page.nextCursor, counts = page.counts, total = page.total, loaded = true, pages = 1)
+                            } else {
+                                // Pages the person scrolled to stay; the records the first page brings are refreshed.
+                                val fresh = page.items.associateBy { it.id() }
+                                state.copy(items = state.items.map { fresh[it.id()] ?: it }, counts = page.counts, total = page.total)
+                            }
+                        }
+                    }
+                    Views.DETAIL -> {
+                        val record = recordOf(server.call(method.name, params(frame)))
+                        if (record != null && top?.method == frame.method) updateTop { it.copy(record = record, loading = false) }
+                    }
+                    else -> Unit
                 }
                 _error.value = null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: MobileApiException) {
-                // Quiet: the list stays as it is; the next loud action shows the error.
+                // Quiet: the screen stays as it is; the next loud action shows the error.
             }
-            // The card standing on top of the list is as much of the screen as the list is: a move
-            // somebody else made must change its buttons too, not only the row behind it.
-            refreshOpenRecord()
-        }
-    }
-
-    /** Re-reads the open record without a spinner; leaves it as it is when the server will not say. */
-    private suspend fun refreshOpenRecord() {
-        val open = _detail.value ?: return
-        if (detailJob?.isActive == true) return
-        val method = home?.ui?.open?.let { app?.method(it) } ?: return
-        try {
-            val record = recordOf(server.call(method.name, buildJsonObject { put("id", JsonPrimitive(open.id)) }))
-            if (record != null && _detail.value?.id == open.id) _detail.value = DetailState(open.id, record, loading = false)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: MobileApiException) {
-            // The record may have gone; the next loud read says so.
         }
     }
 
     /**
      * Keeps the list fresh while the app is on screen (plan section 3, «Обновления без SSE»).
      *
-     * Only for a list whose method takes `since` — «Заказы» do, «Блюда» do not and are re-read on
-     * return to the screen. Every [POLL_MS] the probe asks for what changed since the newest change
-     * on screen: an empty answer costs nothing, and anything at all is followed by a full re-read,
-     * so counts settle and a record that left the tab leaves the screen with them.
+     * Only for a list whose method takes `since` — «Заказы» do, «Блюда» do not and are re-read on return to the
+     * screen. Every [POLL_MS] the probe asks for what changed since the newest change on screen: an empty answer
+     * costs nothing, and anything at all is followed by a full re-read, so counts settle and a record that left
+     * the tab leaves the screen with them.
      *
-     * The probe cannot see a record leaving the tab — it is no longer in the tab's answer — so one
-     * poll in [FULL_RELOAD_EVERY] is a full re-read regardless.
+     * The probe cannot see a record leaving the tab — it is no longer in the tab's answer — so one poll in
+     * [FULL_RELOAD_EVERY] is a full re-read regardless.
      */
     private fun startPolling() {
         if (pollJob?.isActive == true) return
-        val method = home?.takeIf { it.ui?.view == Views.LIST } ?: return
+        val frame = top ?: return
+        val method = methodOf(frame)?.takeIf { it.ui?.view == Views.LIST } ?: return
         if (method.input.property(SINCE) == null) return
         pollJob = runtime.scope.launch {
             var tick = 0
             while (true) {
                 delay(POLL_MS)
-                if (loadJob?.isActive == true || _list.value.loading || !_list.value.loaded) continue
+                val current = top ?: continue
+                if (current.method != frame.method) continue
+                if (loadJob?.isActive == true || current.list.loading || !current.list.loaded) continue
                 tick += 1
                 val since = newestChange()
                 if (since == null || tick % FULL_RELOAD_EVERY == 0) {
@@ -280,7 +411,7 @@ internal class ServerAppInstance(
                     continue
                 }
                 try {
-                    val page = ListPage.of(server.call(method.name, params(cursor = null, since = since + 1)))
+                    val page = ListPage.of(server.call(method.name, params(current, cursor = null, since = since + 1)))
                     if (page.items.isNotEmpty()) quietReload()
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -296,19 +427,22 @@ internal class ServerAppInstance(
         _list.value.items.mapNotNull { runCatching { it[SINCE_FIELD]?.jsonPrimitive?.longOrNull }.getOrNull() }.maxOrNull()
 
     fun more() {
-        val method = home ?: return
-        val cursor = _list.value.nextCursor ?: return
-        if (_list.value.loadingMore) return
-        _list.value = _list.value.copy(loadingMore = true)
+        val frame = top ?: return
+        val method = methodOf(frame) ?: return
+        val cursor = frame.list.nextCursor ?: return
+        if (frame.list.loadingMore) return
+        updateList { it.copy(loadingMore = true) }
         runtime.scope.launch {
             try {
-                val page = ListPage.of(server.call(method.name, params(cursor)))
-                _list.value = _list.value.copy(
-                    items = _list.value.items + page.items, nextCursor = page.nextCursor, counts = page.counts, total = page.total,
-                    loadingMore = false, pages = _list.value.pages + 1,
-                )
+                val page = ListPage.of(server.call(method.name, params(frame, cursor)))
+                updateList {
+                    it.copy(
+                        items = it.items + page.items, nextCursor = page.nextCursor, counts = page.counts, total = page.total,
+                        loadingMore = false, pages = it.pages + 1,
+                    )
+                }
             } catch (failure: MobileApiException) {
-                _list.value = _list.value.copy(loadingMore = false)
+                updateList { it.copy(loadingMore = false) }
                 fail(failure)
             }
         }
@@ -316,86 +450,129 @@ internal class ServerAppInstance(
 
     fun chip(value: String) {
         if (value == currentChip()) return
-        _list.value = _list.value.copy(chip = value, items = emptyList(), nextCursor = null, loaded = false)
-        reload()
+        updateList { it.copy(chip = value, items = emptyList(), nextCursor = null, loaded = false) }
+        loadTop()
     }
 
     fun search(text: String) {
-        _list.value = _list.value.copy(query = text)
+        updateList { it.copy(query = text) }
         searchJob?.cancel()
         searchJob = runtime.scope.launch {
             delay(SEARCH_DELAY_MS)
-            reload()
+            loadTop()
         }
     }
 
     private fun resetForPlace() {
         loadJob?.cancel()
-        detailJob?.cancel()
         searchJob?.cancel()
         quietJob?.cancel()
-        _list.value = ListState()
-        _detail.value = null
         _error.value = null
+        setFrames(listOfNotNull(home?.let { Frame(it.name) }))
         if (started) {
-            reload()
+            loadTop()
             startPolling()
         }
     }
 
     // ---- a record ----
 
-    fun open(id: String, row: JsonObject?) {
-        val method = home?.ui?.open?.let { app?.method(it) } ?: return
-        _detail.value = DetailState(id, row ?: _detail.value?.record?.takeIf { it.id() == id }, loading = true)
-        detailJob?.cancel()
-        detailJob = runtime.scope.launch {
-            try {
-                val record = recordOf(server.call(method.name, buildJsonObject { put("id", JsonPrimitive(id)) }))
-                if (_detail.value?.id == id) _detail.value = DetailState(id, record, loading = false)
-                _error.value = null
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: MobileApiException) {
-                if (failure.code == MobileApiException.NOT_FOUND) {
-                    back()
-                } else {
-                    _detail.value = _detail.value?.copy(loading = false)
-                }
-                fail(failure)
-            }
-        }
+    /**
+     * Opens the record of a row: its own link when the server gave it one (`_open`), the default link of the list
+     * otherwise (`ui.open`). The row travels with the frame, so the card shows what the list knew while it reads.
+     */
+    fun openRow(record: JsonObject) {
+        val own = record.open()
+        if (own != null) return openLink(own, row = record)
+        val id = record.id() ?: return
+        open(id, record)
     }
 
+    /** The default link of a uniform list: the method of `ui.open`, by id. */
+    fun open(id: String, row: JsonObject?) {
+        val method = methodOf(top)?.ui?.open ?: return
+        push(Frame(method = method, params = buildJsonObject { put("id", JsonPrimitive(id)) }, record = row, loading = true))
+    }
+
+    /**
+     * Follows a link of a record — a row's `_open` or a line of a card's `_links`.
+     *
+     * A link into this app is one more frame on the stack; one into another app is that app opened, and the host
+     * decides whether it may be (`client-lookup.plan.md`, «Переход в другое приложение»). A link the server built
+     * is a hint and not a permission: the call it leads to is checked like any other.
+     */
+    fun openLink(open: Open, title: String? = null, row: JsonObject? = null) {
+        val target = open.app
+        if (target != null && target != app?.id) {
+            runtime.scope.launch {
+                val id = AppId.parseOrNull(target)
+                val words = RenderWords(runtime.locale.langTag.value)
+                if (id == null) {
+                    _notice.value = words.linkGone
+                    return@launch
+                }
+                runCatching { runtime.navigation.openApp(id) }.onFailure { _notice.value = words.linkGone }
+            }
+            return
+        }
+        if (app?.method(open.method) == null) {
+            _notice.value = RenderWords(runtime.locale.langTag.value).linkGone
+            return
+        }
+        push(Frame(method = open.method, params = open.params, title = open.title ?: title, record = row, loading = true))
+    }
+
+    private fun push(frame: Frame) {
+        pollJob?.cancel()
+        pollJob = null
+        loadJob?.cancel()
+        searchJob?.cancel()
+        quietJob?.cancel()
+        setFrames(_frames.value + frame)
+        loadTop()
+        startPolling()
+    }
+
+    /** Back one frame; the bottom one is the app's own screen, and the host closes the app from there. */
     fun back() {
-        if (_detail.value == null) return
-        detailJob?.cancel()
-        _detail.value = null
+        if (_frames.value.size <= 1) return
+        loadJob?.cancel()
+        searchJob?.cancel()
+        quietJob?.cancel()
+        pollJob?.cancel()
+        pollJob = null
+        setFrames(_frames.value.dropLast(1))
         quietReload()
+        startPolling()
     }
 
     // ---- actions ----
 
     /**
-     * Runs [action] on [record] with [value] for the control's parameter. The record's id goes in as
-     * `id` when the method takes one. The answer's record replaces this one wherever it is shown.
+     * Runs [action] on [record] with [value] for the control's parameter. The record's id goes in as `id` when the
+     * method takes one. The answer's record replaces this one wherever it is shown.
      */
     fun act(record: JsonObject, action: RecordAction, method: DeclaredMethod, value: JsonElement) {
-        val id = record.id() ?: return
         val param = method.ui?.control?.param ?: return
+        actWith(record, action, method, buildJsonObject {
+            val id = record.id()
+            if (id != null && (action.input ?: method.input).property("id") != null) put("id", JsonPrimitive(id))
+            put(param, value)
+        })
+    }
+
+    /** The same, with the params given whole: a native screen of an action builds them itself (`control: native`). */
+    fun actWith(record: JsonObject, action: RecordAction, method: DeclaredMethod, params: JsonObject, onDone: () -> Unit = {}) {
+        val id = record.id() ?: return
         val key = "$id:${method.name}"
         if (key in _busy.value) return
-        val takesId = (action.input ?: method.input).property("id") != null
-        val params = buildJsonObject {
-            if (takesId) put("id", JsonPrimitive(id))
-            put(param, value)
-        }
         _busy.value = _busy.value + key
         runtime.scope.launch {
             try {
                 val updated = recordOf(server.call(method.name, params))
                 if (updated != null) replace(updated)
                 _error.value = null
+                onDone()
                 quietReload(delayMs = QUIET_RELOAD_MS)
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -408,9 +585,9 @@ internal class ServerAppInstance(
     }
 
     /**
-     * An action of the list screen itself (`ui.on: "list"`) — «+ Новый клиент»: no record under it,
-     * the form's values are the params. The answer may be a record, and then the list is re-read so
-     * it appears where the server puts it.
+     * An action of the list screen itself (`ui.on: "list"`) — «+ Новый клиент»: no record under it, the form's
+     * values are the params. The answer may be a record, and then the list is re-read so it appears where the
+     * server puts it.
      */
     fun actOnList(method: DeclaredMethod, params: JsonObject, onDone: () -> Unit = {}) {
         val key = "list:${method.name}"
@@ -434,10 +611,29 @@ internal class ServerAppInstance(
         }
     }
 
+    /** Opens the screen the client has for this action, and closes it again once it has run. */
+    fun openNative(record: JsonObject, action: RecordAction, method: DeclaredMethod) {
+        _native.value = NativeRequest(record, action, method)
+    }
+
+    fun closeNative() {
+        _native.value = null
+    }
+
+    /** One method of this app, for a native screen that needs more than the action it runs (a catalog). */
+    suspend fun callForNative(method: String, params: JsonObject): JsonElement = server.call(method, params)
+
+    /** The record, wherever the stack shows it: in a list of it, and as a card of it. */
     private fun replace(record: JsonObject) {
         val id = record.id() ?: return
-        _list.value = _list.value.copy(items = _list.value.items.map { if (it.id() == id) record else it })
-        _detail.value?.takeIf { it.id == id }?.let { _detail.value = it.copy(record = record) }
+        setFrames(
+            _frames.value.map { frame ->
+                frame.copy(
+                    list = frame.list.copy(items = frame.list.items.map { if (it.id() == id) record else it }),
+                    record = if (frame.record?.id() == id) record else frame.record,
+                )
+            },
+        )
     }
 
     private fun fail(failure: MobileApiException) {
@@ -458,8 +654,7 @@ internal class ServerAppInstance(
 
     fun retry() {
         _error.value = null
-        reload()
-        _detail.value?.let { open(it.id, null) }
+        loadTop()
     }
 
     @Composable

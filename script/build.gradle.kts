@@ -45,11 +45,11 @@ kotlin {
 }
 
 // The live test runs the bundle the hook really serves; it finds the server checkout the way the
-// other modules do — this workspace's own `restoapp-dev` first.
+// other modules do — `-Prestoapp.dev=…`, then this workspace's own `restoapp-dev`, then the one next door.
 tasks.withType<Test>().configureEach {
-    systemProperty(
-        "restoapp.dev",
-        (rootProject.file("restoapp-dev").takeIf { it.exists() } ?: rootProject.file("../restoapp-dev")).absolutePath,
-    )
+    val dev = (findProperty("restoapp.dev") as String?)?.let { file(it) }
+        ?: rootProject.file("restoapp-dev").takeIf { it.exists() }
+        ?: rootProject.file("../restoapp-dev")
+    systemProperty("restoapp.dev", dev.absolutePath)
     systemProperty("restoapp.tools", rootProject.file("tools").absolutePath)
 }

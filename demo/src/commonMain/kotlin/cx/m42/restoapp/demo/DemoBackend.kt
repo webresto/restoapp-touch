@@ -29,6 +29,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
@@ -109,6 +110,7 @@ public class DemoBackend(
                 ORDERS -> orders(method, params, point!!, current, words)
                 CLIENTS -> clients(method, params, current, words)
                 POS -> pos(method, params, point!!, current, words)
+                MARKETING -> marketing(method, params, current, words, declaration)
                 else -> fail(MobileApiException.FORBIDDEN, "Method is not available")
             }
             Answer(result, declaration.revision, PROTOCOL_VERSION)
@@ -133,6 +135,8 @@ public class DemoBackend(
         role == DemoRole.Operator && app == ORDERS -> places.take(1).map { it.id }
         role == DemoRole.Operator -> emptyList()
         role == DemoRole.Stock && app == ORDERS -> emptyList()
+        // The section of marketing is not by points, and nothing else belongs to a marketer.
+        role == DemoRole.Marketer -> emptyList()
         else -> places.map { it.id }
     }
 
@@ -143,13 +147,16 @@ public class DemoBackend(
             placesOf(role, ORDERS).takeIf { it.isNotEmpty() }?.let { ordersApp(words, it) },
             // The customers are the model rights of the panel: the stock manager has none of them,
             // the operator reads them, the administrator may add one as well.
-            if (role == DemoRole.Stock) null else clientsApp(words, mayCreate = role == DemoRole.Admin),
+            if (role == DemoRole.Stock || role == DemoRole.Marketer) null else clientsApp(words, mayCreate = role == DemoRole.Admin),
             placesOf(role, POS).takeIf { it.isNotEmpty() }?.let { posApp(words, it) },
+            // «Маркетинг»: both rights of the section. The marketer may not read an order, so the money of
+            // the applications is not in their declaration at all (`marketing.plan.md`, the summary by rights).
+            if (role == DemoRole.Admin || role == DemoRole.Marketer) marketingApp(words, money = role == DemoRole.Admin) else null,
         )
         val used = apps.flatMap { it.places }.toSet()
         return Declaration(
             protocolVersion = PROTOCOL_VERSION,
-            revision = "demo-${role.name.lowercase()}-${places.joinToString(",") { it.id }}-2",
+            revision = "demo-${role.name.lowercase()}-${places.joinToString(",") { it.id }}-3",
             server = ServerFacts(serverName, VERSION, currency = "RUB", timezone = "Europe/Moscow", locale = "ru"),
             user = DeclaredUser(JsonPrimitive(role.ordinal + 1), loginOf(role), fullName = fullNameOf(role, words), isAdministrator = role == DemoRole.Admin),
             places = places.filter { it.id in used }.sortedBy { it.title },
@@ -163,6 +170,7 @@ public class DemoBackend(
         DemoRole.Admin -> words.t("Администратор", "Administrator")
         DemoRole.Operator -> words.t("Оператор", "Operator")
         DemoRole.Stock -> words.t("Склад", "Stock manager")
+        DemoRole.Marketer -> words.t("Маркетолог", "Marketer")
     }
 
     // ---- «Блюда» ----
@@ -351,6 +359,410 @@ public class DemoBackend(
                 save(current.copy(clients = current.clients + created))
                 buildJsonObject { put("item", item(created, card = true)) }
             }
+            else -> fail(MobileApiException.FORBIDDEN, "Method is not available")
+        }
+    }
+
+
+    // ---- «Маркетинг» ----
+
+    /**
+     * The section of marketing: the summary, the codes, the promotions and the applications, with the links of a
+     * record built here as the hook builds them — after the declaration says the method is there for this person.
+     *
+     * The two switches of a promotion are the demo's own records (C22): switched off, it applies nowhere, and a
+     * code whose every promotion is off says in words that it gives nothing.
+     */
+    private suspend fun marketing(
+        method: String,
+        params: JsonObject,
+        current: DemoState,
+        words: DemoWords,
+        declaration: Declaration,
+    ): JsonElement {
+        val app = declaration.app(MARKETING)
+        fun declared(name: String) = app?.method(name) != null
+        val rub = { amount: Int -> rub(amount) }
+
+        fun givesOf(promotion: DemoPromotion): String = when {
+            promotion.giftAmount > 0 && promotion.giftFrom > 0 ->
+                words.t("Подарок: ${promotion.giftAmount} шт. от ${rub(promotion.giftFrom)}", "Gift: ${promotion.giftAmount} item(s) from ${rub(promotion.giftFrom)}")
+            promotion.percent > 0 -> "−${promotion.percent}% " + words.t("на всю корзину", "off the whole basket")
+            promotion.flat > 0 -> "−${rub(promotion.flat)} " + words.t("на всю корзину", "off the whole basket")
+            else -> words.t("ничего", "nothing")
+        }
+
+        fun appliesOf(promotion: DemoPromotion): String = when {
+            !promotion.enable -> "disabled"
+            promotion.onlyByCode -> "code-only"
+            else -> "self"
+        }
+
+        fun codesOf(promotion: DemoPromotion): List<DemoCode> = current.codes.filter { promotion.id in it.promotions }
+
+        fun promotionsOf(code: DemoCode): List<DemoPromotion> = current.promotions.filter { it.id in code.promotions }
+
+        fun promotionItem(promotion: DemoPromotion, card: Boolean): JsonObject = buildJsonObject {
+            put("id", promotion.id)
+            put("name", promotion.name)
+            put("appliesNow", appliesOf(promotion))
+            put("enable", promotion.enable)
+            put("onlyByCode", promotion.onlyByCode)
+            put("kind", if (promotion.configured) "configured" else "programmed")
+            put("gives", givesOf(promotion))
+            put("discountType", if (promotion.flat > 0) "flat" else "percentage")
+            // One of the two, as the hook sends it: a field a record has not got is not drawn at all.
+            if (promotion.flat > 0) put("discountFlat", promotion.flat) else if (promotion.percent > 0) put("discountPercent", promotion.percent)
+            put("minBasketTotal", if (promotion.giftFrom > 0) promotion.giftFrom else promotion.minBasketTotal)
+            put(
+                "serviceTypes",
+                promotion.serviceTypes.joinToString(", ") {
+                    when (it) {
+                        "delivery" -> words.t("Доставка", "Delivery")
+                        "pickup" -> words.t("Самовывоз", "Pickup")
+                        else -> words.t("В зале", "Dine-in")
+                    }
+                },
+            )
+            put("gift", if (promotion.giftAmount > 0) givesOf(promotion) else "")
+            put("isJoint", if (promotion.joint) "joint" else "exclusive")
+            put("isPublic", promotion.onStorefront)
+            put("sortOrder", promotion.sortOrder)
+            put("schedule", words.t("круглосуточно", "around the clock"))
+            put("promotionCodes", codesOf(promotion).joinToString(", ") { it.code })
+            putJsonArray("_actions") {
+                if (declared("marketing.setPromotionEnabled")) add(action("marketing.setPromotionEnabled"))
+                // A switched-off promotion applies nowhere: "by itself" is nothing to say about it.
+                if (promotion.enable && declared("marketing.setPromotionOnlyByCode")) add(action("marketing.setPromotionOnlyByCode"))
+                // A promotion a module wrote is not edited, as it is not in the web.
+                if (promotion.configured && declared("marketing.savePromotion")) add(action("marketing.savePromotion"))
+            }
+            if (card) {
+                // What the editor of a promotion reads back (Q43): no declared field shows it, and only a card
+                // carries it — a row has no use for a list of ids.
+                put(
+                    "config",
+                    buildJsonObject {
+                        put("description", words.t("Описание акции «${promotion.name}»", "What «${promotion.name}» is"))
+                        put("discountType", if (promotion.flat > 0) "flat" else "percentage")
+                        put("discountAmount", if (promotion.flat > 0) promotion.flat else promotion.percent)
+                        putJsonArray("dishes") { for (dish in promotion.dishes) add(JsonPrimitive(dish)) }
+                        putJsonArray("groups") { for (group in promotion.groups) add(JsonPrimitive(group)) }
+                        putJsonArray("serviceType") { for (kind in promotion.serviceTypes) add(JsonPrimitive(kind)) }
+                        put("minBasketTotal", promotion.minBasketTotal)
+                        if (promotion.giftAmount > 0) {
+                            put(
+                                "gift",
+                                buildJsonObject {
+                                    put("minBasketTotal", promotion.giftFrom)
+                                    putJsonArray("dishes") {
+                                        add(buildJsonObject { put("dishId", "d-gift"); put("amount", promotion.giftAmount) })
+                                    }
+                                },
+                            )
+                        } else {
+                            put("gift", JsonNull)
+                        }
+                        putJsonArray("worktime") {}
+                    },
+                )
+                putJsonArray("_links") {
+                    val codes = codesOf(promotion)
+                    if (codes.isNotEmpty() && declared("marketing.promocodes")) {
+                        add(
+                            link(
+                                title = words.t("Промокоды акции", "Promo codes of the promotion"),
+                                meta = codes.joinToString(", ") { it.code },
+                                method = "marketing.promocodes",
+                                params = buildJsonObject { put("q", promotion.name) },
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+
+        fun codeItem(code: DemoCode, card: Boolean): JsonObject = buildJsonObject {
+            val linked = promotionsOf(code)
+            val working = linked.filter { it.enable }
+            put("id", code.id)
+            put("code", code.code)
+            put("status", code.effectiveStatus)
+            put("worksNow", code.worksNow)
+            put("description", code.description)
+            put(
+                "gives",
+                when {
+                    linked.isEmpty() -> words.t("к коду не привязана ни одна акция", "the code is linked to no promotion")
+                    working.isEmpty() -> words.t("все акции кода выключены — код ничего не даёт", "every promotion of the code is switched off — the code gives nothing")
+                    else -> working.joinToString("; ") { givesOf(it) }
+                },
+            )
+            put("promotions", linked.joinToString(", ") { it.name })
+            put("promotionsCount", linked.size)
+            put("period", code.period)
+            put("schedule", code.schedule)
+            put("enable", code.enable)
+            put("type", "static")
+            putJsonArray("_actions") {
+                if (declared("marketing.setCodeEnabled")) add(action("marketing.setCodeEnabled"))
+            }
+            if (card) {
+                putJsonArray("_links") {
+                    if (declared("marketing.applications")) {
+                        add(
+                            link(
+                                title = words.t("Где вводили этот код", "Where this code was typed"),
+                                method = "marketing.applications",
+                                params = buildJsonObject { put("code", code.code) },
+                            ),
+                        )
+                    }
+                    if (linked.isNotEmpty() && declared("marketing.promotions")) {
+                        add(
+                            link(
+                                title = words.t("Акции", "Promotions") + " · ${linked.size}",
+                                method = "marketing.promotions",
+                                params = buildJsonObject { put("code", code.code) },
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+
+        fun applicationItem(application: DemoApplication, card: Boolean): JsonObject = buildJsonObject {
+            put("id", application.orderId)
+            put("title", "№${application.shortId}")
+            put("code", application.code)
+            put("status", if (application.applied) "applied" else "invalid")
+            put("discount", application.discount)
+            put("createdAt", application.createdAt)
+            put("why", application.reason ?: "")
+            put("orderState", application.orderState)
+            putJsonArray("_actions") {}
+            if (card) {
+                putJsonArray("_links") {
+                    if (declared("marketing.promocodes")) {
+                        add(
+                            link(
+                                title = words.t("Промокод", "Promo code"),
+                                meta = application.code,
+                                method = "marketing.promocodes",
+                                params = buildJsonObject { put("q", application.code) },
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+
+        return when (method) {
+            "marketing.home" -> {
+                val days = params.enumOf("days", listOf("7", "30", "90"), "30").toInt()
+                val since = clock() - days * 24L * 60 * 60 * 1000
+                val shown = current.applications.filter { it.createdAt >= since }
+                val money = declared("marketing.applications")
+                val item = buildJsonObject {
+                    put("id", "summary")
+                    put("title", words.t("Маркетинг", "Marketing"))
+                    put("subtitle", words.t("Промокоды и акции", "Promo codes and promotions"))
+                    put("codesTotal", current.codes.size)
+                    put("codesActive", current.codes.count { it.effectiveStatus == "active" })
+                    put("promotionsTotal", current.promotions.size)
+                    put("promotionsSelf", current.promotions.count { appliesOf(it) == "self" })
+                    put("promotionsByCodeOnly", current.promotions.count { appliesOf(it) == "code-only" })
+                    if (money) {
+                        put("applications", shown.size)
+                        put("totalDiscount", shown.sumOf { it.discount })
+                        put("avgDiscount", if (shown.isEmpty()) 0 else shown.sumOf { it.discount } / shown.size)
+                    }
+                    putJsonArray("_actions") {}
+                    putJsonArray("_links") {
+                        if (declared("marketing.promocodes")) {
+                            add(link(words.t("Промокоды", "Promo codes") + " · ${current.codes.size}", method = "marketing.promocodes"))
+                        }
+                        if (declared("marketing.promotions")) {
+                            add(link(words.t("Акции", "Promotions") + " · ${current.promotions.size}", method = "marketing.promotions"))
+                        }
+                        if (money) {
+                            add(link(words.t("Применения", "Applications") + " · ${shown.size}", method = "marketing.applications"))
+                        }
+                    }
+                }
+                buildJsonObject { put("item", item) }
+            }
+
+            "marketing.promocodes" -> {
+                val q = params.stringOrNull("q", 100)?.trim()?.lowercase()?.ifEmpty { null }
+                val status = params.enumOf("status", listOf("all", "active", "scheduled", "expired", "disabled"), "all")
+                val offset = params.stringOrNull("cursor", 200)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                val found = current.codes.filter { code ->
+                    q == null || listOf(code.code, code.description, promotionsOf(code).joinToString(" ") { it.name })
+                        .joinToString(" ").lowercase().contains(q)
+                }
+                val counts = buildMap {
+                    put("all", found.size)
+                    for (state in listOf("active", "scheduled", "expired", "disabled")) put(state, found.count { it.effectiveStatus == state })
+                }
+                val chosen = if (status == "all") found else found.filter { it.effectiveStatus == status }
+                page(chosen.map { codeItem(it, card = false) }, offset, counts)
+            }
+
+            "marketing.promocode" -> {
+                val code = current.codes.firstOrNull { it.id == params.string("id") }
+                    ?: fail(MobileApiException.NOT_FOUND, "No such promo code")
+                buildJsonObject { put("item", codeItem(code, card = true)) }
+            }
+
+            "marketing.setCodeEnabled" -> {
+                val id = params.string("id")
+                val enable = params.boolean("enable")
+                val code = current.codes.firstOrNull { it.id == id } ?: fail(MobileApiException.NOT_FOUND, "No such promo code")
+                val updated = code.copy(enable = enable)
+                save(current.copy(codes = current.codes.map { if (it.id == id) updated else it }))
+                buildJsonObject { put("item", codeItem(updated, card = true)) }
+            }
+
+            "marketing.promotions" -> {
+                val q = params.stringOrNull("q", 100)?.trim()?.lowercase()?.ifEmpty { null }
+                val filter = params.enumOf("filter", listOf("all", "self", "code-only", "off", "configured"), "all")
+                val code = params.stringOrNull("code", 100)
+                val offset = params.stringOrNull("cursor", 200)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                val found = current.promotions
+                    .filter { q == null || it.name.lowercase().contains(q) }
+                    .filter { code == null || codesOf(it).any { linked -> linked.code == code } }
+                val counts = mapOf(
+                    "all" to found.size,
+                    "self" to found.count { appliesOf(it) == "self" },
+                    "code-only" to found.count { appliesOf(it) == "code-only" },
+                    "off" to found.count { appliesOf(it) == "disabled" },
+                    "configured" to found.count { it.configured },
+                )
+                val chosen = when (filter) {
+                    "self" -> found.filter { appliesOf(it) == "self" }
+                    "code-only" -> found.filter { appliesOf(it) == "code-only" }
+                    "off" -> found.filter { appliesOf(it) == "disabled" }
+                    "configured" -> found.filter { it.configured }
+                    else -> found
+                }
+                page(chosen.sortedBy { it.sortOrder }.map { promotionItem(it, card = false) }, offset, counts)
+            }
+
+            "marketing.promotion" -> {
+                val promotion = current.promotions.firstOrNull { it.id == params.string("id") }
+                    ?: fail(MobileApiException.NOT_FOUND, "No such promotion")
+                buildJsonObject { put("item", promotionItem(promotion, card = true)) }
+            }
+
+            "marketing.setPromotionEnabled", "marketing.setPromotionOnlyByCode" -> {
+                val id = params.string("id")
+                val promotion = current.promotions.firstOrNull { it.id == id } ?: fail(MobileApiException.NOT_FOUND, "No such promotion")
+                val updated = if (method.endsWith("Enabled")) {
+                    promotion.copy(enable = params.boolean("enable"))
+                } else {
+                    promotion.copy(onlyByCode = params.boolean("onlyByCode"))
+                }
+                save(current.copy(promotions = current.promotions.map { if (it.id == id) updated else it }))
+                buildJsonObject { put("item", promotionItem(updated, card = true)) }
+            }
+
+            "marketing.savePromotion" -> {
+                val id = params.stringOrNull("id", 100)
+                val existing = id?.let { known -> current.promotions.firstOrNull { it.id == known } }
+                if (id != null && existing == null) fail(MobileApiException.NOT_FOUND, "No such promotion")
+                if (existing != null && !existing.configured) fail(MobileApiException.FORBIDDEN, "Programmed promotions cannot be edited")
+                val config = params["configDiscount"] as? JsonObject ?: JsonObject(emptyMap())
+                val gift = config["gift"] as? JsonObject
+                val giftDishes = (gift?.get("dishes") as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+                val giftDish = giftDishes.firstOrNull()?.stringOrNull("dishId", 100)
+                // The one rule core keeps for itself: a gift must be a product the guest cannot add.
+                if (giftDish != null && DemoCatalog.dishes.any { it.id == giftDish }) {
+                    fail(MobileApiException.INVALID, "Gift dish must be notForSale or promo")
+                }
+                val flat = (config["discountType"] as? JsonPrimitive)?.content == "flat"
+                // A number of the wire may come whole or fractional: a discount of the demo is a whole one.
+                val amount = (config["discountAmount"] as? JsonPrimitive)?.doubleOrNull?.toInt() ?: 0
+                val updated = (existing ?: DemoPromotion(id = "pr-${current.promotions.size + 1}", name = "")).copy(
+                    name = params.stringOrNull("name", 200) ?: existing?.name ?: "",
+                    enable = params.booleanOrNull("enable") ?: true,
+                    onlyByCode = params.booleanOrNull("onlyByCode") ?: false,
+                    percent = if (flat) 0 else amount,
+                    flat = if (flat) amount else 0,
+                    giftAmount = giftDishes.firstOrNull()?.int("amount") ?: 0,
+                    giftFrom = (gift?.get("minBasketTotal") as? JsonPrimitive)?.doubleOrNull?.toInt() ?: 0,
+                    minBasketTotal = (config["minBasketTotal"] as? JsonPrimitive)?.doubleOrNull?.toInt() ?: 0,
+                    joint = params.booleanOrNull("isJoint") ?: true,
+                    onStorefront = params.booleanOrNull("isPublic") ?: false,
+                    sortOrder = params.int("sortOrder") ?: existing?.sortOrder ?: 0,
+                    configured = true,
+                )
+                val promotions = if (existing == null) current.promotions + updated else current.promotions.map { if (it.id == updated.id) updated else it }
+                save(current.copy(promotions = promotions))
+                buildJsonObject { put("item", promotionItem(updated, card = true)) }
+            }
+
+            "marketing.catalog" -> {
+                val q = params.stringOrNull("q", 100)?.trim()?.lowercase()?.ifEmpty { null }
+                val group = params.stringOrNull("group", 100)
+                val ids = (params["ids"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }
+                val dishes = DemoCatalog.dishes.filter { dish ->
+                    when {
+                        ids.isNotEmpty() -> dish.id in ids
+                        q != null -> dish.name.lowercase().contains(q)
+                        else -> group == null || dish.group == group
+                    }
+                }
+                buildJsonObject {
+                    putJsonArray("groups") {
+                        if (q == null && ids.isEmpty()) {
+                            for (name in DemoCatalog.dishes.map { it.group }.distinct()) {
+                                add(buildJsonObject { put("id", name); put("name", name); put("parentGroup", JsonNull) })
+                            }
+                        }
+                    }
+                    putJsonArray("items") {
+                        for (dish in dishes) {
+                            add(
+                                buildJsonObject {
+                                    put("id", dish.id)
+                                    put("name", dish.name)
+                                    put("code", dish.code)
+                                    put("parentGroup", dish.group)
+                                    put("price", dish.price)
+                                    put("notForSale", false)
+                                    put("promo", false)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            "marketing.applications" -> {
+                val code = params.stringOrNull("code", 100)
+                val status = params.enumOf("status", listOf("all", "applied", "invalid"), "all")
+                val offset = params.stringOrNull("cursor", 200)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                val found = current.applications.filter { code == null || it.code == code }.sortedByDescending { it.createdAt }
+                val counts = mapOf(
+                    "all" to found.size,
+                    "applied" to found.count { it.applied },
+                    "invalid" to found.count { !it.applied },
+                )
+                val chosen = when (status) {
+                    "applied" -> found.filter { it.applied }
+                    "invalid" -> found.filter { !it.applied }
+                    else -> found
+                }
+                page(chosen.map { applicationItem(it, card = false) }, offset, counts)
+            }
+
+            "marketing.application" -> {
+                val application = current.applications.firstOrNull { it.orderId == params.string("id") }
+                    ?: fail(MobileApiException.NOT_FOUND, "No such application")
+                buildJsonObject { put("item", applicationItem(application, card = true)) }
+            }
+
             else -> fail(MobileApiException.FORBIDDEN, "Method is not available")
         }
     }
@@ -939,6 +1351,9 @@ public class DemoBackend(
                 place.id to DemoEvening.orders(Random(seed + 100 + index), now, firstNumber = 1000 + 2000 * index + Random(seed + index).nextInt(900))
             }.toMap(),
             clients = DemoClients.all(now),
+            promotions = DemoMarketing.promotions,
+            codes = DemoMarketing.codes,
+            applications = DemoMarketing.applications(now),
         )
     }
 
@@ -958,6 +1373,22 @@ public class DemoBackend(
         public val ONE_POINT: List<Place> = listOf(Place("p1", "Садовая, 3", "ул. Садовая, 3"))
 
         private const val PAGE = 50
+    }
+
+    /** One action of a record, as `_actions` carries it. */
+    private fun action(method: String): JsonObject = buildJsonObject { put("method", method) }
+
+    /** One line of `_links`: where a card leads, with the words the server chose for it. */
+    private fun link(title: String, method: String, meta: String? = null, params: JsonObject? = null): JsonObject = buildJsonObject {
+        put("title", title)
+        meta?.let { put("meta", it) }
+        put(
+            "open",
+            buildJsonObject {
+                put("method", method)
+                params?.let { put("params", it) }
+            },
+        )
     }
 
     private fun page(items: List<JsonObject>, offset: Int, counts: Map<String, Int>): JsonObject {

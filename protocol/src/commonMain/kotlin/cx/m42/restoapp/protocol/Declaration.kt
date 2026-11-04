@@ -251,8 +251,14 @@ public data class ItemUi(
 /** How an action is drawn. [param] is the input it sets, [bind] the field of the record it shows. */
 @Serializable
 public data class Control(
-    /** [Controls]: stepper, toggle, buttons, form. */
+    /** [Controls]: stepper, toggle, buttons, form, native. */
     val type: String,
+    /**
+     * For [Controls.NATIVE]: which built-in screen of the client runs the action — the editor of a promotion
+     * (`marketing.plan.md`, Q43). A client that does not have it draws no action at all, which is what it already
+     * does for a control it does not know.
+     */
+    val screen: String? = null,
     val param: String? = null,
     val bind: String? = null,
     val specials: List<Special> = emptyList(),
@@ -271,12 +277,18 @@ public object Controls {
     public const val TOGGLE: String = "toggle"
     public const val BUTTONS: String = "buttons"
     public const val FORM: String = "form"
+
+    /** A screen of the client's own, named by [Control.screen]: what no declaration can describe. */
+    public const val NATIVE: String = "native"
 }
 
 public object Formats {
     public const val TEXT: String = "text"
     public const val NUMBER: String = "number"
     public const val MONEY: String = "money"
+
+    /** A number of percent: 10 is "10 %". */
+    public const val PERCENT: String = "percent"
     public const val DATETIME: String = "datetime"
     public const val RELATIVE: String = "relative"
     public const val PHONE: String = "phone"
