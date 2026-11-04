@@ -1,0 +1,6 @@
+{
+  "name": "test-notes",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A module made for mocks and tests: see index.ts"
+}

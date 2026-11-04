@@ -276,8 +276,8 @@ class LiveServerTest {
     /**
      * An app whose code comes from the server (D12): as soon as the declaration names it, the session
      * downloads the bundle by the link, checks it against the hash and keeps it in the server's own
-     * storage — so the second time no request is made at all. «Навигация» of simple-navigation is the
-     * app, served by `tools/fake-server` out of the hook's built bundle.
+     * storage — so the second time no request is made at all. «Заметки» of the module made for tests
+     * are the app (`tools/fake-server/test-module`), so this runs on any checkout.
      */
     @Test
     fun theSessionDownloadsTheCodeOfAScriptAppAndKeepsIt() {
@@ -299,21 +299,21 @@ class LiveServerTest {
             session.signIn("admin", "secret-password") {}
 
             val declared = session.declaration.value ?: error("no declaration")
-            val navigation = declared.apps.firstOrNull { it.id == "navigation" } ?: error("no «Навигация» on this server")
-            val ref = navigation.script ?: error("«Навигация» came without a link to its code")
+            val notes = declared.apps.firstOrNull { it.id == "notes" } ?: error("no «Заметки» on this server")
+            val ref = notes.script ?: error("«Заметки» came without a link to its code")
 
             // The declaration also says which modules this server is made of, and which brought an app.
-            val module = declared.modules.firstOrNull { it.id == "simple-navigation" } ?: error("no module in the declaration")
-            assertEquals("navigation", module.app)
+            val module = declared.modules.firstOrNull { it.id == "test-notes" } ?: error("no module in the declaration")
+            assertEquals("notes", module.app)
 
             // `refresh` starts the download in the background; wait for it, as a screen would.
             val deadline = System.currentTimeMillis() + 20_000
-            while (session.scripts.kept("navigation") == null && System.currentTimeMillis() < deadline) {
+            while (session.scripts.kept("notes") == null && System.currentTimeMillis() < deadline) {
                 kotlinx.coroutines.delay(100)
             }
-            val loaded = session.scripts.kept("navigation") ?: error("the session did not download the bundle")
+            val loaded = session.scripts.kept("notes") ?: error("the session did not download the bundle")
             assertEquals(ref.sha256, loaded.sha256)
-            assertTrue(loaded.body.contains("navigation"))
+            assertTrue(loaded.body.contains("notes.list"))
 
             // Kept under its hash in this server's own storage, and nowhere else.
             val kept = File(dir, "servers/live/script-${ref.sha256}.js")

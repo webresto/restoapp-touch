@@ -12,12 +12,15 @@
  * Control, for the tests: POST /__fake/stock-points {"places": ["p1"]} regrants the points of
  * `stock`; POST /__fake/password {"login": "stock"} changes a password (devices fall off).
  *
- * «Навигация» is here too when the module is installed (D12): the app a module brings as JS, so the
- * client can be walked through downloading a script. The registration is the module's own code —
- * `modules/simple-navigation/src/mobile/NavigationMobileApp` — over menus in memory instead of
- * Waterline, and the bundle served by its hash is the module's `assets/mobile/navigation.js`. Only
- * the administrator holds its right here, and the modules of the server are answered as a real one
- * does.
+ * «Заметки» are always here (`test-module/`): the app a module brings as JS (D12), a module made for
+ * mocks and tests, so the client can be walked through downloading a script on any checkout.
+ *
+ * «Навигация» is here too when the real module is installed. The registration is the module's own code
+ * — `modules/simple-navigation/src/mobile/NavigationMobileApp` — over menus in memory instead of
+ * Waterline, and the bundle served by its hash is the module's `assets/mobile/navigation.js`.
+ *
+ * Only the administrator holds the rights of the two, and the modules of the server are answered as a
+ * real one does.
  */
 import * as http from "http";
 import * as path from "path";
@@ -29,6 +32,8 @@ const fakes = require(path.join(dev, "tests/support/mobileApiFakes"));
 const { createMobileApi } = require(path.join(dev, "api/hooks/app-mobile-api/http/app"));
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const passwordHash = require(require.resolve("password-hash", { paths: [dev] }));
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const testModule = require("./test-module/index");
 
 /** The menus of simple-navigation, in memory: enough for the client to read, save and reorder. */
 function memoryNavigation() {
@@ -63,8 +68,24 @@ function memoryNavigation() {
   };
 }
 
-/** The app of the module, when the module is installed: its own registration code, over the menus above. */
-function withNavigation(made: any) {
+/** What a real server gets from its modules: the test module always, «Навигация» when it is installed. */
+function withModules(made: any) {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { Translator } = require(path.join(dev, "api/hooks/app-mobile-api/lib/i18n"));
+  const translator = new Translator();
+  made.deps.translator = translator;
+  const modules: any[] = [{ id: "@webresto/core", version: "2.0.0", kind: "system", title: "RestoApp core" }];
+  made.deps.modules = { list: async () => modules };
+
+  const install = (app: { translations: Record<string, Record<string, string>> }, token: unknown, row: unknown) => {
+    for (const [lang, strings] of Object.entries(app.translations)) translator.extend(lang, strings);
+    made.deps.access.registerToken(token);
+    modules.push(row);
+  };
+
+  install(testModule, testModule.TOKEN, testModule.MODULE);
+  testModule.registerTestModule(made.deps.registry);
+
   const module = path.join(dev, "modules/simple-navigation");
   let app: any;
   try {
@@ -73,19 +94,12 @@ function withNavigation(made: any) {
     console.log("no simple-navigation in this server — serving without «Навигация»");
     return;
   }
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { Translator } = require(path.join(dev, "api/hooks/app-mobile-api/lib/i18n"));
-  const translator = new Translator();
-  for (const [lang, strings] of Object.entries(app.translations)) translator.extend(lang, strings);
-  made.deps.translator = translator;
-  made.deps.modules = {
-    list: async () => [
-      { id: "@webresto/core", version: "2.0.0", kind: "system", title: "RestoApp core" },
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      { id: "simple-navigation", version: require(path.join(module, "package.json")).version, kind: "installed", title: "simple-navigation" },
-    ],
-  };
-  made.deps.access.registerToken({ id: "navigation-manager", name: "Navigation", description: "The site's menus", department: "Marketing" });
+  install(
+    app,
+    { id: "navigation-manager", name: "Navigation", description: "The site's menus", department: "Marketing" },
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    { id: "simple-navigation", version: require(path.join(module, "package.json")).version, kind: "installed", title: "simple-navigation" },
+  );
   app.registerNavigationApp(made.deps.registry, memoryNavigation(), app.navigationScriptFile());
 }
 
@@ -93,7 +107,7 @@ async function main() {
   const made = await fakes.makeFakes();
   // Small puzzles: the client really solves them, in a fraction of a second.
   made.deps.settings.captchaBaseDifficultyMs = () => Number(process.env.FAKE_POW_MS ?? 40);
-  withNavigation(made);
+  withModules(made);
   const app = createMobileApi(made.deps);
 
   const control = (req: http.IncomingMessage, res: http.ServerResponse) => {

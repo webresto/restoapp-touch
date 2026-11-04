@@ -345,7 +345,8 @@ class HttpMobileApiLiveTest {
     /**
      * The app a module brought as JS (D12): the declaration gives a link and a hash, the hook serves
      * that bundle, and the client keeps it. The same walk the owner asked for — "it downloads, and the
-     * backend hands it out" — against the real hook of ../restoapp-dev.
+     * backend hands it out" — against the real hook of ../restoapp-dev, with the module made for tests
+     * (`tools/fake-server/test-module`), which is there on any checkout.
      */
     @Test
     fun theCodeOfAnAppAModuleBroughtIsDownloadedByItsLinkAndChecked(): Unit = runBlocking {
@@ -354,34 +355,33 @@ class HttpMobileApiLiveTest {
         val declaration = api.describe(token, "ru").value
         Contract.assertValid("declaration", Contract.wire.encodeToJsonElement(Declaration.serializer(), declaration))
 
-        val navigation = assertNotNull(declaration.app("navigation"), "«Навигация» of simple-navigation")
-        val ref = assertNotNull(navigation.script, "an app that comes as a script says where its code is")
-        assertEquals("/api/mobile/app-assets/navigation/${ref.sha256}.js", ref.url)
+        val notes = assertNotNull(declaration.app("notes"), "«Заметки» of the test module")
+        val ref = assertNotNull(notes.script, "an app that comes as a script says where its code is")
+        assertEquals("/api/mobile/app-assets/notes/${ref.sha256}.js", ref.url)
         assertEquals(1, ref.min)
 
         // The modules of the server, with the link next to the one that brought the app.
-        val module = assertNotNull(declaration.modules.firstOrNull { it.id == "simple-navigation" }, "the module among the server's")
-        assertEquals("navigation", module.app)
+        val module = assertNotNull(declaration.modules.firstOrNull { it.id == "test-notes" }, "the module among the server's")
+        assertEquals("notes", module.app)
         assertEquals(ref, module.script)
         assertTrue(declaration.modules.any { it.kind == ServerModule.KIND_SYSTEM }, "the system modules are there too")
 
         val loader = ScriptLoader(api)
-        val loaded = loader.load("navigation", token, ref)
+        val loaded = loader.load("notes", token, ref)
         assertEquals(ref.sha256, loaded.sha256)
         assertEquals(ref.size, loaded.body.encodeToByteArray().size)
-        assertTrue(loaded.body.contains("navigation"), "the bundle of the editor")
+        assertTrue(loaded.body.contains("notes.list"), "the bundle of the app")
         assertEquals(false, loaded.fromCache)
-        assertTrue(loader.load("navigation", token, ref).fromCache, "the second open asks nobody")
+        assertTrue(loader.load("notes", token, ref).fromCache, "the second open asks nobody")
 
         // A hash the server never gave is not served; a link outside this server is not even asked for.
         val zeros = "0".repeat(64)
-        assertFailsWith<MobileApiException> { api.script(token, ref.copy(sha256 = zeros, url = "/api/mobile/app-assets/navigation/$zeros.js")) }
-        val elsewhere = assertFailsWith<MobileApiException> { api.script(token, ref.copy(url = "https://example.com/navigation.js")) }
+        assertFailsWith<MobileApiException> { api.script(token, ref.copy(sha256 = zeros, url = "/api/mobile/app-assets/notes/$zeros.js")) }
+        val elsewhere = assertFailsWith<MobileApiException> { api.script(token, ref.copy(url = "https://example.com/notes.js")) }
         assertEquals(MobileApiException.PROTOCOL, elsewhere.code)
 
-        // And the data its screen will edit is on the same API, by the right of the module's own page.
-        val menus = api.call(token, "navigation.menus", JsonObject(emptyMap()), null, "ru")
-        val items = ListPage.of(menus.value).items
-        assertEquals(listOf("Шапка", "Подвал"), items.map { (it["name"] as JsonPrimitive).content })
+        // And the data its screen will edit is on the same API, by the right of the module's own.
+        val items = ListPage.of(api.call(token, "notes.list", JsonObject(emptyMap()), null, "ru").value).items
+        assertEquals(listOf("Первая", "Вторая"), items.map { (it["text"] as JsonPrimitive).content })
     }
 }

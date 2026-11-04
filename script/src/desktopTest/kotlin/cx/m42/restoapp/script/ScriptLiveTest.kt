@@ -10,6 +10,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,9 +22,13 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
 /**
- * The whole idea in one test (js-module.plan.md, stage 0): the server hands out the bundle of
- * «Навигация» as a link, the client downloads it and checks its hash, QuickJS runs it, and the screen
- * it draws is made of the menus the server really has — then a handler saves them back.
+ * The whole idea in one test (js-module.plan.md, stage 0): the server hands out the bundle of an app
+ * as a link, the client downloads it and checks its hash, QuickJS runs it, and the screen it draws is
+ * made of what the server really has — then a handler saves it back.
+ *
+ * The first test is that, on the module made for tests (`tools/fake-server/test-module`), which is
+ * there on any checkout. The other two walk the real editor of «Навигация» and need its module in
+ * `modules/simple-navigation` of the server: without it they say SKIPPED.
  *
  * The server is `tools/fake-server`: the hook's own Express application of the server checkout on the
  * fake deps of its tests. Skipped, with a line in the output, when there is no such checkout.
@@ -65,11 +70,73 @@ class ScriptLiveTest {
     }
 
     @Test
+    fun theBundleOfAModuleIsDownloadedRunAndTalksToTheServer(): Unit = runBlocking {
+        val api = server() ?: return@runBlocking
+        val token = api.signIn()
+        val declaration = api.describe(token, "ru").value
+        val app = assertNotNull(declaration.app("notes"), "«Заметки» of the test module")
+        val ref = assertNotNull(app.script, "the app came without a link to its code")
+
+        // Downloaded and checked against the hash of the declaration — nothing else is ever run.
+        val bundle = ScriptLoader(api).load(app.id, token, ref)
+        assertEquals(ref.sha256, bundle.sha256)
+
+        val calls = mutableListOf<String>()
+        val toasts = mutableListOf<String>()
+        val script = ScriptRuntime(
+            server = { method, params ->
+                calls += method
+                api.call(token, method, params, place = null, lang = "ru").value
+            },
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            lang = "ru",
+            onToast = { toasts += it },
+        )
+        runtime = script
+        script.start(bundle.body)
+
+        // The home screen: what the hook really has, drawn by the script.
+        val list = script.enter("list")
+        assertEquals("Заметки", list.title)
+        assertEquals(listOf("notes.list"), calls)
+        val rows = list.tree.firstOfType("list").items
+        assertEquals(listOf("Первая", "Вторая"), rows.map { it.title })
+
+        // Opening one is a push the host performs: it enters the other route with the id.
+        val press = assertNotNull(rows.first().press)
+        assertEquals(ScriptAction.PUSH, press.kind)
+        var note = script.enter(press.route!!, press.params)
+        assertEquals("Первая", note.title)
+        assertEquals("Первая", note.tree.field("text").value)
+        assertNull(note.tree.button("Сохранить"), "nothing to save on an untouched note")
+
+        // Typing makes the screen dirty, saving goes through the server, and the server really wrote it.
+        note = script.handle(assertNotNull(note.tree.field("text").onChange), JsonPrimitive("Изменённая"))
+        script.handle(assertNotNull(note.tree.button("Сохранить")?.onPress))
+        assertEquals(listOf("notes.list", "notes.note", "notes.save"), calls)
+        assertEquals(listOf("Сохранено"), toasts)
+        val stored = api.call(token, "notes.note", JsonObject(mapOf("id" to press.params["id"]!!)), place = null, lang = "ru").value
+        assertEquals(JsonPrimitive("Изменённая"), stored.jsonObject["item"]!!.jsonObject["text"])
+
+        // Deleted: the script asks the host to go back, and the list has one fewer.
+        note = script.enter(press.route!!, press.params)
+        val removed = script.handle(assertNotNull(note.tree.button("Удалить")?.onPress))
+        assertEquals(listOf("back"), removed.commands)
+        assertEquals(listOf("Вторая"), script.enter("list").tree.firstOfType("list").items.map { it.title })
+    }
+
+    /** «Навигация», when its module is in this server; the walks above stand without it. */
+    private fun app(declaration: cx.m42.restoapp.protocol.Declaration): cx.m42.restoapp.protocol.DeclaredApp? =
+        declaration.app("navigation").also {
+            if (it == null) println("SKIPPED: no modules/simple-navigation at $dev, so no «Навигация» to walk")
+        }
+
+    @Test
     fun theDownloadedBundleRunsAndDrawsTheMenusOfTheServer(): Unit = runBlocking {
         val api = server() ?: return@runBlocking
         val token = api.signIn()
         val declaration = api.describe(token, "ru").value
-        val app = assertNotNull(declaration.app("navigation"), "«Навигация» of simple-navigation")
+        val app = app(declaration) ?: return@runBlocking
         val ref = assertNotNull(app.script, "the app came without a link to its code")
 
         // Downloaded and checked against the hash of the declaration — nothing else is ever run.
@@ -159,7 +226,7 @@ class ScriptLiveTest {
         val api = server() ?: return@runBlocking
         val token = api.signIn()
         val declaration = api.describe(token, "ru").value
-        val app = assertNotNull(declaration.app("navigation"))
+        val app = app(declaration) ?: return@runBlocking
         val bundle = ScriptLoader(api).load(app.id, token, assertNotNull(app.script))
 
         val script = ScriptRuntime(
