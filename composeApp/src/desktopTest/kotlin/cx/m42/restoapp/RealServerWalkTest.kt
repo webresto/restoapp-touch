@@ -626,6 +626,115 @@ class RealServerWalkTest {
         }
     }
 
+    @Test
+    fun theSystemAppAgainstTheRealServer() {
+        val address = base ?: run {
+            println("SKIPPED: no -Prestoapp.serverUrl=<url> of a running tools/real-server")
+            return
+        }
+        control("clear-attempts")
+        control("reset-password", """{"login": "admin"}""")
+        control("reset-password", """{"login": "stock"}""")
+
+        val dir = Files.createTempDirectory("restoapp-real-system").toFile()
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(dir),
+            debug = true,
+            device = DeviceInfo("Real system walk", "desktop"),
+            solver = CryptoPuzzleSolver,
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+
+        runComposeUiTest {
+            setContent { RestoApp(host) }
+            waitForIdle()
+
+            // 1. Connect the server and sign in as the administrator: «Система» is the one app
+            // whose right — the Extensions page of the panel — nobody but an administrator holds
+            // on this stand.
+            connect(address, "admin", "home:tile-system")
+
+            // 2. The card of the server: which server this is, in its own time zone, and the
+            // honest word about the marketplace — the stand has no licence, so no version of any
+            // module is checked at all. This is the refusal of this walk, and it is on the first
+            // screen rather than behind a button.
+            onNodeWithTag("home:tile-system").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
+            onNodeWithTag("system:field-timezone:value").assertTextEquals("Europe/Moscow")
+            onNodeWithTag("system:field-marketplaceText:value").performScrollTo()
+                .assertTextEquals("Лицензия не задана: версии в маркетплейсе не проверяются")
+            // «Настройки» and «Каналы продаж» are not written yet: the home screen of the central
+            // place promises no app that is not there (`ctx.canOpen`).
+            onNodeWithTag("system:link-settings.list").assertDoesNotExist()
+            onNodeWithTag("system:link-channels.list").assertDoesNotExist()
+
+            // 3. The programs of this server, as the «Extensions» page lists them: the core of the
+            // installation is among them and is marked a system one.
+            onNodeWithTag("system:link-system.modules").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("system:row-restocore") }
+            // A row merges its semantics, so the badge of a row is looked for in the unmerged tree.
+            onNodeWithTag("system:row-restocore:badge", useUnmergedTree = true).assertTextEquals("Системная")
+
+            // 4. The search over what is installed — the panel has none, and the owner asked for
+            // it: one word, and only the program it names is left.
+            onNodeWithTag("system:search").performTextInput("core")
+            waitUntil(timeoutMillis = 20_000L) { !exists("system:row-restographql") }
+            onNodeWithTag("system:row-restocore").assertExists()
+            onNodeWithTag("system:search").performTextClearance()
+            waitUntil(timeoutMillis = 20_000L) { exists("system:row-restographql") }
+
+            // 5. The chips: the system programs alone.
+            onNodeWithTag("system:chip-system").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("system:row-restocore") }
+            onNodeWithTag("system:row-restographql").assertExists()
+
+            // 6. The card of a program: what its own `package.json` says about it, and the refusal
+            // in words — a system program cannot be removed, and this server runs no migration at
+            // all, because its database is not postgres.
+            onNodeWithTag("system:row-restocore").performClick()
+            // The row's own record draws the card at once; the card of the server arrives after it,
+            // and only it carries the hook name — so that is what tells the card has loaded.
+            waitUntil(timeoutMillis = 20_000L) { exists("system:field-hookName:value") }
+            onNodeWithTag("system:field-state:value").assertTextEquals("Системная")
+            onNodeWithTag("system:field-removeText:value").performScrollTo()
+                .assertTextEquals("Системную программу удалить нельзя")
+            onNodeWithTag("system:field-migrationsText:value").performScrollTo()
+                .assertTextEquals("Миграции на этом сервере не выполняются: база не postgres")
+            // Nothing can be done to a program in this slice, so no action is drawn on its card.
+            onNodeWithTag("system:system.remove").assertDoesNotExist()
+            onNodeWithTag("system:system.update").assertDoesNotExist()
+
+            // 7. The right is what opens «Система»: a stock manager of the same server — who works
+            // in the panel every day — has no tile for it at all.
+            onNodeWithTag("system:back").performClick()
+            waitForIdle()
+            connect(address, "stock", "home:tile-dishes")
+            onNodeWithTag("home:tile-system").assertDoesNotExist()
+        }
+    }
+
+    /** Adds the stand as another server of the client and signs in, as every walk above does. */
+    private fun androidx.compose.ui.test.ComposeUiTest.connect(address: String, login: String, tile: String) {
+        openMenu()
+        onNodeWithTag("context:row").performClick()
+        waitForIdle()
+        onNodeWithTag("context:add").performClick()
+        waitForIdle()
+        onNodeWithTag("servers:add-custom").performClick()
+        waitForIdle()
+        onNodeWithTag("servers:address").performTextInput(address)
+        onNodeWithTag("servers:check").performClick()
+        waitUntil(timeoutMillis = 20_000L) { exists("servers:found") }
+        onNodeWithTag("servers:login").performTextInput(login)
+        onNodeWithTag("servers:password").performTextInput("secret-password")
+        onNodeWithTag("servers:connect").performClick()
+        waitUntil(timeoutMillis = 40_000L) {
+            if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
+            exists(tile)
+        }
+        waitForIdle()
+    }
+
     /** What the stand's own API says about a code: switched off, core does not take it any more. */
     private fun codeIsOff(code: String): Boolean = get("promocode?code=$code").contains("\"enable\":false")
 

@@ -15,6 +15,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import cx.m42.restoapp.protocol.CryptoPuzzleSolver
@@ -75,6 +77,102 @@ class RealServerShotsTest {
             SemanticsMatcher("tag ends with $suffix") { it.config.getOrNull(SemanticsProperties.TestTag)?.endsWith(suffix) == true },
             useUnmergedTree = true,
         )
+
+    /**
+     * «Система» against the real server: the card of the server, its programs, the search over them,
+     * a card of one program — and the two refusals of this slice, which matter more than the happy
+     * screens: a program that cannot be removed says so on its card, and a stock manager of the same
+     * server has no tile for «Система» at all.
+     */
+    @Test
+    fun theScreensOfTheSystemApp() {
+        val address = base ?: run {
+            println("SKIPPED: no -Prestoapp.serverUrl=<url> of a running tools/real-server")
+            return
+        }
+
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(Files.createTempDirectory("restoapp-real-system-shots").toFile()),
+            debug = true,
+            device = DeviceInfo("Real system shots", "desktop"),
+            solver = CryptoPuzzleSolver,
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+
+        runDesktopComposeUiTest(width = 420, height = 820) {
+            setContent { RestoApp(host) }
+            waitForIdle()
+
+            signIn(address, "admin", "home:tile-system")
+            shot("system-01-home-tiles")
+
+            onNodeWithTag("home:tile-system").performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("system:detail") }
+            shot("system-02-server-card")
+
+            onNodeWithTag("system:link-system.modules").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("system:row-restocore") }
+            shot("system-03-programs")
+
+            onNodeWithTag("system:search").performTextInput("navig")
+            waitUntil(timeoutMillis = 30_000L) { !exists("system:row-restocore") }
+            shot("system-04-search")
+            onNodeWithTag("system:search").performTextClearance()
+            waitUntil(timeoutMillis = 30_000L) { exists("system:row-restocore") }
+
+            onNodeWithTag("system:chip-disabled").performClick()
+            waitUntil(timeoutMillis = 30_000L) { !exists("system:row-restocore") }
+            shot("system-05-chip-disabled")
+            onNodeWithTag("system:chip-all").performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("system:row-restocore") }
+
+            // The refusals in words: a system program cannot be removed, and this database runs no
+            // migration at all.
+            onNodeWithTag("system:row-restocore").performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("system:field-hookName:value") }
+            shot("system-06-card-core")
+            onNodeWithTag("system:field-removeText:value").performScrollTo()
+            shot("system-07-card-core-refusals")
+            onNodeWithTag("system:back").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 30_000L) { exists("system:row-restocore") }
+
+            if (exists("system:row-simple-navigation")) {
+                onNodeWithTag("system:row-simple-navigation").performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:field-hookName:value") }
+                shot("system-08-card-installed")
+                onNodeWithTag("system:back").performScrollTo().performClick()
+                waitForIdle()
+            }
+
+            // The right is the door: the same server, a stock manager, and no «Система» on Home.
+            signIn(address, "stock", "home:tile-dishes")
+            shot("system-09-no-system-for-stock")
+            println("screenshots in ${out.absolutePath}")
+        }
+    }
+
+    /** Adds the stand as a server of the client and signs in, as `theScreensOfTheRealServer` does. */
+    private fun ComposeUiTest.signIn(address: String, login: String, tile: String) {
+        onNode(hasContentDescription("Открыть меню")).performClick()
+        waitForIdle()
+        onNodeWithTag("context:row").performClick()
+        waitForIdle()
+        onNodeWithTag("context:add").performClick()
+        waitForIdle()
+        onNodeWithTag("servers:add-custom").performClick()
+        waitForIdle()
+        onNodeWithTag("servers:address").performTextInput(address)
+        onNodeWithTag("servers:check").performClick()
+        waitUntil(timeoutMillis = 30_000L) { exists("servers:found") }
+        onNodeWithTag("servers:login").performTextInput(login)
+        onNodeWithTag("servers:password").performTextInput("secret-password")
+        onNodeWithTag("servers:connect").performClick()
+        waitUntil(timeoutMillis = 60_000L) {
+            if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
+            exists(tile)
+        }
+        waitForIdle()
+    }
 
     @Test
     fun theScreensOfTheRealServer() {
