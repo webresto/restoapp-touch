@@ -4,6 +4,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -140,6 +141,76 @@ class ScriptRuntimeTest {
         assertEquals(listOf("navigation.menus", "navigation.save"), calls.map { it.first })
         assertEquals(JsonPrimitive(2), calls.last().second["count"])
         assertEquals(listOf("Сохранено"), toasts)
+    }
+
+    @Test
+    fun theFieldsAndTheChoiceAreScreensTooAndTheirValuesComeBackAsTheyAreTyped(): Unit = runBlocking {
+        val app = run(
+            """
+            app({
+              id: "form",
+              routes: {
+                add: {
+                  enter: () => ({ name: "", link: "/menu" }),
+                  view: (s) => ui.column([
+                    ui.field({ id: "name", label: "Название", value: s.name, onChange: (name) => ({ name }) }),
+                    ui.select({
+                      id: "link",
+                      label: "Ссылка",
+                      value: s.link,
+                      options: [{ value: "/menu", title: "Меню" }, { value: "/stocks", title: "Акции" }],
+                      onChange: (link) => ({ link }),
+                    }),
+                    ui.button({ title: "Создать", tone: "success", confirm: "Точно?", enabled: s.name.length > 0 }),
+                  ]),
+                },
+              },
+            });
+            """.trimIndent(),
+            emptyMap(),
+        )
+
+        val empty = app.enter("add")
+        val (field, select, button) = Triple(empty.tree.children[0], empty.tree.children[1], empty.tree.children[2])
+        assertEquals("field", field.type)
+        assertEquals("name", field.id)
+        assertEquals("", field.value)
+        assertEquals("select", select.type)
+        assertEquals(listOf("/menu", "/stocks"), select.options.map { it.value })
+        assertEquals(listOf("Меню", "Акции"), select.options.map { it.title })
+        assertEquals("/menu", select.value)
+        // A button may ask before it acts, and may be drawn but not pressable.
+        assertEquals("Точно?", button.confirm)
+        assertFalse(button.enabled)
+
+        val typed = app.handle(field.onChange!!, JsonPrimitive("Шапка"))
+        assertEquals("Шапка", typed.tree.children[0].value)
+        assertTrue(typed.tree.children[2].enabled)
+
+        val picked = app.handle(typed.tree.children[1].onChange!!, JsonPrimitive("/stocks"))
+        assertEquals("/stocks", picked.tree.children[1].value)
+    }
+
+    @Test
+    fun theScriptMayAskTheHostToGoBack(): Unit = runBlocking {
+        val app = run(
+            """
+            app({
+              id: "gone",
+              routes: {
+                menu: {
+                  enter: () => ({}),
+                  view: (s, ctx) => ui.button({ title: "Удалить", onPress: () => { ctx.back(); return {}; } }),
+                },
+              },
+            });
+            """.trimIndent(),
+            emptyMap(),
+        )
+        val screen = app.enter("menu")
+        assertEquals(emptyList(), screen.commands)
+        val after = app.handle(screen.tree.onPress!!)
+        assertEquals(listOf("back"), after.commands)
     }
 
     @Test

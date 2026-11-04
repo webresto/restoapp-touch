@@ -66,8 +66,15 @@ class RealServerShotsTest {
 
     private fun ComposeUiTest.hasText(text: String) = onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
 
+    /**
+     * In the unmerged tree on purpose: a row that can be tapped merges what is inside it, and the
+     * drag handle's own tag then exists only there. The pointer finds it either way.
+     */
     private fun ComposeUiTest.nodesTagged(suffix: String) =
-        onAllNodes(SemanticsMatcher("tag ends with $suffix") { it.config.getOrNull(SemanticsProperties.TestTag)?.endsWith(suffix) == true })
+        onAllNodes(
+            SemanticsMatcher("tag ends with $suffix") { it.config.getOrNull(SemanticsProperties.TestTag)?.endsWith(suffix) == true },
+            useUnmergedTree = true,
+        )
 
     @Test
     fun theScreensOfTheRealServer() {
@@ -121,10 +128,28 @@ class RealServerShotsTest {
                 waitUntil(timeoutMillis = 60_000L) { hasText("Шапка") || hasText("Меню пока нет") || exists("script:error") }
                 shot("04-navigation-menus")
 
+                // The form that adds a menu — the editor can make one, not just change one.
+                if (hasText("Добавить меню")) {
+                    onAllNodesWithText("Добавить меню").onFirst().performClick()
+                    waitUntil(timeoutMillis = 10_000L) { hasText("Создать") }
+                    shot("05-navigation-add-menu")
+                    onAllNodesWithText("Отмена").onFirst().performClick()
+                    waitForIdle()
+                }
+
                 if (hasText("Шапка")) {
                     onAllNodesWithText("Шапка").onFirst().performClick()
                     waitUntil(timeoutMillis = 30_000L) { exists("script:back") }
-                    shot("05-navigation-items")
+                    shot("06-navigation-items")
+
+                    // The fields of one item: its label, the page its link points at, and its icon.
+                    if (hasText("Изменить")) {
+                        onAllNodesWithText("Изменить").onFirst().performClick()
+                        waitUntil(timeoutMillis = 10_000L) { hasText("Подпись") }
+                        shot("07-navigation-item-fields")
+                        onAllNodesWithText("Готово").onFirst().performClick()
+                        waitForIdle()
+                    }
 
                     // Drag the first item below the second by its handle: the host drags, and the
                     // script is told once, on the drop.
@@ -141,7 +166,7 @@ class RealServerShotsTest {
                             release()
                         }
                         waitUntil(timeoutMillis = 10_000L) { hasText("Сохранить") }
-                        shot("06-navigation-dragged")
+                        shot("08-navigation-dragged")
                     }
 
                     // Switch an item off, and save: both go through the methods the script named.
@@ -149,19 +174,19 @@ class RealServerShotsTest {
                     if (toggles.fetchSemanticsNodes().isNotEmpty()) {
                         toggles.onFirst().performClick()
                         waitForIdle()
-                        shot("07-navigation-switched")
+                        shot("09-navigation-switched")
                     }
                     if (hasText("Сохранить")) {
                         onAllNodesWithText("Сохранить").onFirst().performClick()
                         waitUntil(timeoutMillis = 30_000L) { hasText("Сохранено") || !hasText("Сохранить") }
-                        shot("08-navigation-saved")
+                        shot("10-navigation-saved")
                     }
                     // Back out and in again: what the server kept is what the screen shows now.
                     if (exists("script:back")) onNodeWithTag("script:back").performClick()
                     waitUntil(timeoutMillis = 20_000L) { hasText("Шапка") && !exists("script:back") }
                     onAllNodesWithText("Шапка").onFirst().performClick()
                     waitUntil(timeoutMillis = 30_000L) { exists("script:back") }
-                    shot("09-navigation-reopened")
+                    shot("11-navigation-reopened")
                     if (exists("script:back")) onNodeWithTag("script:back").performClick()
                     waitForIdle()
                 }
@@ -170,16 +195,16 @@ class RealServerShotsTest {
             // And the apps the universal renderer draws, from the same server.
             onNode(hasContentDescription("Открыть меню")).performClick()
             waitForIdle()
-            shot("10-drawer-apps")
+            shot("12-drawer-apps")
             onAllNodesWithText("Блюда").onFirst().performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("dishes:list") }
-            shot("11-dishes")
+            shot("13-dishes")
 
             onNode(hasContentDescription("Открыть меню")).performClick()
             waitForIdle()
             onAllNodesWithText("Клиенты").onFirst().performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("clients:list") || exists("clients:empty") }
-            shot("12-clients")
+            shot("14-clients")
             println("screenshots in ${out.absolutePath}")
         }
     }

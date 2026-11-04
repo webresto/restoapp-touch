@@ -161,6 +161,15 @@ internal class ScriptAppInstance(
     private fun show(drawn: ScriptScreen) {
         _screen.value = drawn
         _chrome.value = AppChrome(title = drawn.title.takeIf { stack.size > 1 }, canGoBack = stack.size > 1)
+        // What the script asked for while it was drawing: performed with the screen already on, so
+        // «go back» after deleting a menu lands on a list that is read again.
+        for (command in drawn.commands) {
+            when (command) {
+                ScriptAction.BACK -> back()
+                ScriptAction.REFRESH -> refresh()
+                else -> Unit
+            }
+        }
     }
 
     override fun onClose() {

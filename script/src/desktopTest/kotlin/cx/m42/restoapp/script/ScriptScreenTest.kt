@@ -62,7 +62,14 @@ class ScriptScreenTest {
               view: (s) => ui.column([
                 ui.text(s.order),
                 ui.list({
-                  items: s.items.map((item, index) => ({ key: String(index), title: item.label, subtitle: item.link })),
+                  // Tappable rows on purpose: that is how the navigation editor draws them, and a
+                  // clickable row merges its semantics — the handle must still be draggable.
+                  items: s.items.map((item, index) => ({
+                    key: String(index),
+                    title: item.label,
+                    subtitle: item.link,
+                    onPress: () => ({ order: s.order }),
+                  })),
                   onReorder: (move) => {
                     const next = [...s.items];
                     const [moved] = next.splice(move.from, 1);
@@ -116,7 +123,8 @@ class ScriptScreenTest {
             // Drag the first row's handle down past one row and drop it.
             val first = ui.onNodeWithTag("script:1:row-0")
             val height = first.fetchSemanticsNode().size.height.toFloat()
-            ui.onNodeWithTag("script:1:row-0:drag").performMouseInput {
+            // A tappable row merges its children's semantics, so the handle is found unmerged.
+            ui.onNodeWithTag("script:1:row-0:drag", useUnmergedTree = true).performMouseInput {
                 moveTo(center)
                 press()
                 moveTo(center + Offset(0f, height * 0.6f))

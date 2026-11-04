@@ -17,8 +17,17 @@ public fun interface ScriptServer {
     public suspend fun call(method: String, params: JsonObject): JsonElement
 }
 
-/** A screen as the script returned it: a tree of nodes, with the handlers kept in JS under numbers. */
-public data class ScriptScreen(val route: String, val title: String?, val tree: ScriptNode)
+/**
+ * A screen as the script returned it: a tree of nodes, with the handlers kept in JS under numbers,
+ * and what the script asked the host to do while drawing it — `ctx.back()` after deleting the very
+ * menu the screen is of, say. The host performs those once the screen is on.
+ */
+public data class ScriptScreen(
+    val route: String,
+    val title: String?,
+    val tree: ScriptNode,
+    val commands: List<String> = emptyList(),
+)
 
 @Serializable
 public data class ScriptNode(
@@ -36,7 +45,20 @@ public data class ScriptNode(
     val press: ScriptAction? = null,
     /** A handler in JS: `handle(it)` runs it and gives back the new screen. */
     val onPress: Int? = null,
+    /** Asked before a button's handler runs. */
+    val confirm: String? = null,
+    val enabled: Boolean = true,
+    /** `field` and `select`: the element's own id, so the host keeps its text and focus by it. */
+    val id: String? = null,
+    val placeholder: String? = null,
+    /** Of a `select`. */
+    val options: List<ScriptOption> = emptyList(),
+    /** The handler a typed value or a chosen option goes to. */
+    val onChange: Int? = null,
 )
+
+@Serializable
+public data class ScriptOption(val value: String, val title: String, val subtitle: String? = null)
 
 @Serializable
 public data class ScriptRow(
@@ -109,6 +131,9 @@ public class ScriptRuntime(
     /** Completed by `__host.ready()`, failed by `__host.failed(message)`: one per entry into JS. */
     private var turn: CompletableDeferred<Unit>? = null
 
+    /** What the script asked the host to do during this turn; performed once the screen is drawn. */
+    private val commands = mutableListOf<String>()
+
     private val host = object : ScriptHost {
         override fun call(id: Int, method: String, paramsJson: String) {
             scope.launch {
@@ -139,6 +164,10 @@ public class ScriptRuntime(
 
         override fun toast(text: String) {
             onToast(text)
+        }
+
+        override fun command(kind: String) {
+            commands += kind
         }
 
         override fun log(text: String) {
@@ -188,10 +217,12 @@ public class ScriptRuntime(
     }
 
     private suspend fun render(): ScriptScreen {
+        val asked = commands.toList()
+        commands.clear()
         val text = api.eval("__render()") ?: throw ScriptException("the script drew nothing")
         val screen = json.decodeFromString(RenderedScreen.serializer(), text)
         screen.error?.let { throw ScriptException(it) }
-        return ScriptScreen(screen.route, screen.title, screen.tree)
+        return ScriptScreen(screen.route, screen.title, screen.tree, asked)
     }
 }
 

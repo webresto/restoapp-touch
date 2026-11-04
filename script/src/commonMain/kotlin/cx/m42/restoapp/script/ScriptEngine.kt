@@ -19,6 +19,9 @@ public interface ScriptHost {
 
     public fun toast(text: String)
 
+    /** `ctx.back()` and `ctx.refresh()`: the stack is the host's, so the script only asks. */
+    public fun command(kind: String)
+
     public fun log(text: String)
 }
 

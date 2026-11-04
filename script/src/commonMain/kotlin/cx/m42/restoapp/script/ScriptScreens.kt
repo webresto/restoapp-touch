@@ -32,14 +32,17 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import cx.m42.restoapp.render.ChoiceSheet
 import cx.m42.restoapp.render.ConfirmButton
 import cx.m42.restoapp.render.EmptyState
 import cx.m42.restoapp.render.ListRow
 import cx.m42.restoapp.render.Notice
 import cx.m42.restoapp.render.RenderWords
+import cx.m42.restoapp.render.SheetChoice
 import cx.m42.restoapp.render.SwitchControl
 import cx.m42.superizer.runtime.LocalAppRuntime
 import cx.m42.superizer.ui.components.AppButton
+import cx.m42.superizer.ui.components.AppTextField
 import cx.m42.superizer.ui.components.ButtonSize
 import cx.m42.superizer.ui.components.ButtonVariant
 import com.composeunstyled.Text
@@ -126,13 +129,17 @@ private fun ScriptNodeView(node: ScriptNode, instance: ScriptAppInstance, words:
         "button" -> ConfirmButton(
             text = node.title.orEmpty(),
             tone = node.tone,
-            confirm = null,
-            enabled = true,
+            confirm = node.confirm,
+            enabled = node.enabled,
             words = words,
             onClick = { press(node.press, node.onPress, instance) },
             tag = "$tag:button",
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
         )
+
+        "field" -> ScriptFieldView(node, instance, tag)
+
+        "select" -> ScriptSelectView(node, instance, words, tag)
 
         "empty" -> EmptyState(node.title.orEmpty(), null, null, null, "$tag:empty")
 
@@ -318,6 +325,81 @@ private fun DragHandle(drag: DragSpec, words: RenderWords, tag: String) {
     ) {
         repeat(3) {
             Box(modifier = Modifier.size(width = 14.dp, height = 2.dp).background(tokens.muted, RoundedCornerShape(1.dp)))
+        }
+    }
+}
+
+/**
+ * A line of text the person types.
+ *
+ * The letters and the cursor live here, in Compose, and the script is told the whole value — that is
+ * the division of labour the plan asks for, and it is also why typing never waits for JS: the field
+ * does not take back what the script drew while it is being typed into.
+ */
+@Composable
+private fun ScriptFieldView(node: ScriptNode, instance: ScriptAppInstance, tag: String) {
+    val key = node.id ?: tag
+    var typed by remember(key) { mutableStateOf(node.value.orEmpty()) }
+    var sent by remember(key) { mutableStateOf(node.value.orEmpty()) }
+    // The script changed the value itself (it reset the form, say): take its word for it.
+    val fromScript = node.value.orEmpty()
+    if (fromScript != sent && fromScript != typed) {
+        typed = fromScript
+        sent = fromScript
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        node.title?.let { Text(text = it, style = AppTheme.footnote, color = AppTheme.muted) }
+        AppTextField(
+            value = typed,
+            onValueChange = { value ->
+                typed = value
+                sent = value
+                node.onChange?.let { instance.handle(it, JsonPrimitive(value)) }
+            },
+            placeholder = node.placeholder ?: node.title.orEmpty(),
+            modifier = Modifier.fillMaxWidth().testTag("$tag:field-$key"),
+        )
+    }
+}
+
+/** One of a list, picked in a sheet — the shape the point switcher has. */
+@Composable
+private fun ScriptSelectView(node: ScriptNode, instance: ScriptAppInstance, words: RenderWords, tag: String) {
+    val key = node.id ?: tag
+    var open by remember(key) { mutableStateOf(false) }
+    val chosen = node.options.firstOrNull { it.value == node.value }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        node.title?.let { Text(text = it, style = AppTheme.footnote, color = AppTheme.muted) }
+        AppButton(
+            text = chosen?.title ?: node.value ?: node.placeholder.orEmpty(),
+            onClick = { open = true },
+            variant = ButtonVariant.Outline,
+            size = ButtonSize.Default,
+            modifier = Modifier.fillMaxWidth().testTag("$tag:select-$key"),
+        )
+    }
+    if (open) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            ChoiceSheet(
+                visible = true,
+                title = node.title ?: words.set,
+                choices = node.options.map { SheetChoice(it.value, it.title, it.subtitle) },
+                selected = node.value,
+                onDismiss = { open = false },
+                onPick = { value ->
+                    open = false
+                    node.onChange?.let { instance.handle(it, JsonPrimitive(value)) }
+                },
+                tag = "$tag:sheet-$key",
+            )
         }
     }
 }

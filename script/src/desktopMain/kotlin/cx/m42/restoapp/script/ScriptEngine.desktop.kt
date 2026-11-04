@@ -36,6 +36,7 @@ public actual class ScriptEngine public actual constructor(private val host: Scr
                 function("ready") { host.ready() }
                 function("failed") { args -> host.failed(args.firstOrNull() as? String ?: "failed") }
                 function("toast") { args -> host.toast(args.firstOrNull() as? String ?: "") }
+                function("command") { args -> host.command(args.firstOrNull() as? String ?: "") }
                 function("log") { args -> host.log(args.joinToString(" ")) }
             }
             quickJs = engine

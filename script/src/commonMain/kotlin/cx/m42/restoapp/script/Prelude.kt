@@ -72,11 +72,48 @@ internal val PRELUDE: String = """
         onReorder: keep(props.onReorder),
       };
     },
+    /**
+     * A line of text to type. The host keeps the letters and the cursor; `onChange` hears the whole
+     * value, not a keystroke, so the script never deals with typing.
+     */
+    field: function (props) {
+      return {
+        type: "field",
+        id: String(props.id),
+        title: props.label === undefined ? null : props.label,
+        value: props.value === undefined || props.value === null ? "" : String(props.value),
+        placeholder: props.placeholder === undefined ? null : props.placeholder,
+        onChange: keep(props.onChange),
+      };
+    },
+
+    /** One of a list, chosen in a sheet: the link of a menu item, for one. */
+    select: function (props) {
+      return {
+        type: "select",
+        id: String(props.id),
+        title: props.label === undefined ? null : props.label,
+        value: props.value === undefined || props.value === null ? null : String(props.value),
+        placeholder: props.placeholder === undefined ? null : props.placeholder,
+        options: (props.options || []).map(function (option) {
+          return {
+            value: String(option.value),
+            title: option.title === undefined ? String(option.value) : option.title,
+            subtitle: option.subtitle === undefined ? null : option.subtitle,
+          };
+        }),
+        onChange: keep(props.onChange),
+      };
+    },
+
     button: function (props) {
       return {
         type: "button",
         title: props.title,
         tone: props.tone === undefined ? null : props.tone,
+        // Asked before the handler runs: deleting a menu is not a tap away from nothing.
+        confirm: props.confirm === undefined ? null : props.confirm,
+        enabled: props.enabled === undefined ? true : !!props.enabled,
         press: props.onPress && props.onPress.do ? props.onPress : null,
         onPress: props.onPress && props.onPress.do ? null : keep(props.onPress),
       };
@@ -120,6 +157,10 @@ internal val PRELUDE: String = """
         return table[key] === undefined ? key : table[key];
       },
       toast: function (text) { __host.toast(String(text)); },
+      // What the host does to the stack, when the script knows better: the menu it just deleted is
+      // not a screen to stay on.
+      back: function () { __host.command("back"); },
+      refresh: function () { __host.command("refresh"); },
       log: function (text) { __host.log(String(text)); },
       // Stage 0 knows no rights of its own: what the person may call is what the declaration gave.
       can: function () { return true; },
