@@ -207,8 +207,9 @@ private fun AddressSheet(context: PosContext, order: PosOrder) {
                 badge = null,
                 badgeTone = null,
                 tag = "pos:saved-${saved.id}",
-                // A saved line is a street and a house already: it goes in as the whole address.
-                onClick = { context.instance.setAddress(city, saved.formatted, "", null, null) },
+                // By its id: the server reads the house and the flat off the record, because core
+                // refuses a delivery whose address is a line without a house number.
+                onClick = { context.instance.setSavedAddress(saved.id) },
             )
         }
         Spacer(Modifier.heightIn(min = 8.dp))
