@@ -3,6 +3,9 @@ build/
 out/
 captures/
 
+# Xcode's per-person state.
+xcuserdata/
+
 # Gradle's and Kotlin's own caches.
 .gradle/
 .kotlin/

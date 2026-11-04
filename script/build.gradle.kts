@@ -16,6 +16,8 @@ plugins {
 
 kotlin {
     jvm("desktop")
+    iosArm64()
+    iosSimulatorArm64()
 
     sourceSets {
         commonMain.dependencies {
@@ -31,6 +33,9 @@ kotlin {
         val desktopMain by getting
         desktopMain.dependencies {
             // The JS engine of the desktop host; Android and iOS take the same library, the web none.
+            implementation(libs.quickjs)
+        }
+        iosMain.dependencies {
             implementation(libs.quickjs)
         }
         val desktopTest by getting

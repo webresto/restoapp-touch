@@ -6,8 +6,8 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
  * package, scheme, settings and window, so the two never share a Home or a language (D2).
  *
  * A list of servers, each its own Superizer with the apps that server declares (D6, D8): a real
- * RestoApp by its address, or the demo server in process. No push, no promo codes (D3). Desktop only (D5): a
- * multiplatform module still, so Android and the web come back as targets rather than as a rewrite.
+ * RestoApp by its address, or the demo server in process. No push, no promo codes (D3). The desktop and
+ * the iPhone: a multiplatform module, so Android and the web come back as targets rather than as a rewrite.
  */
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -65,6 +65,20 @@ val generateBuildInfo by tasks.registering {
 
 kotlin {
     jvm("desktop")
+
+    /**
+     * The iPhone app: a static framework that `iosApp/` links, as in Unitool. Only the klibs build
+     * without Xcode; linking this framework takes a Mac with it (README, «iPhone»).
+     */
+    listOf(
+        iosArm64(),
+        iosSimulatorArm64(),
+    ).forEach { target ->
+        target.binaries.framework {
+            baseName = "ComposeApp"
+            isStatic = true
+        }
+    }
 
     sourceSets {
         val desktopMain by getting

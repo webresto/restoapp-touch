@@ -4,7 +4,7 @@
  * `NetworkService`; the PoW solver for the login CAPTCHA.
  *
  * No Compose and no host: the renderer, the demo server and the host all speak through this.
- * Desktop only for now (D5); the solver is JVM code, iOS and the web will need their own big integers.
+ * The solver is JVM code: iOS has no solver yet, and it and the web will need their own big integers.
  */
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -13,6 +13,8 @@ plugins {
 
 kotlin {
     jvm("desktop")
+    iosArm64()
+    iosSimulatorArm64()
 
     sourceSets {
         commonMain.dependencies {

@@ -40,6 +40,21 @@ cd ../restoapp-dev && npx tsx ../restoapp-mobile-admin/tools/fake-server/serve.t
 # then connect to http://127.0.0.1:4851 as stock / secret-password (or admin, operator)
 ```
 
+## iPhone
+
+`iosApp/` is the Xcode project, `composeApp/src/iosMain` the host on iOS. Linking needs a Mac with
+Xcode; only the klibs compile without it (`./gradlew :composeApp:compileKotlinIosArm64`).
+`.github/workflows/ios.yml` builds on `main`, on `ios-ipa` and by hand, and leaves an **unsigned**
+`RestoApp-<run>.ipa` in the run's artifacts. A phone installs it only after it is signed.
+
+What does not work on iOS yet (`order-entry.plan.md`, «Платформы»):
+
+- A real server: there is no PoW solver for the login CAPTCHA, so only the demo servers open. iOS also
+  refuses plain `http://` addresses until `Info.plist` allows them.
+- Storage per server: `PrefsStorage` has one suite, so Home, the language and the apps' data are shared.
+- The device token is a protected file, not the Keychain.
+- The app has no icon yet.
+
 ## How it is put together
 
 ```
