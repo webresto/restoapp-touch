@@ -20,7 +20,7 @@ Built for the desktop today, written for every platform. The decisions are in
 |---|---|
 | JDK | 17 (on this machine 21 hangs the Gradle daemon, `.ai-notes` D5) |
 | Gradle | none — use the bundled `./gradlew` |
-| Superizer | its sources at `../superizer` (`git clone git@github.com:adminization/superizer.git ../superizer`), also reachable as `./superizer` — a symlink, so the library is edited from this project's tree; `SUPERIZER_FROM_MAVEN=1` builds against mavenLocal instead |
+| Superizer | its sources at `../superizer` (`git clone git@github.com:adminization/superizer.git ../superizer`); to edit the library from this project's tree, link it with `ln -s ../superizer superizer` (git ignores the link); `SUPERIZER_FROM_MAVEN=1` builds against mavenLocal instead |
 | restoapp-dev | optional: `../restoapp-dev` on branch `mobile-app` with `node_modules` — the live tests run the hook from there, and skip themselves without it |
 
 ## Running it
