@@ -56,6 +56,10 @@ include(":apps:pos")
 // The section itself — the summary, the lists, the cards — is the declaration and :render.
 include(":apps:marketing")
 
+// And another: the progress of a job of «Система», which installs, updates or removes a program
+// (system.plan.md, slice C). The app itself is the declaration and :render.
+include(":apps:system")
+
 // A server's apps are not modules any more (plan section 4): the server declares them and one
 // renderer draws them all. The protocol, the in-process demo server, and that renderer.
 include(":protocol")

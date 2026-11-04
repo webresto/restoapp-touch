@@ -41,6 +41,14 @@
  *   GET  /__fake/promocode?code=ЛЕТО10            the promo code as the database holds it
  *   GET  /__fake/web-stock?place=p1&id=d1         what the web Stock Manager reads there
  *   GET  /__fake/dish-place?place=p1&id=d1        the DishPlace row behind it
+ *   POST /__fake/license {"value": "stand-license"}  sets the licence; "" takes it away again
+ *   POST /__fake/publish {"appId": "stand-hello", "version": "1.1.0"}  a new version in the marketplace
+ *   POST /__fake/reset-marketplace                the marketplace as seeded, and no `stand-*` program installed
+ *   GET  /__fake/modules                          the rows of the module manager
+ *
+ * The marketplace of the stand is a fake (`tests/support/fakeRegistry.ts` of the server): the stand
+ * cannot reach the real one. `stand-*` programs are installed into `modules/` of the server checkout,
+ * so the walks end with `reset-marketplace`.
  */
 import * as http from "http";
 import * as path from "path";
@@ -297,7 +305,40 @@ function systemModulePaths(): string {
   return found.join(";");
 }
 
+/** The marketplace of the stand; a checkout without the fake gets a dead address, never the real one. */
+async function fakeMarketplace(): Promise<any> {
+  try {
+    const { startFakeRegistry } = require(path.join(dev, "tests/support/fakeRegistry"));
+    return await startFakeRegistry();
+  } catch {
+    return { url: "http://127.0.0.1:9", publish() {}, reset() {}, setDown() {} };
+  }
+}
+
+/** Takes every `stand-*` program off the server, without asking: a walk starts and ends clean. */
+async function dropStandModules(sails: any) {
+  const fs = require("fs");
+  const modulesPath = sails.config.modulemanager.modulesPath;
+  for (const name of fs.readdirSync(modulesPath)) {
+    if (name.startsWith("stand-")) fs.rmSync(path.join(modulesPath, name), { recursive: true, force: true });
+  }
+  await sails.models.module.destroy({ appId: { startsWith: "stand-" } });
+  const ModuleHelper = require(path.join(dev, "api/hooks/app-manager-proto/helpers/moduleHelper")).default;
+  for (const appId of Object.keys(ModuleHelper.getModules())) {
+    if (appId.startsWith("stand-")) ModuleHelper.deleteModule(appId);
+  }
+  const listFile = process.env.WEBRESTO_MODULES_LISTFILE as string;
+  if (fs.existsSync(listFile)) {
+    fs.writeFileSync(listFile, fs.readFileSync(listFile, "utf8").split("\n").filter((line: string) => !line.startsWith("stand-")).join("\n"));
+  }
+}
+
 async function main() {
+  const marketplace = await fakeMarketplace();
+  process.env.MODULE_STORAGE_URL = marketplace.url;
+  process.env.WEBRESTO_REGISTRY = marketplace.url;
+  process.env.WEBRESTO_MODULES_LISTFILE ??= path.join(require("os").tmpdir(), "restoapp-real-modules.list");
+
   // Run under `npx tsx`: its ESM loader is what resolves adminizer's directory imports.
   const rc = require(require.resolve("rc", { paths: [dev] }));
   const SailsFactory = require(require.resolve("sails", { paths: [dev] })).Sails;
@@ -356,7 +397,28 @@ async function main() {
         res.setHeader("content-type", "application/json");
         res.end(JSON.stringify(value));
       };
+      const forgetModules = () => require(path.join(dev, "api/hooks/app-mobile-api/adapters/system")).systemAdapter(sails).invalidate();
       try {
+        if (req.url === "/__fake/license") {
+          process.env.WEBRESTO_LICENSE = data.value ?? "";
+          forgetModules();
+          return answer({ ok: true });
+        }
+        if (req.url === "/__fake/publish") {
+          marketplace.publish(data.appId, data.version);
+          forgetModules();
+          return answer({ ok: true });
+        }
+        if (req.url === "/__fake/reset-marketplace") {
+          marketplace.reset();
+          await dropStandModules(sails);
+          forgetModules();
+          return answer({ ok: true });
+        }
+        if (req.url === "/__fake/modules") {
+          const rows = await sails.models.module.find({ isDeleted: { "!=": true } });
+          return answer({ modules: rows.map((row: any) => ({ appId: row.appId, version: row.version, enable: row.enable })) });
+        }
         if (req.url === "/__fake/stock-points") {
           await sails.models.groupap.updateOne({ name: "Stock Manager" }, {
             tokens: ["access-to-adminpanel", { tokenId: "stock-manager", rights: data.places }],
