@@ -31,8 +31,10 @@ kotlin {
 }
 
 // The live test starts the hook of ../restoapp-dev on fake deps (tools/fake-server); it finds the
-// checkout through this, and skips itself when there is none.
+// checkout through this, and skips itself when there is none. `-Prestoapp.dev=…` points it at
+// another one — a git worktree of the server, which is where a change of both sides is written.
 tasks.withType<Test>().configureEach {
-    systemProperty("restoapp.dev", rootProject.file("../restoapp-dev").absolutePath)
+    val dev = (findProperty("restoapp.dev") as String?)?.let { file(it) } ?: rootProject.file("../restoapp-dev")
+    systemProperty("restoapp.dev", dev.absolutePath)
     systemProperty("restoapp.tools", rootProject.file("tools").absolutePath)
 }

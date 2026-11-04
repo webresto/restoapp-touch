@@ -30,6 +30,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 private val dishesDeclared: DeclaredApp = runBlocking { DemoServer.demo().describe("demo", "ru").value.app("dishes")!! }
@@ -42,6 +44,10 @@ class ServerAppContractTest : AppContractTest(ServerApp(dishesDeclared, "ru")) {
 
     override val configFixtures: List<String> = listOf("""{"schemaVersion":1}""", "{}")
     override val stateFixtures: List<String> = listOf(
+        // The stack, as this build writes it.
+        """{"place":"p2","frames":[{"method":"dishes.list","chip":"all","query":"пицца"},{"method":"dishes.get","params":{"id":"d1"}}]}""",
+        """{"frames":[{"method":"dishes.list","chip":"stop"}]}""",
+        // And the shape of the build before the stack: a chip, a search and the one open record.
         """{"place":"p2","chip":"all","query":"пицца","open":"d1"}""",
         """{"chip":"stop"}""",
         "{}",
@@ -264,8 +270,10 @@ class ServerAppTest {
     }
 
     @Test
-    fun theSnapshotBringsBackTheChipTheSearchAndTheOpenRecord() = run(
-        restore = buildRestore("""{"place":"p1","chip":"all","query":"","open":"d2"}"""),
+    fun theSnapshotBringsBackTheStackWithItsChipAndItsSearch() = run(
+        restore = buildRestore(
+            """{"place":"p1","frames":[{"method":"dishes.list","chip":"all"},{"method":"dishes.get","params":{"id":"d2"}}]}""",
+        ),
     ) {
         idle()
         assertShown("dishes:detail")
@@ -274,8 +282,24 @@ class ServerAppTest {
         idle()
         node("dishes:chip-all").assertIsSelected()
         val saved = screen.saveState()
-        assertEquals("all", saved["chip"]!!.jsonPrimitive.content)
+        val frames = saved["frames"]!!.jsonArray
+        assertEquals(1, frames.size)
+        assertEquals("dishes.list", frames[0].jsonObject["method"]!!.jsonPrimitive.content)
+        assertEquals("all", frames[0].jsonObject["chip"]!!.jsonPrimitive.content)
         assertEquals("p1", saved["place"]!!.jsonPrimitive.content)
+    }
+
+    /** A snapshot of the build before the stack: the chip and the one open record it knew. */
+    @Test
+    fun aSnapshotOfAnOlderBuildOpensTheSameCard() = run(
+        restore = buildRestore("""{"place":"p1","chip":"all","query":"","open":"d2"}"""),
+    ) {
+        idle()
+        assertShown("dishes:detail")
+        assertEquals("Маргарита 30 см", screen.chrome.value.title)
+        tap("dishes:back")
+        idle()
+        node("dishes:chip-all").assertIsSelected()
     }
 
     @Test

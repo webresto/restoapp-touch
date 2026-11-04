@@ -31,6 +31,7 @@ public class RenderWords(public val lang: String) {
     public val cancel: String = t("Отмена", "Cancel")
     public val set: String = t("Установить", "Set")
     public val unknownView: String = t("Этот экран приложение пока не умеет показывать", "This app cannot show this screen yet")
+    public val linkGone: String = t("Этот переход сейчас недоступен", "This link cannot be followed now")
 
     public fun shownOf(shown: Int, total: Int): String = t("Показано $shown из $total", "$shown of $total shown")
 

@@ -52,6 +52,10 @@ include(":composeApp")
 // declaration describes. Everything else a server declares is drawn by :render.
 include(":apps:pos")
 
+// And the one native *action*: the editor of a promotion of «Маркетинг» (marketing.plan.md, Q43).
+// The section itself — the summary, the lists, the cards — is the declaration and :render.
+include(":apps:marketing")
+
 // A server's apps are not modules any more (plan section 4): the server declares them and one
 // renderer draws them all. The protocol, the in-process demo server, and that renderer.
 include(":protocol")

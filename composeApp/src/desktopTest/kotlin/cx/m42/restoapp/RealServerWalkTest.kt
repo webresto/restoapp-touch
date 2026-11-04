@@ -2,6 +2,7 @@ package cx.m42.restoapp
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -526,6 +527,107 @@ class RealServerWalkTest {
     /** The orders of the stand, oldest first. */
     private fun orders(): List<kotlinx.serialization.json.JsonObject> =
         (Json.parseToJsonElement(get("orders")).jsonObject["orders"] as JsonArray).map { it.jsonObject }
+
+    /**
+     * «Маркетинг» through the window against the real server: the section opens on its summary, the links lead
+     * to the codes, a code says what it gives and what it does not, its switch is felt by core, and the editor
+     * of a promotion — the client's own screen — writes a promotion the server then reads back (Q43, C22).
+     */
+    @Test
+    fun theWholeMarketingSectionAgainstTheRealServer() {
+        val address = base ?: run {
+            println("SKIPPED: no -Prestoapp.serverUrl=<url> of a running tools/real-server")
+            return
+        }
+        control("clear-attempts")
+        control("reset-password", """{"login": "marketer"}""")
+
+        val dir = Files.createTempDirectory("restoapp-real-marketing").toFile()
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(dir),
+            debug = true,
+            device = DeviceInfo("Real marketing walk", "desktop"),
+            solver = CryptoPuzzleSolver,
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+
+        runComposeUiTest {
+            setContent { RestoApp(host) }
+            waitForIdle()
+
+            // 1. Connect the server and sign in as the marketer: both rights of the section.
+            openMenu()
+            onNodeWithTag("context:row").performClick()
+            waitForIdle()
+            onNodeWithTag("context:add").performClick()
+            waitForIdle()
+            onNodeWithTag("servers:add-custom").performClick()
+            waitForIdle()
+            onNodeWithTag("servers:address").performTextInput(address)
+            onNodeWithTag("servers:check").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("servers:found") }
+            onNodeWithTag("servers:login").performTextInput("marketer")
+            onNodeWithTag("servers:password").performTextInput("secret-password")
+            onNodeWithTag("servers:connect").performClick()
+            waitUntil(timeoutMillis = 40_000L) {
+                if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
+                host.active.value.superizer.registry.get(AppId("marketing")) != null && exists("home:tile-marketing")
+            }
+            waitForIdle()
+
+            // 2. The summary is the home screen of the section, and nothing else is on Home.
+            onNodeWithTag("home:tile-dishes").assertDoesNotExist()
+            onNodeWithTag("home:tile-marketing").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("marketing:detail") }
+            onNodeWithTag("marketing:field-codesTotal:value").assertTextEquals("3")
+            onNodeWithTag("marketing:field-promotionsByCodeOnly:value").assertTextEquals("1")
+
+            // 3. The link of the summary opens the codes; the words are core's own.
+            onNodeWithTag("marketing:link-marketing.promocodes").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("marketing:row-code-leto") }
+            onNodeWithTag("marketing:row-code-dead").assertExists()
+
+            onNodeWithTag("marketing:row-code-leto").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("marketing:detail") }
+            onNodeWithTag("marketing:field-gives:value").assertTextEquals("−10% на всю корзину")
+            onNodeWithTag("marketing:field-worksNow:value").assertTextEquals("Да")
+
+            // 4. The switch of the code, and core stops taking it.
+            onNodeWithTag("marketing:marketing.setCodeEnabled").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 20_000L) { codeIsOff("ЛЕТО10") }
+            waitForIdle()
+            onNodeWithTag("marketing:field-status:value").assertTextEquals("Выключен")
+            onNodeWithTag("marketing:marketing.setCodeEnabled").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 20_000L) { !codeIsOff("ЛЕТО10") }
+
+            // 5. Back to the summary, and on to the promotions: the three words of where each stands.
+            onNodeWithTag("marketing:back").performClick()
+            waitForIdle()
+            onNodeWithTag("marketing:back").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("marketing:link-marketing.promotions") }
+            onNodeWithTag("marketing:link-marketing.promotions").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("marketing:row-pr-summer") }
+            onNodeWithTag("marketing:row-pr-old").assertExists()
+
+            // 6. The editor of a promotion: the client's own screen, and what it writes the server reads back.
+            onNodeWithTag("marketing:row-pr-lunch").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("marketing:detail") }
+            onNodeWithTag("marketing:field-discountFlat:value").assertTextEquals("150\u00A0₽")
+            onNodeWithTag("marketing:marketing.savePromotion").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("marketing:editor") }
+            onNodeWithTag("marketing:editor-amount").performScrollTo().performTextClearance()
+            onNodeWithTag("marketing:editor-amount").performTextInput("199")
+            onNodeWithTag("marketing:editor-only-by-code").performScrollTo().performClick()
+            onNodeWithTag("marketing:editor-save").performClick()
+            waitUntil(timeoutMillis = 20_000L) { !exists("marketing:editor") }
+            waitForIdle()
+            onNodeWithTag("marketing:field-discountFlat:value").assertTextEquals("199\u00A0₽")
+            onNodeWithTag("marketing:field-appliesNow:value").assertTextEquals("Только по коду")
+        }
+    }
+
+    /** What the stand's own API says about a code: switched off, core does not take it any more. */
+    private fun codeIsOff(code: String): Boolean = get("promocode?code=$code").contains("\"enable\":false")
 
     private fun idOf(answer: String): String =
         Regex("\"id\":\"([^\"]+)\"").find(answer)?.groupValues?.get(1)

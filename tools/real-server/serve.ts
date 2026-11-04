@@ -11,7 +11,8 @@
  *
  * Users, all with the password `secret-password`: admin (administrator), stock (Stock Manager on
  * p1 and p2), operator (Operator, no «Блюда»), taker (Order Taker: «Клиенты» and the POS on p1 and
- * p2), nopoints (the token with no points ticked), outsider (no panel access). Places: p1
+ * p2), marketer («Маркетинг» with both its rights and the orders), promoter (the promotions alone),
+ * nopoints (the token with no points ticked), outsider (no panel access). Places: p1
  * «Ленина, 5» (cooking and pickup), p2 «Мира, 3» (cooking), p3 «Выдача» (pickup only, no address).
  * Dishes: d1 Борщ 300, d2 Плов 450, d3 Морс 120.
  *
@@ -35,6 +36,7 @@
  *   POST /__fake/reset-catalog                    leaves only d1, d2, d3, and no stock at all
  *   POST /__fake/bulk-dishes {"count": 60}        adds that many dishes, for the paging
  *   POST /__fake/drop-bulk-dishes                 removes them again
+ *   GET  /__fake/promocode?code=ЛЕТО10            the promo code as the database holds it
  *   GET  /__fake/web-stock?place=p1&id=d1         what the web Stock Manager reads there
  *   GET  /__fake/dish-place?place=p1&id=d1        the DishPlace row behind it
  */
@@ -92,6 +94,11 @@ async function fixtures(sails: any) {
   ]);
   const nopoints = await group("Stock no points", ["access-to-adminpanel", "stock-manager"]);
   const nobody = await group("Nobody", []);
+  // «Маркетинг»: the two tokens of the section are core's own (`lib/adminpanel/manifest.ts`), and the
+  // group `Marketer` of a real installation holds both. `marketer` also reads orders, so the summary
+  // counts the money; `promoter` has one right of the section and nothing else (marketing.plan.md).
+  const marketer = await group("Marketer", ["access-to-adminpanel", "promocodes-manager", "promotions-manager", "read-order-model"]);
+  const promoter = await group("Promotions only", ["access-to-adminpanel", "promotions-manager"]);
 
   const user = async (login: string, groupIds: string[], extra: Record<string, unknown> = {}) =>
     User.create({
@@ -111,11 +118,45 @@ async function fixtures(sails: any) {
   await user("taker", [taker.id]);
   await user("nopoints", [nopoints.id]);
   await user("outsider", [nobody.id]);
+  await user("marketer", [marketer.id]);
+  await user("promoter", [promoter.id]);
 
   await customers(sails);
   await delivery(sails);
+  await marketing(sails);
 
   return { places, dishes };
+}
+
+/**
+ * «Маркетинг» of the stand: three promotions and three codes, the way an owner would have them —
+ * one promotion that applies by itself, one that is «только по коду» (C22), and one switched off
+ * whose code therefore gives nothing at all. The orders of the stand give the applications.
+ */
+async function marketing(sails: any) {
+  const Promotion = sails.models.promotion;
+  const PromotionCode = sails.models.promotioncode;
+
+  const promotion = async (id: string, name: string, discount: Record<string, unknown>, values: Record<string, unknown>) => {
+    await Promotion.createOrUpdate({
+      id, name, badge: "configured-promotion", description: `Акция «${name}»`, externalId: id,
+      isJoint: true, isPublic: true, createdByUser: true, concept: ["origin"],
+      configDiscount: { dishes: [], groups: [], excludeModifiers: true, ...discount },
+    });
+    await Promotion.update({ id }, { sortOrder: 0, ...values }).fetch();
+  };
+
+  await promotion("pr-summer", "Летняя скидка", { discountType: "percentage", discountAmount: 10 }, { enable: true, onlyByCode: true });
+  await promotion("pr-lunch", "Бизнес-ланч", { discountType: "flat", discountAmount: 150, minBasketTotal: 700 }, { enable: true });
+  await promotion("pr-old", "Прошлогодняя акция", { discountType: "percentage", discountAmount: 5 }, { enable: false });
+
+  const code = async (id: string, value: string, description: string, promotions: string[], values: Record<string, unknown> = {}) => {
+    await PromotionCode.create({ id, code: value, description, ...values }).fetch();
+    for (const promotion of promotions) await PromotionCode.addToCollection(id, "promotion", promotion);
+  };
+  await code("code-leto", "ЛЕТО10", "Скидка 10% по коду из рассылки", ["pr-summer"]);
+  await code("code-autumn", "ОСЕНЬ", "Откроется к сентябрю", ["pr-lunch"], { startDate: "2099-09-01" });
+  await code("code-dead", "СТАРЫЙ", "Код прошлогодней акции", ["pr-old"]);
 }
 
 /**
@@ -337,6 +378,21 @@ async function main() {
           const { getStockProducts } = require(path.join(dev, "node_modules/@webresto/core/lib/menu/stock-items"));
           const { results, mode } = await getStockProducts(query.get("place"), { id: query.get("id") }, 1);
           return answer({ mode, item: results[0] ?? null });
+        }
+        if (req.url?.startsWith("/__fake/promocode")) {
+          // The code as the database holds it, with its promotions: what the phone's switch is checked against.
+          const query = new URL(req.url, "http://stand").searchParams;
+          const code = await sails.models.promotioncode.findOne({ code: query.get("code") }).populate("promotion");
+          return answer({
+            code: code
+              ? {
+                  id: code.id,
+                  code: code.code,
+                  enable: code.enable !== false,
+                  promotions: (code.promotion ?? []).map((promotion: any) => ({ id: promotion.id, enable: promotion.enable !== false, onlyByCode: promotion.onlyByCode === true })),
+                }
+              : null,
+          });
         }
         if (req.url?.startsWith("/__fake/dish-place")) {
           const query = new URL(req.url, "http://stand").searchParams;

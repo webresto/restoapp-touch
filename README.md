@@ -8,9 +8,11 @@ Each server is a context (Superizer 0.8's `ContextPort`): the row at the top of 
 one you are on, a tap lists the others — as ChatGPT and GitHub switch accounts — and every server has
 its own apps, menu, Home and storage. The apps are not modules: a server *declares* them — the
 `app-mobile-api` hook of restoapp-dev, protocol 1 — and one renderer draws them all from the
-declaration. The one exception is the POS, which a server declares with `client: {native: "pos"}`
-and the client draws itself (`apps/pos`, `order-entry.plan.md`) — a receipt with a catalog behind a
-«+» is not a list with actions on a record. The demo server answers the same protocol in process.
+declaration. Two exceptions are drawn by the client itself: the POS, which a server declares with
+`client: {native: "pos"}` (`apps/pos`, `order-entry.plan.md`) — a receipt with a catalog behind a
+«+» is not a list with actions on a record — and the editor of a promotion, one *action* of
+«Маркетинг» declared with `control: {type: "native", screen: "promotion-editor"}` (`apps/marketing`,
+`marketing.plan.md`). The demo server answers the same protocol in process.
 Built for the desktop today, written for every platform. The decisions are in
 [`.ai-notes`](.ai-notes/README.md), the protocol in `server-apps-and-rights.plan.md`.
 
@@ -21,7 +23,7 @@ Built for the desktop today, written for every platform. The decisions are in
 | JDK | 17 (on this machine 21 hangs the Gradle daemon, `.ai-notes` D5) |
 | Gradle | none — use the bundled `./gradlew` |
 | Superizer | its sources at `../superizer` (`git clone git@github.com:adminization/superizer.git ../superizer`), also reachable as `./superizer` — a symlink, so the library is edited from this project's tree; `SUPERIZER_FROM_MAVEN=1` builds against mavenLocal instead |
-| restoapp-dev | optional: `../restoapp-dev` on branch `mobile-app` with `node_modules` — the live tests run the hook from there, and skip themselves without it |
+| restoapp-dev | optional: `../restoapp-dev` on branch `mobile-app` with `node_modules` — the live tests run the hook from there, and skip themselves without it. `-Prestoapp.dev=…` points them at another checkout — a git worktree of the server, where both sides of a change are written |
 
 ## Running it
 
@@ -44,13 +46,18 @@ cd ../restoapp-dev && npx tsx ../restoapp-mobile-admin/tools/fake-server/serve.t
 protocol/                        protocol 1: the declaration and envelopes, HttpMobileApi over
                                  Superizer's NetworkService, the PoW solver (CryptoPuzzleSolver, JVM)
 demo/                            DemoBackend: the protocol in process — «Блюда» as the hook has them,
-                                 «Заказы» in the shape of slice 2, «Клиенты» and the POS, two points,
-                                 three roles
-render/                          ServerApp: one SuperizerApp per declared app; list, detail, stepper,
-                                 toggle, buttons, a form and a «+» on the list, the point switch;
-                                 RestoServer — the app's only door
+                                 «Заказы» in the shape of slice 2, «Клиенты», the POS and
+                                 «Маркетинг», two points, four roles
+render/                          ServerApp: one SuperizerApp per declared app; a stack of frames —
+                                 list, detail, the links of a record (`_open`, `_links`) and «Назад»;
+                                 stepper, toggle, buttons, a form, a «+» on the list, the point
+                                 switch, the catalog shell; NativeActions — the screens the client
+                                 has for one action; RestoServer — the app's only door
 apps/pos/                        PosApp: the POS of a server, drawn natively — the drafts of the point
                                  and the receipt; every number comes from the server
+apps/marketing/                  the editor of a promotion: the one action of «Маркетинг» the client
+                                 draws itself — the discount, the products and groups from the
+                                 catalog, a gift, the hours
 composeApp/src/
   commonMain/Servers.kt          a server: name and address; the two demo servers of a fresh install
   commonMain/ServerSession.kt    one server connected: token, cached declaration, point, error codes
@@ -59,6 +66,8 @@ composeApp/src/
   desktopMain/main.kt            the window; ⌘/Ctrl+1…9 switch servers
   desktopMain/DesktopServerStore ~/.restoapp/servers.json, and ~/.restoapp/servers/<id>/ per server
 tools/fake-server/serve.ts       the app-mobile-api hook on fake deps, for development and live tests
+tools/real-server/serve.ts       the whole backend on sails-disk: adminizer, core, the hook — what the
+                                 walkthrough tests drive the window against
 tools/pow-testdata.mjs           PoW tasks from the real crypto-puzzle, for the solver's tests
 ```
 

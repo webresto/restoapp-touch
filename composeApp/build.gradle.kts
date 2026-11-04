@@ -93,6 +93,8 @@ kotlin {
             implementation(project(":render"))
             // The one native app of a server: the POS (order-entry.plan.md).
             implementation(project(":apps:pos"))
+            // And the one native action: the editor of a promotion (marketing.plan.md).
+            implementation(project(":apps:marketing"))
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
@@ -109,7 +111,9 @@ kotlin {
 // skips itself when there is no such checkout. `-Prestoapp.serverUrl=http://127.0.0.1:1341` sends it
 // to a server already running instead — tools/real-server, a lifted Sails with adminizer and core.
 tasks.withType<Test>().configureEach {
-    systemProperty("restoapp.dev", rootProject.file("../restoapp-dev").absolutePath)
+    // `-Prestoapp.dev=…` points at another checkout of the server — a git worktree of it, say.
+    val dev = (findProperty("restoapp.dev") as String?)?.let { file(it) } ?: rootProject.file("../restoapp-dev")
+    systemProperty("restoapp.dev", dev.absolutePath)
     systemProperty("restoapp.tools", rootProject.file("tools").absolutePath)
     (findProperty("restoapp.serverUrl") as String?)?.let { systemProperty("restoapp.serverUrl", it) }
 }

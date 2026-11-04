@@ -51,6 +51,7 @@ public fun showValue(value: JsonElement?, field: Field?, facts: ServerFacts?, wo
     val text = when (format) {
         Formats.MONEY -> primitive?.doubleOrNull?.let { money(it, facts?.currency) }
         Formats.NUMBER -> primitive?.doubleOrNull?.let(::number)
+        Formats.PERCENT -> primitive?.doubleOrNull?.let { percent(it) }
         Formats.BOOLEAN -> primitive?.booleanOrNull?.let { if (it) words.yes else words.no }
         Formats.ENUM -> primitive?.contentOrNull?.let { field?.titles?.get(it) ?: it }
         Formats.DATETIME, Formats.RELATIVE -> instantOf(value)?.let { millis ->
@@ -90,6 +91,9 @@ public fun number(value: Double): String {
     val tail = if (fraction == 0L) "" else "," + fraction.toString().padStart(2, '0').trimEnd('0')
     return (if (negative) "−" else "") + grouped + tail
 }
+
+/** 10 → "10 %" — the size of a discount, which is not money and must not be shown as any. */
+public fun percent(value: Double): String = number(value) + "\u00A0%"
 
 /** 590 in RUB → "590 ₽". A currency without a sign of its own goes by its code: "590 KZT". */
 public fun money(value: Double, currency: String?): String {

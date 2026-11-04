@@ -88,6 +88,31 @@ public class MobileApiException(
 @Serializable
 public data class RecordAction(val method: String, val input: JsonObject? = null)
 
+/**
+ * Where a tap leads (`client-lookup.plan.md`, «Что добавляется в контракт»).
+ *
+ * Without [app] — a method of the same app, with any params; the `ui.open` of a list is the default link of a
+ * uniform one and sends only `{id}`. With [app] — another app, and [place] is given when that app is by points.
+ * A link is built by the server after checking the rights, and it is a hint and not a permission: the call it
+ * leads to is checked like any other.
+ */
+@Serializable
+public data class Open(
+    val app: String? = null,
+    val method: String,
+    val params: JsonObject = JsonObject(emptyMap()),
+    val place: String? = null,
+    val title: String? = null,
+)
+
+/** A line of a card that leads somewhere: «Применения · 12 →». */
+@Serializable
+public data class RecordLink(
+    val title: String,
+    val meta: String? = null,
+    val open: Open,
+)
+
 /** `{items, nextCursor, counts, total}` — the envelope of every list. */
 public data class ListPage(
     val items: List<JsonObject>,
@@ -117,6 +142,16 @@ public fun recordOf(result: JsonElement): JsonObject? =
 public fun JsonObject.actions(): List<RecordAction> =
     (this["_actions"] as? JsonArray).orEmpty().mapNotNull { element ->
         runCatching { ProtocolJson.decodeFromJsonElement(RecordAction.serializer(), element) }.getOrNull()
+    }
+
+/** Where a tap on this record leads, when the server gave it a link of its own. */
+public fun JsonObject.open(): Open? =
+    (this["_open"] as? JsonObject)?.let { runCatching { ProtocolJson.decodeFromJsonElement(Open.serializer(), it) }.getOrNull() }
+
+/** The lines of a card that lead somewhere: `_links`. A record without them leads nowhere. */
+public fun JsonObject.links(): List<RecordLink> =
+    (this["_links"] as? JsonArray).orEmpty().mapNotNull { element ->
+        runCatching { ProtocolJson.decodeFromJsonElement(RecordLink.serializer(), element) }.getOrNull()
     }
 
 /** The record's id as a string: ids are strings or numbers depending on the server's models. */
