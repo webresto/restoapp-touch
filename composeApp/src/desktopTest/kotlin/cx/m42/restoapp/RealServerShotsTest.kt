@@ -143,10 +143,10 @@ class RealServerShotsTest {
             onNodeWithTag("system:search").performTextClearance()
             waitUntil(timeoutMillis = 30_000L) { exists("system:row-restocore") }
 
-            onNodeWithTag("system:chip-disabled").performClick()
+            onNodeWithTag("system:chip-disabled").performScrollTo().performClick()
             waitUntil(timeoutMillis = 30_000L) { !exists("system:row-restocore") }
             shot("system-05-chip-disabled")
-            onNodeWithTag("system:chip-all").performClick()
+            onNodeWithTag("system:chip-all").performScrollTo().performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("system:row-restocore") }
 
             // The refusals in words: a system program cannot be removed, and this database runs no
