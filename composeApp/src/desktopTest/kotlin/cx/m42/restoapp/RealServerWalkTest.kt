@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -747,6 +748,184 @@ class RealServerWalkTest {
     }
 
     /**
+     * The manager of extensions, all of it, on the fake marketplace of the stand: browsing and searching,
+     * installing, the request to restart, an update that appears, a job longer than a request lives, removing,
+     * and each refusal in words.
+     */
+    @Test
+    fun theExtensionManagerAgainstTheRealServer() {
+        val address = base ?: run {
+            println("SKIPPED: no -Prestoapp.serverUrl=<url> of a running tools/real-server")
+            return
+        }
+        control("clear-attempts")
+        control("reset-password", """{"login": "admin"}""")
+        control("reset-marketplace")
+        // With a licence the marketplace is asked about versions: that is how an update is seen at all.
+        control("license", """{"value": "stand-license"}""")
+
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(Files.createTempDirectory("restoapp-real-extensions").toFile()),
+            debug = true,
+            device = DeviceInfo("Real extensions walk", "desktop"),
+            solver = CryptoPuzzleSolver,
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+
+        try {
+            runComposeUiTest {
+                setContent { RestoApp(host) }
+                waitForIdle()
+                connect(address, "admin", "home:tile-system")
+                onNodeWithTag("home:tile-system").performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
+
+                // 1. The marketplace, from the home screen, and a word that finds one program.
+                onNodeWithTag("system:link-system.catalog").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-hello") }
+                onNodeWithTag("system:row-stand-paid").assertExists()
+                onNodeWithTag("system:search").performTextInput("здоровается")
+                waitUntil(timeoutMillis = 20_000L) { !exists("system:row-stand-paid") }
+                onNodeWithTag("system:row-stand-hello").assertExists()
+                onNodeWithTag("system:search").performTextClearance()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-paid") }
+
+                // 2. Refusal: what the licence does not cover says so, and has no button.
+                onNodeWithTag("system:row-stand-paid").performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:field-description:value") }
+                onNodeWithTag("system:field-stateText:value").assertTextEquals("Недоступна по лицензии")
+                onNodeWithTag("system:system.install").assertDoesNotExist()
+                backOneScreen()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-future") }
+
+                // 3. Refusal: what does not suit this server says why, and nothing is left behind.
+                onNodeWithTag("system:row-stand-future").performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:system.install") }
+                onNodeWithTag("system:system.install").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("module-progress:error") }
+                onNodeWithText("Программа не подходит этому серверу. Нет того, что ей нужно: @webresto/core").assertExists()
+                onNodeWithTag("module-progress:restart-now").assertDoesNotExist()
+                onNodeWithTag("module-progress:close").performClick()
+                waitForIdle()
+                backOneScreen()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-hello") }
+
+                // 4. Installing: the job ends, and asks for a restart.
+                onNodeWithTag("system:row-stand-hello").performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:system.install") }
+                onNodeWithTag("system:system.install").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 60_000L) { exists("module-progress:done") }
+                onNodeWithText("Программа установлена").assertExists()
+                onNodeWithTag("module-progress:restart").assertTextEquals("Перезагрузка запланирована на 00:00 по времени сервера.")
+                onNodeWithTag("module-progress:restart-now").assertExists()
+                assertTrue(get("modules").contains("\"stand-hello\""), "the manager has it: " + get("modules"))
+
+                // 5. «Готово»: the card under the screen is right at once, with no button left.
+                onNodeWithTag("module-progress:finish").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:field-stateText:value") && !exists("module-progress") }
+                onNodeWithTag("system:field-stateText:value").assertTextEquals("Установлена")
+                onNodeWithTag("system:system.install").assertDoesNotExist()
+
+                // 6. The marketplace does not offer it any more, and the programs list it.
+                backOneScreen()
+                waitUntil(timeoutMillis = 20_000L) { !exists("system:row-stand-hello") }
+                backOneScreen()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
+                onNodeWithTag("system:field-restartText:value").performScrollTo()
+                    .assertTextEquals("Перезагрузка запланирована на 00:00 по времени сервера.")
+                onNodeWithTag("system:link-system.modules").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-hello") }
+
+                // 7. A new version appears, and the program says so.
+                control("publish", """{"appId": "stand-hello", "version": "1.1.0"}""")
+                onNodeWithTag("system:row-stand-hello").performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:system.update") }
+                onNodeWithTag("system:field-version:value").assertTextEquals("1.0.0")
+                onNodeWithTag("system:field-latestVersion:value").assertTextEquals("1.1.0")
+
+                // 8. Updating.
+                onNodeWithTag("system:system.update").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 60_000L) { exists("module-progress:done") }
+                onNodeWithText("Программа обновлена").assertExists()
+                onNodeWithTag("module-progress:finish").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 20_000L) { !exists("module-progress") && !exists("system:system.update") }
+                onNodeWithTag("system:field-version:value").assertTextEquals("1.1.0")
+                assertTrue(get("modules").contains("\"version\":\"1.1.0\""), "the manager has the update: " + get("modules"))
+                backOneScreen()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-hello") }
+                backOneScreen()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
+
+                // 9. A job longer than any request lives: the fake's download waits 20 seconds, a request 15.
+                onNodeWithTag("system:link-system.catalog").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-slow") }
+                onNodeWithTag("system:row-stand-slow").performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:system.install") }
+                val startedAt = System.currentTimeMillis()
+                onNodeWithTag("system:system.install").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 15_000L) {
+                    onAllNodesWithText("Скачиваем из маркетплейса").fetchSemanticsNodes().isNotEmpty()
+                }
+
+                // 10. The screen can be left while it goes on, and the next job is refused in words.
+                onNodeWithTag("module-progress:close").performClick()
+                waitForIdle()
+                backOneScreen()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-locked") }
+                onNodeWithTag("system:row-stand-locked").performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:system.install") }
+                onNodeWithTag("system:system.install").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 15_000L) { exists("module-progress:refused") }
+                onNodeWithText("Сейчас идёт другое задание, дождитесь его конца: stand-slow").assertExists()
+                onNodeWithTag("module-progress:close").performClick()
+                waitForIdle()
+                backOneScreen()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-slow") }
+
+                // 11. The same button comes back to the job, and it reaches the end.
+                onNodeWithTag("system:row-stand-slow").performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:system.install") }
+                onNodeWithTag("system:system.install").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 60_000L) { exists("module-progress:done") }
+                assertTrue(System.currentTimeMillis() - startedAt > 15_000L, "it outlived the timeout of a request")
+                onNodeWithTag("module-progress:finish").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 20_000L) { !exists("module-progress") }
+                backOneScreen()
+                waitUntil(timeoutMillis = 20_000L) { !exists("system:row-stand-slow") }
+                backOneScreen()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
+
+                // 12. Removing asks first, and «Отмена» leaves it in place.
+                onNodeWithTag("system:link-system.modules").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-hello") }
+                onNodeWithTag("system:row-stand-hello").performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:system.remove") }
+                onNodeWithTag("system:system.remove").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000L) { exists("module-progress:question") }
+                onNodeWithText("Удалить программу? Её файлы и настройки будут удалены.").assertExists()
+                onNodeWithTag("module-progress:no").performClick()
+                waitForIdle()
+                assertTrue(get("modules").contains("\"stand-hello\""), "«Отмена» removes nothing")
+
+                // 13. And with «да» it goes.
+                onNodeWithTag("system:system.remove").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000L) { exists("module-progress:yes") }
+                onNodeWithTag("module-progress:yes").performClick()
+                waitUntil(timeoutMillis = 60_000L) { exists("module-progress:done") }
+                onNodeWithText("Программа удалена").assertExists()
+                onNodeWithTag("module-progress:finish").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 20_000L) { !exists("module-progress") && !exists("system:system.remove") }
+                assertTrue(!get("modules").contains("\"stand-hello\""), "the manager let it go: " + get("modules"))
+                backOneScreen()
+                waitUntil(timeoutMillis = 20_000L) { exists("system:row-restocore") && !exists("system:row-stand-hello") }
+            }
+        } finally {
+            control("license", """{"value": ""}""")
+            control("reset-marketplace")
+        }
+    }
+
+    /**
      * The one press that takes the stand down, so it is asked for by name and runs alone:
      *
      *   RESTOAPP_RESTART_STAND=1 ./gradlew :composeApp:desktopTest \
@@ -787,6 +966,54 @@ class RealServerWalkTest {
             onNodeWithTag("system:system.restart-now").assertDoesNotExist()
             onNodeWithTag("system:system.restart-midnight").assertDoesNotExist()
         }
+    }
+
+    /**
+     * Installing and then the request to restart taken up, from the progress screen itself. It takes the stand
+     * down too, so it runs alone; what comes back is checked by starting the stand again.
+     */
+    @Test
+    fun theInstallAndTheRestartItAsksForAgainstTheRealServer() {
+        val address = base ?: return
+        if (System.getenv("RESTOAPP_RESTART_STAND") != "2") {
+            println("SKIPPED: this walk exits the stand, set RESTOAPP_RESTART_STAND=2")
+            return
+        }
+        control("clear-attempts")
+        control("reset-marketplace")
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(Files.createTempDirectory("restoapp-real-install-restart").toFile()),
+            debug = true,
+            device = DeviceInfo("Real install and restart walk", "desktop"),
+            solver = CryptoPuzzleSolver,
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+
+        runComposeUiTest {
+            setContent { RestoApp(host) }
+            waitForIdle()
+            connect(address, "admin", "home:tile-system")
+            onNodeWithTag("home:tile-system").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
+            onNodeWithTag("system:link-system.catalog").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-hello") }
+            onNodeWithTag("system:row-stand-hello").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("system:system.install") }
+            onNodeWithTag("system:system.install").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 60_000L) { exists("module-progress:restart-now") }
+
+            onNodeWithTag("module-progress:restart-now").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 10_000L) { exists("module-progress:restart-now:confirm") }
+            onNodeWithTag("module-progress:restart-now:yes").performClick()
+            waitUntil(timeoutMillis = 10_000L) { exists("module-progress:restarting") }
+            onNodeWithText("Сервер перезапускается").assertExists()
+        }
+    }
+
+    /** «Назад»: a card scrolls it away, a list does not scroll it at all. */
+    private fun androidx.compose.ui.test.ComposeUiTest.backOneScreen() {
+        runCatching { onNodeWithTag("system:back").performScrollTo() }
+        onNodeWithTag("system:back").performClick()
     }
 
     /** Adds the stand as another server of the client and signs in, as every walk above does. */

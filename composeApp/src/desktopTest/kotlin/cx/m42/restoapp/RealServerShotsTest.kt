@@ -1,5 +1,9 @@
 package cx.m42.restoapp
 
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ComposeUiTest
@@ -90,6 +94,10 @@ class RealServerShotsTest {
             println("SKIPPED: no -Prestoapp.serverUrl=<url> of a running tools/real-server")
             return
         }
+        // The login limit is ten a minute per address, and the walks before this one have used it.
+        post("clear-attempts")
+        // The walk through «Блюда» leaves this password changed.
+        post("reset-password", """{"login": "stock"}""")
 
         val host = RestoAppHost(
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
@@ -171,6 +179,159 @@ class RealServerShotsTest {
         }
     }
 
+    /** The manager of extensions: the marketplace, a job as it goes and as it ends, and each refusal. */
+    @Test
+    fun theScreensOfTheExtensionManager() {
+        val address = base ?: run {
+            println("SKIPPED: no -Prestoapp.serverUrl=<url> of a running tools/real-server")
+            return
+        }
+        post("clear-attempts")
+        post("reset-marketplace")
+        post("license", """{"value": "stand-license"}""")
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(Files.createTempDirectory("restoapp-real-extensions-shots").toFile()),
+            debug = true,
+            device = DeviceInfo("Real extensions shots", "desktop"),
+            solver = CryptoPuzzleSolver,
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+
+        try {
+            runDesktopComposeUiTest(width = 420, height = 820) {
+                setContent { RestoApp(host) }
+                waitForIdle()
+                signIn(address, "admin", "home:tile-system")
+                onNodeWithTag("home:tile-system").performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:detail") }
+                onNodeWithTag("system:link-system.catalog").performScrollTo()
+                shot("extensions-01-home-link")
+
+                onNodeWithTag("system:link-system.catalog").performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:row-stand-hello") }
+                shot("extensions-02-marketplace")
+                onNodeWithTag("system:search").performTextInput("здоровается")
+                waitUntil(timeoutMillis = 30_000L) { !exists("system:row-stand-paid") }
+                shot("extensions-03-search")
+                onNodeWithTag("system:search").performTextClearance()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:row-stand-paid") }
+
+                // Refusal: the licence.
+                onNodeWithTag("system:row-stand-paid").performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:field-description:value") }
+                shot("extensions-04-refused-license")
+                back()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:row-stand-future") }
+
+                // Refusal: this server.
+                onNodeWithTag("system:row-stand-future").performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:system.install") }
+                onNodeWithTag("system:system.install").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("module-progress:error") }
+                shot("extensions-05-refused-incompatible")
+                onNodeWithTag("module-progress:close").performClick()
+                waitForIdle()
+                back()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:row-stand-slow") }
+
+                // A job as it goes, and the refusal of a second one while it does.
+                onNodeWithTag("system:row-stand-slow").performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:system.install") }
+                onNodeWithTag("system:system.install").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 15_000L) { onAllNodesWithText("Скачиваем из маркетплейса").fetchSemanticsNodes().isNotEmpty() }
+                shot("extensions-06-job-going")
+                onNodeWithTag("module-progress:close").performClick()
+                waitForIdle()
+                back()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:row-stand-hello") }
+                onNodeWithTag("system:row-stand-hello").performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:system.install") }
+                onNodeWithTag("system:system.install").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 15_000L) { exists("module-progress:refused") }
+                shot("extensions-07-refused-busy")
+                onNodeWithTag("module-progress:close").performClick()
+                waitForIdle()
+
+                // Waits out the slow one, then installs: the end of a job and the request to restart.
+                val deadline = System.currentTimeMillis() + 40_000L
+                while (!post("modules").contains("\"stand-slow\"") && System.currentTimeMillis() < deadline) Thread.sleep(500)
+                Thread.sleep(1000)
+                onNodeWithTag("system:system.install").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 60_000L) { exists("module-progress:done") }
+                shot("extensions-08-installed-asks-restart")
+                onNodeWithTag("module-progress:restart-now").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000L) { exists("module-progress:restart-now:confirm") }
+                shot("extensions-09-restart-question")
+                onNodeWithTag("module-progress:restart-now:no").performClick()
+                waitForIdle()
+                onNodeWithTag("module-progress:finish").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 30_000L) { !exists("module-progress") }
+                back()
+                waitUntil(timeoutMillis = 30_000L) { !exists("system:row-stand-hello") }
+                back()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:detail") }
+
+                // An update that appears, and the question before removing.
+                post("publish", """{"appId": "stand-hello", "version": "1.1.0"}""")
+                onNodeWithTag("system:link-system.modules").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:row-stand-hello") }
+                shot("extensions-10-programs-with-update")
+                onNodeWithTag("system:row-stand-hello").performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:system.update") }
+                shot("extensions-11-update-offered")
+                onNodeWithTag("system:system.remove").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000L) { exists("module-progress:question") }
+                shot("extensions-12-remove-question")
+                onNodeWithTag("module-progress:no").performClick()
+                waitForIdle()
+                back()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:row-stand-hello") }
+                back()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:detail") }
+
+                // Refusal: a program that forbids its own removal says so, with no button.
+                onNodeWithTag("system:link-system.catalog").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:row-stand-locked") }
+                onNodeWithTag("system:row-stand-locked").performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:system.install") }
+                onNodeWithTag("system:system.install").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 60_000L) { exists("module-progress:done") }
+                onNodeWithTag("module-progress:finish").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 30_000L) { !exists("module-progress") }
+                back()
+                waitUntil(timeoutMillis = 30_000L) { !exists("system:row-stand-locked") }
+                back()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:detail") }
+                onNodeWithTag("system:link-system.modules").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:row-stand-locked") }
+                onNodeWithTag("system:row-stand-locked").performClick()
+                waitUntil(timeoutMillis = 30_000L) { exists("system:field-removeText:value") }
+                onNodeWithTag("system:field-removeText:value").performScrollTo()
+                shot("extensions-13-refused-remove")
+                println("screenshots in ${out.absolutePath}")
+            }
+        } finally {
+            post("license", """{"value": ""}""")
+            post("reset-marketplace")
+        }
+    }
+
+    private val http = HttpClient.newHttpClient()
+
+    private fun post(path: String, body: String = "{}"): String =
+        http.send(
+            HttpRequest.newBuilder(URI.create("$base/__fake/$path"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+            HttpResponse.BodyHandlers.ofString(),
+        ).body()
+
+    /** «Назад»: a card scrolls it away, a list does not scroll it at all. */
+    private fun ComposeUiTest.back() {
+        runCatching { onNodeWithTag("system:back").performScrollTo() }
+        onNodeWithTag("system:back").performClick()
+    }
+
     /** Adds the stand as a server of the client and signs in, as `theScreensOfTheRealServer` does. */
     private fun ComposeUiTest.signIn(address: String, login: String, tile: String) {
         onNode(hasContentDescription("Открыть меню")).performClick()
@@ -241,7 +402,7 @@ class RealServerShotsTest {
 
             // The app whose code came from the server as JS: its screen is drawn by the script.
             if (exists("home:tile-navigation")) {
-                onNodeWithTag("home:tile-navigation").performClick()
+                onNodeWithTag("home:tile-navigation").performScrollTo().performClick()
                 // The bundle is downloaded, run, and the menus it asked the server for are drawn.
                 waitUntil(timeoutMillis = 60_000L) { hasText("Шапка") || hasText("Меню пока нет") || exists("script:error") }
                 shot("04-navigation-menus")
