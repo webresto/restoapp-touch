@@ -281,6 +281,19 @@ async function moveOrder(id: string, nextState: string, user: object): Promise<{
   });
 }
 
+/** `MM_SYSTEM_MODULES` of the stand: the real directories core and graphql live in. */
+function systemModulePaths(): string {
+  const found: string[] = [];
+  for (const name of ["@webresto/core", "@webresto/graphql"]) {
+    try {
+      found.push(require("fs").realpathSync(path.join(dev, "node_modules", name)));
+    } catch {
+      // A server built without one of them is a server without that system module.
+    }
+  }
+  return found.join(";");
+}
+
 async function main() {
   // Run under `npx tsx`: its ESM loader is what resolves adminizer's directory imports.
   const rc = require(require.resolve("rc", { paths: [dev] }));
@@ -293,7 +306,11 @@ async function main() {
     ADMINPANEL_LAZY_GEN_ADMIN_DISABLE: "1",
     WEBRESTO_MODULES_PATH: path.join(dev, "modules"),
     MM_SETTINGS_MODEL_DENY: "1",
-    MM_SYSTEM_MODULES: path.join(dev, "node_modules/@webresto/core"),
+    // Real paths, not the symlinks of `node_modules`: `loadHelper` of the module manager skips a
+    // module path whose `lstat` is not a directory (C47 of `system.plan.md`), so a symlinked module
+    // never gets a `Module` row and never reaches the memory the manager answers with. With the
+    // real directories the stand has what a server has: core and graphql as system modules.
+    MM_SYSTEM_MODULES: systemModulePaths(),
     AP_PASSWORD_SALT: SALT,
     MOBILE_API_ENABLED: "true",
     MOBILE_API_SECRET: "stand-secret",

@@ -130,7 +130,9 @@ public fun ListRow(
                 )
                 if (badge != null) {
                     Spacer(Modifier.width(8.dp))
-                    Badge(badge, badgeTone)
+                    // Tagged like the badge of a card: the state of a record is what a list is read
+                    // for, so a test has to be able to point at it.
+                    Badge(badge, badgeTone, Modifier.testTag("$tag:badge"))
                 }
             }
             val second = listOfNotNull(subtitle, meta).filter { it.isNotBlank() }.joinToString(" · ")
