@@ -61,11 +61,17 @@ class ModuleProgressTest {
                     facts = null,
                     lang = "ru",
                     busy = false,
+                    failure = null,
                     call = { name, params ->
                         script.calls += name + " " + params["appId"]?.jsonPrimitive?.content.orEmpty() + params["id"]?.jsonPrimitive?.content.orEmpty() + params["when"]?.jsonPrimitive?.content.orEmpty()
                         script.answer(name, params)
                     },
                     submit = { script.submitted += it },
+                    submitThen = { params, then ->
+                        script.submitted += params
+                        then()
+                    },
+                    notice = {},
                     close = { script.closed += 1 },
                 ),
                 pollMs = 10,
