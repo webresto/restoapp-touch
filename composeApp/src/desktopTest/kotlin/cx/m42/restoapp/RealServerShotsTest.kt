@@ -115,7 +115,7 @@ class RealServerShotsTest {
             signIn(address, "admin", "home:tile-system")
             shot("system-01-home-tiles")
 
-            onNodeWithTag("home:tile-system").performClick()
+            onNodeWithTag("home:tile-system").performScrollTo().performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("system:detail") }
             shot("system-02-server-card")
 
@@ -173,7 +173,7 @@ class RealServerShotsTest {
 
             // The refusal of the restart: the card of the server, and no button on it.
             signIn(address, "settler", "home:tile-system")
-            onNodeWithTag("home:tile-system").performClick()
+            onNodeWithTag("home:tile-system").performScrollTo().performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("system:detail") }
             shot("system-12-no-restart-for-settings")
             println("screenshots in ${out.absolutePath}")
@@ -203,7 +203,7 @@ class RealServerShotsTest {
                 setContent { RestoApp(host) }
                 waitForIdle()
                 signIn(address, "admin", "home:tile-system")
-                onNodeWithTag("home:tile-system").performClick()
+                onNodeWithTag("home:tile-system").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 30_000L) { exists("system:detail") }
                 onNodeWithTag("system:link-system.catalog").performScrollTo()
                 shot("extensions-01-home-link")
@@ -539,7 +539,7 @@ class RealServerShotsTest {
             }
             shot("20-channels-home")
 
-            onNodeWithTag("home:tile-channels").performClick()
+            onNodeWithTag("home:tile-channels").performScrollTo().performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("channels:list") }
             // The list: the badge of each channel and, under it, why it works or does not.
             shot("21-channels-list")

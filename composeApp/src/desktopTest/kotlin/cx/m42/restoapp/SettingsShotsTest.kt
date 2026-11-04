@@ -151,7 +151,7 @@ class SettingsShotsTest {
             }
             shot("01-home-with-settings")
 
-            onNodeWithTag("home:tile-settings").performClick()
+            onNodeWithTag("home:tile-settings").performScrollTo().performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("settings:list") }
             // The list: every setting by key, its name under it, the value and the type as a badge.
             shot("02-list")

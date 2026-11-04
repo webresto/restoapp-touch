@@ -115,7 +115,7 @@ class RealServerWalkTest {
             waitForIdle()
 
             // 2. «Блюда» is on Home, and it opens.
-            onNodeWithTag("home:tile-dishes").performClick()
+            onNodeWithTag("home:tile-dishes").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("dishes:list") }
 
             // 3. The point of the app is shown — two points, so there is something to switch.
@@ -289,7 +289,7 @@ class RealServerWalkTest {
 
             // 2. «Заказы» opens on «Ленина, 5», and «Блюда» is not there at all.
             onNodeWithTag("home:tile-dishes").assertDoesNotExist()
-            onNodeWithTag("home:tile-orders").performClick()
+            onNodeWithTag("home:tile-orders").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("orders:list") }
             waitUntil(timeoutMillis = 20_000L) { exists("orders:row-$mine") }
             onNodeWithTag("orders:row-$theirs").assertDoesNotExist()
@@ -407,7 +407,7 @@ class RealServerWalkTest {
             onNodeWithTag("home:tile-orders").assertDoesNotExist()
 
             // 3. «Клиенты»: the last four digits of the number find the person.
-            onNodeWithTag("home:tile-clients").performClick()
+            onNodeWithTag("home:tile-clients").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("clients:list") }
             val ivan = customer("Иван Петров")["id"]!!.jsonPrimitive.content
             onNodeWithTag("clients:row-$ivan").assertExists()
@@ -424,7 +424,7 @@ class RealServerWalkTest {
 
             // 5. The POS, at the terminal's point: a new order with one dish in it.
             goHome()
-            onNodeWithTag("home:tile-pos").performClick()
+            onNodeWithTag("home:tile-pos").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("pos:new") || exists("pos:place") }
             // Two points are ticked for this group; the terminal works at one, and p1 is it.
             if (!exists("pos:new")) {
@@ -505,7 +505,7 @@ class RealServerWalkTest {
             onNodeWithTag("pos:placed-done").performClick()
             waitForIdle()
             goHome()
-            onNodeWithTag("home:tile-clients").performClick()
+            onNodeWithTag("home:tile-clients").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("clients:list") }
             onNodeWithTag("clients:search").performTextInput("0007")
             waitUntil(timeoutMillis = 20_000L) { exists("clients:row-$olgaId") }
@@ -578,7 +578,7 @@ class RealServerWalkTest {
 
             // 2. The summary is the home screen of the section, and nothing else is on Home.
             onNodeWithTag("home:tile-dishes").assertDoesNotExist()
-            onNodeWithTag("home:tile-marketing").performClick()
+            onNodeWithTag("home:tile-marketing").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("marketing:detail") }
             onNodeWithTag("marketing:field-codesTotal:value").assertTextEquals("3")
             onNodeWithTag("marketing:field-promotionsByCodeOnly:value").assertTextEquals("1")
@@ -659,15 +659,15 @@ class RealServerWalkTest {
             // honest word about the marketplace — the stand has no licence, so no version of any
             // module is checked at all. This is the refusal of this walk, and it is on the first
             // screen rather than behind a button.
-            onNodeWithTag("home:tile-system").performClick()
+            onNodeWithTag("home:tile-system").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
             onNodeWithTag("system:field-timezone:value").assertTextEquals("Europe/Moscow")
             onNodeWithTag("system:field-marketplaceText:value").performScrollTo()
                 .assertTextEquals("Лицензия не задана: версии в маркетплейсе не проверяются")
-            // «Настройки» and «Каналы продаж» are not written yet: the home screen of the central
-            // place promises no app that is not there (`ctx.canOpen`).
-            onNodeWithTag("system:link-settings.list").assertDoesNotExist()
-            onNodeWithTag("system:link-channels.list").assertDoesNotExist()
+            // Its two neighbours are on this server and the administrator may open them, so the home
+            // screen of the central place leads there (`ctx.canOpen`).
+            onNodeWithTag("system:link-settings.list").assertExists()
+            onNodeWithTag("system:link-channels.list").assertExists()
 
             // 2a. The restart. «Сейчас» drops everybody's connection, so it asks in words, and «нет»
             // leaves the server alone. The plan stays in the stand's memory between runs of this
@@ -738,7 +738,7 @@ class RealServerWalkTest {
             // 8. The right closes the restart too: somebody who only leads the settings has the
             // card of the server, with no button on it and not a word of a plan they cannot act on.
             connect(address, "settler", "home:tile-system")
-            onNodeWithTag("home:tile-system").performClick()
+            onNodeWithTag("home:tile-system").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
             onNodeWithTag("system:field-timezone:value").assertTextEquals("Europe/Moscow")
             onNodeWithTag("system:system.restart-now").assertDoesNotExist()
@@ -777,7 +777,7 @@ class RealServerWalkTest {
                 setContent { RestoApp(host) }
                 waitForIdle()
                 connect(address, "admin", "home:tile-system")
-                onNodeWithTag("home:tile-system").performClick()
+                onNodeWithTag("home:tile-system").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
 
                 // 1. The marketplace, from the home screen, and a word that finds one program.
@@ -926,6 +926,48 @@ class RealServerWalkTest {
     }
 
     /**
+     * The first time «Каналы продаж» and «Система» stand on one server: the last row of the types is
+     * a line into another app, and the catalog there has to take what the line sends. Its schema is
+     * strict, so a parameter it does not know would be a validation error on this very screen. Nothing
+     * the stand's marketplace sells is a sales channel, which is how the narrowing shows: no program.
+     */
+    @Test
+    fun theLineOfTheChannelsOpensTheCatalogOfTheSystem() {
+        val address = base ?: run {
+            println("SKIPPED: no -Prestoapp.serverUrl=<url> of a running tools/real-server")
+            return
+        }
+        control("clear-attempts")
+        control("reset-password", """{"login": "admin"}""")
+
+        val dir = Files.createTempDirectory("restoapp-real-line").toFile()
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(dir),
+            debug = true,
+            device = DeviceInfo("Real line walk", "desktop"),
+            solver = CryptoPuzzleSolver,
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+
+        runComposeUiTest {
+            setContent { RestoApp(host) }
+            waitForIdle()
+            connect(address, "admin", "home:tile-channels")
+
+            onNodeWithTag("home:tile-channels").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("channels:list") }
+            waitUntil(timeoutMillis = 20_000L) { exists("channels:row-channel-types") }
+            onNodeWithTag("channels:row-channel-types").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("channels:row-marketplace") }
+
+            onNodeWithTag("channels:row-marketplace").performScrollTo().performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("system:list") || exists("system:error") }
+            onNodeWithTag("system:error").assertDoesNotExist()
+            onNodeWithTag("system:row-stand-hello").assertDoesNotExist()
+        }
+    }
+
+    /**
      * The one press that takes the stand down, so it is asked for by name and runs alone:
      *
      *   RESTOAPP_RESTART_STAND=1 ./gradlew :composeApp:desktopTest \
@@ -951,7 +993,7 @@ class RealServerWalkTest {
             setContent { RestoApp(host) }
             waitForIdle()
             connect(address, "admin", "home:tile-system")
-            onNodeWithTag("home:tile-system").performClick()
+            onNodeWithTag("home:tile-system").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
 
             onNodeWithTag("system:system.restart-now").performScrollTo().performClick()
@@ -993,7 +1035,7 @@ class RealServerWalkTest {
             setContent { RestoApp(host) }
             waitForIdle()
             connect(address, "admin", "home:tile-system")
-            onNodeWithTag("home:tile-system").performClick()
+            onNodeWithTag("home:tile-system").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
             onNodeWithTag("system:link-system.catalog").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-hello") }

@@ -203,6 +203,11 @@ async function marketing(sails: any) {
   const Promotion = sails.models.promotion;
   const PromotionCode = sails.models.promotioncode;
 
+  // These are written in the meaning `enable` has now, so core's one-off move of the old records (C22)
+  // has nothing to do here. It runs during the boot, and it would find `pr-old`, switched off with a
+  // code, and switch it on: whether it got here first depended on how long the boot took.
+  await (globalThis as any).Settings.set("PROMOTION_ONLY_BY_CODE_MIGRATED", { value: true, type: "boolean" });
+
   const promotion = async (id: string, name: string, discount: Record<string, unknown>, values: Record<string, unknown>) => {
     await Promotion.createOrUpdate({
       id, name, badge: "configured-promotion", description: `Акция «${name}»`, externalId: id,
