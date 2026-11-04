@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import cx.m42.restoapp.protocol.CryptoPuzzleSolver
@@ -297,8 +298,10 @@ class RealServerWalkTest {
             onNodeWithTag("orders:orders.setState-COOKING").performClick()
             waitUntil(timeoutMillis = 20_000L) { stateOf(mine) == "COOKING" }
             waitForIdle()
-            // From COOKING there is no way back to ORDER: the server sends no such button.
-            onNodeWithTag("orders:orders.setState-COOKING").assertDoesNotExist()
+            // From COOKING there is no way back to ORDER: the server sends no such button. Waited for
+            // rather than asserted on the spot — the card learns of the move by its own re-reading,
+            // and with another walk of this file running before it that takes a moment longer.
+            waitUntil(timeoutMillis = 20_000L) { !exists("orders:orders.setState-COOKING") }
 
             // 4. «Отклонить» asks first, and «нет» changes nothing.
             onNodeWithTag("orders:orders.setState-REJECT").performClick()
@@ -343,6 +346,187 @@ class RealServerWalkTest {
         println("orders on the stand: ${get("orders")}")
     }
 
+    /**
+     * «Клиенты» and the guest of the POS against the real server: the search by the last digits of a
+     * number, the card, then an order for the person found — their own saved address, placed as a
+     * delivery, and back on their card.
+     */
+    @Test
+    fun theClientsAndTheGuestOfThePosAgainstTheRealServer() {
+        val address = base ?: run {
+            println("SKIPPED: no -Prestoapp.serverUrl=<url> of a running tools/real-server")
+            return
+        }
+        control("clear-attempts")
+        control("reset-password", """{"login": "taker"}""")
+
+        // Who the stand knows: «Ольга Белова» +7 999 000 00 07 with one saved address.
+        val olga = customer("Ольга Белова")
+        val savedAddress = (olga["addresses"] as JsonArray).first().jsonObject
+        val savedId = savedAddress["id"]!!.jsonPrimitive.content
+        val olgaId = olga["id"]!!.jsonPrimitive.content
+
+        val dir = Files.createTempDirectory("restoapp-real-clients").toFile()
+        val host = RestoAppHost(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            store = DesktopServerStore(dir),
+            debug = true,
+            device = DeviceInfo("Real clients walk", "desktop"),
+            solver = CryptoPuzzleSolver,
+        ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
+
+        runComposeUiTest {
+            setContent { RestoApp(host) }
+            waitForIdle()
+
+            // 1. Connect the server and sign in as the order taker.
+            openMenu()
+            onNodeWithTag("context:row").performClick()
+            waitForIdle()
+            onNodeWithTag("context:add").performClick()
+            waitForIdle()
+            onNodeWithTag("servers:add-custom").performClick()
+            waitForIdle()
+            onNodeWithTag("servers:address").performTextInput(address)
+            onNodeWithTag("servers:check").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("servers:found") }
+            onNodeWithTag("servers:login").performTextInput("taker")
+            onNodeWithTag("servers:password").performTextInput("secret-password")
+            onNodeWithTag("servers:connect").performClick()
+            waitUntil(timeoutMillis = 40_000L) {
+                if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
+                host.active.value.superizer.registry.get(AppId("clients")) != null && exists("home:tile-clients")
+            }
+            waitForIdle()
+
+            // 2. The taker has «Клиенты» and the POS, and no «Блюда» or «Заказы» at all.
+            onNodeWithTag("home:tile-pos").assertExists()
+            onNodeWithTag("home:tile-dishes").assertDoesNotExist()
+            onNodeWithTag("home:tile-orders").assertDoesNotExist()
+
+            // 3. «Клиенты»: the last four digits of the number find the person.
+            onNodeWithTag("home:tile-clients").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("clients:list") }
+            val ivan = customer("Иван Петров")["id"]!!.jsonPrimitive.content
+            onNodeWithTag("clients:row-$ivan").assertExists()
+            onNodeWithTag("clients:search").performTextInput("0007")
+            // The whole list was there before the search, so the wait is for the other one to go.
+            waitUntil(timeoutMillis = 20_000L) { exists("clients:row-$olgaId") && !exists("clients:row-$ivan") }
+
+            // 4. The card: the number, and the address the courier has been to.
+            onNodeWithTag("clients:row-$olgaId").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("clients:detail") }
+            onNodeWithText("ул. Мира, 3").assertExists()
+            onNodeWithTag("clients:back").performClick()
+            waitForIdle()
+
+            // 5. The POS, at the terminal's point: a new order with one dish in it.
+            goHome()
+            onNodeWithTag("home:tile-pos").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:new") || exists("pos:place") }
+            // Two points are ticked for this group; the terminal works at one, and p1 is it.
+            if (!exists("pos:new")) {
+                onNodeWithTag("pos:place").performClick()
+                waitForIdle()
+                onNodeWithTag("pos:places:item-p1").performClick()
+                waitUntil(timeoutMillis = 20_000L) { exists("pos:new") }
+            }
+            onNodeWithTag("pos:new").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:receipt") }
+            onNodeWithTag("pos:add").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:catalog") }
+            onNodeWithTag("pos:catalog-search").performClick()
+            onNodeWithTag("pos:catalog-search").performTextInput("Борщ")
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:product-d1:add") }
+            onNodeWithTag("pos:product-d1:add").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:product-d1:in-order") }
+            repeat(3) { if (!exists("pos:receipt")) { onNodeWithTag("pos:catalog-back").performClick(); waitForIdle() } }
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:receipt") }
+
+            // 6. A delivery, for the person the search finds in the guest sheet.
+            onNodeWithTag("pos:step-service").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:service-delivery") }
+            onNodeWithTag("pos:service-delivery").performClick()
+            waitUntil(timeoutMillis = 20_000L) { !exists("pos:service-delivery") }
+            onNodeWithTag("pos:step-guest").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:guest-find") }
+            onNodeWithTag("pos:guest-find").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:clients-search") }
+            onNodeWithTag("pos:clients-search").performClick()
+            onNodeWithTag("pos:clients-search").performTextInput("0007")
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:client-$olgaId") }
+            onNodeWithTag("pos:client-$olgaId").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:receipt") }
+            onNodeWithText("Ольга Белова").assertExists()
+
+            // 7. Their own saved address, taken by its id — the house and the flat come with it.
+            onNodeWithTag("pos:step-address").performClick()
+            waitForIdle()
+            // The sheet of the previous step closes when its own call comes back, and that can land
+            // on top of this one: opened again when that happened.
+            if (!exists("pos:address-street")) {
+                onNodeWithTag("pos:step-address").performClick()
+                waitForIdle()
+            }
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:address-street") }
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:saved-$savedId") }
+            onNodeWithTag("pos:saved-$savedId").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:receipt") }
+            onNodeWithText("ул. Мира, 3").assertExists()
+
+            // 8. Checked and placed: core prices the delivery of the zone on top of the dish.
+            runCatching { onNodeWithTag("pos:check").performScrollTo() }
+            onNodeWithTag("pos:check").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("pos:place-order") }
+            runCatching { onNodeWithTag("pos:place-order").performScrollTo() }
+            onNodeWithTag("pos:place-order").performClick()
+            waitForIdle()
+            if (exists("pos:place-order:yes")) {
+                onNodeWithTag("pos:place-order:yes").performClick()
+            }
+            waitUntil(timeoutMillis = 30_000L) { exists("pos:placed") }
+
+            // The order as the stand holds it: a delivery of that account, to that very address.
+            val placed = orders().lastOrNull { it["user"]?.jsonPrimitive?.contentOrNull == olgaId }
+                ?: error("the stand has no order of that customer: ${get("orders")}")
+            assertEquals("ORDER", placed["state"]?.jsonPrimitive?.contentOrNull)
+            assertEquals("delivery", placed["serviceType"]?.jsonPrimitive?.contentOrNull)
+            assertEquals(olgaId, placed["user"]?.jsonPrimitive?.contentOrNull)
+            assertEquals("3", placed["address"]?.jsonObject?.get("home")?.jsonPrimitive?.contentOrNull)
+            assertEquals("7", placed["address"]?.jsonObject?.get("apartment")?.jsonPrimitive?.contentOrNull)
+            assertTrue(
+                (placed["total"]?.jsonPrimitive?.contentOrNull?.toDouble() ?: 0.0) > 300.0,
+                "the delivery of the zone is charged on top of the dish: ${placed["total"]}",
+            )
+
+            // 9. And the loop closes in the app: the order is on the customer's card.
+            onNodeWithTag("pos:placed-done").performClick()
+            waitForIdle()
+            goHome()
+            onNodeWithTag("home:tile-clients").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("clients:list") }
+            onNodeWithTag("clients:search").performTextInput("0007")
+            waitUntil(timeoutMillis = 20_000L) { exists("clients:row-$olgaId") }
+            onNodeWithTag("clients:row-$olgaId").performClick()
+            waitUntil(timeoutMillis = 20_000L) { exists("clients:detail") }
+            val number = placed["shortId"]!!.jsonPrimitive.content
+            waitUntil(timeoutMillis = 20_000L) { runCatching { onNodeWithText("№$number", substring = true).assertExists() }.isSuccess }
+        }
+
+        println("the customers of the stand: ${get("customers")}")
+    }
+
+    /** One customer of the stand by name, as `/__fake/customers` answers them. */
+    private fun customer(name: String): kotlinx.serialization.json.JsonObject {
+        val people = (Json.parseToJsonElement(get("customers")).jsonObject["customers"] as JsonArray)
+        return people.map { it.jsonObject }.firstOrNull { it["name"]?.jsonPrimitive?.contentOrNull == name }
+            ?: error("the stand knows no «$name»: ${get("customers")}")
+    }
+
+    /** The orders of the stand, oldest first. */
+    private fun orders(): List<kotlinx.serialization.json.JsonObject> =
+        (Json.parseToJsonElement(get("orders")).jsonObject["orders"] as JsonArray).map { it.jsonObject }
+
     private fun idOf(answer: String): String =
         Regex("\"id\":\"([^\"]+)\"").find(answer)?.groupValues?.get(1)
             ?: error("the stand placed no order: $answer")
@@ -370,6 +554,13 @@ class RealServerWalkTest {
         Regex("\"localBalance\":(-?\\d+)").find(get("dish-place?place=p1&id=$dish"))?.groupValues?.get(1)?.toInt()
 
     private fun androidx.compose.ui.test.ComposeUiTest.exists(tag: String) = runCatching { onNodeWithTag(tag).assertExists() }.isSuccess
+
+    /** Back to Home through the shell's menu: «Главная» is the host's own word for it. */
+    private fun androidx.compose.ui.test.ComposeUiTest.goHome() {
+        openMenu()
+        onNodeWithText("Главная").performClick()
+        waitForIdle()
+    }
 
     private fun androidx.compose.ui.test.ComposeUiTest.openMenu() {
         onNode(hasContentDescription("Открыть меню")).performClick()
