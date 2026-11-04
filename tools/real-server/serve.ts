@@ -33,6 +33,7 @@
  *   POST /__fake/clear-attempts                   forgets the login attempts (the limit is 10/min/IP)
  *   POST /__fake/clear-stock                      drops every DishPlace row (a clean catalog)
  *   POST /__fake/reset-catalog                    leaves only d1, d2, d3, and no stock at all
+ *   POST /__fake/reset-menus                      the site's menus back as seeded (simple-navigation)
  *   POST /__fake/bulk-dishes {"count": 60}        adds that many dishes, for the paging
  *   POST /__fake/drop-bulk-dishes                 removes them again
  *   GET  /__fake/web-stock?place=p1&id=d1         what the web Stock Manager reads there
@@ -114,8 +115,38 @@ async function fixtures(sails: any) {
 
   await customers(sails);
   await delivery(sails);
+  await menus(sails);
 
   return { places, dishes };
+}
+
+/**
+ * The menus of `simple-navigation`, when that module is installed: the app «Навигация» of the mobile
+ * API reads them, and its screen comes from the server as JS (js-module.plan.md). Without the module
+ * there is no model and nothing to seed.
+ */
+async function menus(sails: any) {
+  const Navigation = sails.models?.navigation;
+  if (!Navigation) return;
+  const rows = [
+    {
+      name: "Шапка",
+      mnemonicId: "header",
+      navigation_menu: [
+        { label: "Меню", link: "/menu", active: true, visible: true },
+        { label: "Акции", link: "/stocks", active: true, visible: true },
+        { label: "О нас", link: "/static/about", active: true, visible: false },
+      ],
+    },
+    {
+      name: "Подвал",
+      mnemonicId: "footer",
+      navigation_menu: [{ label: "Доставка и оплата", link: "/static/delivery", active: true, visible: true }],
+    },
+  ];
+  for (const row of rows) {
+    if (!(await Navigation.findOne({ mnemonicId: row.mnemonicId }))) await Navigation.create(row).fetch();
+  }
 }
 
 /**
@@ -320,6 +351,15 @@ async function main() {
           const gone = await sails.models.dish.destroy({ id: { nin: ["d1", "d2", "d3"] } }).fetch();
           await sails.models.dishplace.destroy({}).fetch();
           return answer({ destroyed: gone.length });
+        }
+        if (req.url === "/__fake/reset-menus") {
+          // The menus of simple-navigation, as they were seeded: the screenshots of «Навигация» are
+          // then the same every run, however the last one dragged and saved them.
+          if (sails.models.navigation) {
+            await sails.models.navigation.destroy({}).fetch();
+            await menus(sails);
+          }
+          return answer({ ok: true });
         }
         if (req.url === "/__fake/clear-stock") {
           // Every point's own stock, back to «no row» — the walk starts from a clean catalog.

@@ -287,4 +287,47 @@ class HttpMobileApiLiveTest {
         val nobody = assertFailsWith<MobileApiException> { HttpMobileApi("http://127.0.0.1:9", network).about() }
         assertEquals(MobileApiException.NETWORK, nobody.code)
     }
+
+    /**
+     * The app a module brought as JS (D12): the declaration gives a link and a hash, the hook serves
+     * that bundle, and the client keeps it. The same walk the owner asked for — "it downloads, and the
+     * backend hands it out" — against the real hook of ../restoapp-dev.
+     */
+    @Test
+    fun theCodeOfAnAppAModuleBroughtIsDownloadedByItsLinkAndChecked(): Unit = runBlocking {
+        val api = server() ?: return@runBlocking
+        val token = api.signIn("admin")
+        val declaration = api.describe(token, "ru").value
+        Contract.assertValid("declaration", Contract.wire.encodeToJsonElement(Declaration.serializer(), declaration))
+
+        val navigation = assertNotNull(declaration.app("navigation"), "«Навигация» of simple-navigation")
+        val ref = assertNotNull(navigation.script, "an app that comes as a script says where its code is")
+        assertEquals("/api/mobile/app-assets/navigation/${ref.sha256}.js", ref.url)
+        assertEquals(1, ref.min)
+
+        // The modules of the server, with the link next to the one that brought the app.
+        val module = assertNotNull(declaration.modules.firstOrNull { it.id == "simple-navigation" }, "the module among the server's")
+        assertEquals("navigation", module.app)
+        assertEquals(ref, module.script)
+        assertTrue(declaration.modules.any { it.kind == ServerModule.KIND_SYSTEM }, "the system modules are there too")
+
+        val loader = ScriptLoader(api)
+        val loaded = loader.load("navigation", token, ref)
+        assertEquals(ref.sha256, loaded.sha256)
+        assertEquals(ref.size, loaded.body.encodeToByteArray().size)
+        assertTrue(loaded.body.contains("navigation"), "the bundle of the editor")
+        assertEquals(false, loaded.fromCache)
+        assertTrue(loader.load("navigation", token, ref).fromCache, "the second open asks nobody")
+
+        // A hash the server never gave is not served; a link outside this server is not even asked for.
+        val zeros = "0".repeat(64)
+        assertFailsWith<MobileApiException> { api.script(token, ref.copy(sha256 = zeros, url = "/api/mobile/app-assets/navigation/$zeros.js")) }
+        val elsewhere = assertFailsWith<MobileApiException> { api.script(token, ref.copy(url = "https://example.com/navigation.js")) }
+        assertEquals(MobileApiException.PROTOCOL, elsewhere.code)
+
+        // And the data its screen will edit is on the same API, by the right of the module's own page.
+        val menus = api.call(token, "navigation.menus", JsonObject(emptyMap()), null, "ru")
+        val items = ListPage.of(menus.value).items
+        assertEquals(listOf("Шапка", "Подвал"), items.map { (it["name"] as JsonPrimitive).content })
+    }
 }

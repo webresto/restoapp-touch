@@ -69,6 +69,36 @@ public class HttpMobileApi(
     override suspend fun call(token: String, method: String, params: JsonObject, place: String?, lang: String): Answer<JsonElement> =
         post("$api/call/$method?lang=$lang", jsonObjectOf("params" to params, "place" to place?.let(::JsonPrimitive)), token)
 
+    /**
+     * The bundle of a script app, from the link the declaration gave and nowhere else: a URL that does
+     * not belong to this server is refused before any request is made. The answer is JS, not JSON, so
+     * this is the one path that does not go through [send].
+     */
+    override suspend fun script(token: String, ref: ScriptRef): String {
+        val url = if (ref.url.startsWith("/")) "$base${ref.url}" else ref.url
+        if (!url.startsWith("$api/")) throw MobileApiException(MobileApiException.PROTOCOL, "The script link is not of this server: ${ref.url}")
+
+        val response = try {
+            network.request(NetworkRequest("GET", url, mapOf("Accept" to "application/javascript") + bearer(token)))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: NetworkException) {
+            throw MobileApiException(MobileApiException.NETWORK, failure.message ?: "No connection", cause = failure)
+        }
+        if (!response.isSuccess) {
+            val code = (runCatching { ProtocolJson.parseToJsonElement(response.body) }.getOrNull() as? JsonObject)?.get("error") as? JsonObject
+            throw code?.let { errorOf(it, response) }
+                ?: MobileApiException(MobileApiException.PROTOCOL, "HTTP ${response.status} for a script", status = response.status)
+        }
+
+        val body = response.body
+        val bytes = body.encodeToByteArray()
+        if (bytes.size != ref.size || sha256Hex(bytes) != ref.sha256) {
+            throw MobileApiException(MobileApiException.PROTOCOL, "The script is not the one the declaration named (${ref.url})")
+        }
+        return body
+    }
+
     private suspend fun post(url: String, body: JsonObject, token: String?): Answer<JsonElement> =
         send(
             NetworkRequest(

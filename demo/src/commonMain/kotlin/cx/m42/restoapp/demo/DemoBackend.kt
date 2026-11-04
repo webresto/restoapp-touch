@@ -11,6 +11,7 @@ import cx.m42.restoapp.protocol.MobileApiException
 import cx.m42.restoapp.protocol.PROTOCOL_VERSION
 import cx.m42.restoapp.protocol.Place
 import cx.m42.restoapp.protocol.ProtocolJson
+import cx.m42.restoapp.protocol.ScriptRef
 import cx.m42.restoapp.protocol.ServerAbout
 import cx.m42.restoapp.protocol.ServerFacts
 import cx.m42.restoapp.protocol.Tones
@@ -83,6 +84,10 @@ public class DemoBackend(
         val declaration = declaration(loaded().role, lang)
         return Answer(declaration, declaration.revision, PROTOCOL_VERSION)
     }
+
+    /** The demo declares no script apps, so nobody ever asks it for code. */
+    override suspend fun script(token: String, ref: ScriptRef): String =
+        fail(MobileApiException.NOT_FOUND, "The demo server has no script apps")
 
     override suspend fun call(token: String, method: String, params: JsonObject, place: String?, lang: String): Answer<JsonElement> =
         lock.withLock {

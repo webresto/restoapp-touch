@@ -11,6 +11,8 @@ import cx.m42.restoapp.protocol.Place
 import cx.m42.restoapp.protocol.PowException
 import cx.m42.restoapp.protocol.PowSolver
 import cx.m42.restoapp.protocol.ProtocolJson
+import cx.m42.restoapp.protocol.ScriptCache
+import cx.m42.restoapp.protocol.ScriptLoader
 import cx.m42.restoapp.protocol.ServerFacts
 import cx.m42.restoapp.render.RestoServer
 import cx.m42.restoapp.render.ServerApp
@@ -42,6 +44,10 @@ internal data class StoredSession(val token: String, val login: String)
 /** The declaration as last read, and in which language: the menu without a network. */
 @Serializable
 internal data class StoredDeclaration(val lang: String, val declaration: Declaration)
+
+/** Which bundle of a script app loaded last, by app: what to fall back to when a download fails. */
+@Serializable
+internal data class StoredScripts(val last: Map<String, String> = emptyMap())
 
 /** What one server remembers besides: the point last picked (plan section 4, one per server). */
 @Serializable
@@ -89,6 +95,30 @@ internal class ServerSession(
     private val refreshing = Mutex()
     private val bound = mutableMapOf<String, Bound>()
 
+    /**
+     * The code of this server's script apps (D12), kept in the server's own storage under its hash:
+     * `script-<sha256>.js`. A new build is a new name, so nothing has to be invalidated, and the app
+     * opens without the network as long as its bundle is there.
+     */
+    private val scriptCache = object : ScriptCache {
+        override fun read(sha256: String): String? = store.read(profile.id, "script-$sha256.js")
+
+        override fun write(sha256: String, body: String) {
+            store.write(profile.id, "script-$sha256.js", body)
+        }
+
+        override fun lastOf(app: String): String? = read(SCRIPTS, StoredScripts.serializer())?.last?.get(app)
+
+        override fun remember(app: String, sha256: String) {
+            val kept = read(SCRIPTS, StoredScripts.serializer())?.last.orEmpty()
+            if (kept[app] == sha256) return
+            write(SCRIPTS, StoredScripts.serializer(), StoredScripts(kept + (app to sha256)))
+        }
+    }
+
+    /** Hands out the code of a script app: from the storage, or downloaded by the link the declaration gave. */
+    val scripts: ScriptLoader = ScriptLoader(api, scriptCache)
+
     val signedIn: Boolean get() = stored != null
 
     /** Reads the declaration again. False when it could not — the status says why. */
@@ -99,12 +129,40 @@ internal class ServerSession(
             _declaration.value = answer.value
             write(DECLARATION, StoredDeclaration.serializer(), StoredDeclaration(lang, answer.value))
             _status.value = ServerStatus.Online
+            // The apps whose code the server keeps: downloaded as soon as they are declared, so that
+            // opening one is not a download. Failures are not the declaration's problem.
+            scope.launch { downloadScripts(answer.value, token) }
             true
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: MobileApiException) {
             noteFailure(failure)
             false
+        }
+    }
+
+    /**
+     * The code of a script app, by the link of the declaration: from the storage when it is there,
+     * downloaded otherwise. The token stays here — an app never holds one, not even to fetch itself.
+     */
+    suspend fun script(app: DeclaredApp): String {
+        val ref = app.script ?: throw MobileApiException(MobileApiException.NOT_FOUND, "${app.id} came without a script")
+        val token = stored?.token ?: throw MobileApiException(MobileApiException.UNAUTHORIZED, "Not signed in")
+        return scripts.load(app.id, token, ref).body
+    }
+
+    /** Every script app of this declaration, downloaded and checked against its hash, one by one. */
+    private suspend fun downloadScripts(declaration: Declaration, token: String) {
+        for (app in declaration.apps) {
+            val ref = app.script ?: continue
+            try {
+                scripts.load(app.id, token, ref)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: MobileApiException) {
+                // The tile stays, the app says it needs a newer version or has no code yet.
+                scope.launch { _notices.emit(words.scriptFailed(app.title)) }
+            }
         }
     }
 
@@ -253,6 +311,7 @@ internal class ServerSession(
         const val SESSION = "session.json"
         const val DECLARATION = "declaration.json"
         const val PLACE = "place.json"
+        const val SCRIPTS = "scripts.json"
         const val DEMO = "demo.json"
     }
 }

@@ -91,6 +91,8 @@ kotlin {
             implementation(project(":protocol"))
             implementation(project(":demo"))
             implementation(project(":render"))
+            // Apps whose code comes from the server (js-module.plan.md): the runtime that runs them.
+            implementation(project(":script"))
             // The one native app of a server: the POS (order-entry.plan.md).
             implementation(project(":apps:pos"))
         }
@@ -109,7 +111,12 @@ kotlin {
 // skips itself when there is no such checkout. `-Prestoapp.serverUrl=http://127.0.0.1:1341` sends it
 // to a server already running instead — tools/real-server, a lifted Sails with adminizer and core.
 tasks.withType<Test>().configureEach {
-    systemProperty("restoapp.dev", rootProject.file("../restoapp-dev").absolutePath)
+    // A worktree of its own server checkout wins: `restoapp-dev` in the project root (a symlink in
+    // every workspace) before the `../restoapp-dev` next door, so two workspaces never share a server.
+    systemProperty(
+        "restoapp.dev",
+        (rootProject.file("restoapp-dev").takeIf { it.exists() } ?: rootProject.file("../restoapp-dev")).absolutePath,
+    )
     systemProperty("restoapp.tools", rootProject.file("tools").absolutePath)
     (findProperty("restoapp.serverUrl") as String?)?.let { systemProperty("restoapp.serverUrl", it) }
 }

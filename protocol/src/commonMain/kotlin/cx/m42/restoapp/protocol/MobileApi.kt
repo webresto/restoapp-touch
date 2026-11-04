@@ -34,6 +34,13 @@ public interface MobileApi {
 
     /** [place] is required exactly for the methods of apps by points, and refused for the rest. */
     public suspend fun call(token: String, method: String, params: JsonObject, place: String?, lang: String): Answer<JsonElement>
+
+    /**
+     * The code of an app that comes as JS ([ScriptRef]): the bundle as text, checked against the hash
+     * and the size the declaration gave. A body that is not that bundle is [MobileApiException.PROTOCOL]
+     * — the client would rather have no app than run something else.
+     */
+    public suspend fun script(token: String, ref: ScriptRef): String
 }
 
 /** A result and what the headers said about the declaration it was computed against. */

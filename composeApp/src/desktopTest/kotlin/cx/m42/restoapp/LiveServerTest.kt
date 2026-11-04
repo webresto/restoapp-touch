@@ -154,4 +154,53 @@ class LiveServerTest {
         onNode(androidx.compose.ui.test.hasContentDescription("Открыть меню")).performClick()
         waitForIdle()
     }
+
+    /**
+     * An app whose code comes from the server (D12): as soon as the declaration names it, the session
+     * downloads the bundle by the link, checks it against the hash and keeps it in the server's own
+     * storage — so the second time no request is made at all. «Навигация» of simple-navigation is the
+     * app, served by `tools/fake-server` out of the hook's built bundle.
+     */
+    @Test
+    fun theSessionDownloadsTheCodeOfAScriptAppAndKeepsIt() {
+        val base = fakeServer() ?: return
+        val dir = Files.createTempDirectory("restoapp-scripts").toFile()
+        val store = DesktopServerStore(dir)
+        val profile = ServerProfile("live", "Live", base)
+        val session = ServerSession(
+            profile = profile,
+            api = cx.m42.restoapp.protocol.HttpMobileApi(base, cx.m42.superizer.host.net.KtorNetworkService(cx.m42.superizer.host.net.KtorNetworkService.defaultClient())),
+            store = store,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            device = DeviceInfo("Live test", "desktop"),
+            solver = CryptoPuzzleSolver,
+            lang = "ru",
+        )
+
+        kotlinx.coroutines.runBlocking {
+            session.signIn("admin", "secret-password") {}
+
+            val declared = session.declaration.value ?: error("no declaration")
+            val navigation = declared.apps.firstOrNull { it.id == "navigation" } ?: error("no «Навигация» on this server")
+            val ref = navigation.script ?: error("«Навигация» came without a link to its code")
+
+            // The declaration also says which modules this server is made of, and which brought an app.
+            val module = declared.modules.firstOrNull { it.id == "simple-navigation" } ?: error("no module in the declaration")
+            assertEquals("navigation", module.app)
+
+            // `refresh` starts the download in the background; wait for it, as a screen would.
+            val deadline = System.currentTimeMillis() + 20_000
+            while (session.scripts.kept("navigation") == null && System.currentTimeMillis() < deadline) {
+                kotlinx.coroutines.delay(100)
+            }
+            val loaded = session.scripts.kept("navigation") ?: error("the session did not download the bundle")
+            assertEquals(ref.sha256, loaded.sha256)
+            assertTrue(loaded.body.contains("navigation"))
+
+            // Kept under its hash in this server's own storage, and nowhere else.
+            val kept = File(dir, "servers/live/script-${ref.sha256}.js")
+            assertTrue(kept.isFile, "the bundle is kept as ${kept.name}")
+            assertEquals(ref.size, kept.readBytes().size)
+        }
+    }
 }
