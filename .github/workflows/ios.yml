@@ -11,9 +11,9 @@ on:
     paths-ignore: ['.ai-notes/**', '**.md']
   workflow_dispatch:
 
+# Read only: a run has nothing to push. What it leaves behind goes to its artifacts, never into git.
 permissions:
-  # write only for .github/report.sh, while this workflow is being brought up.
-  contents: write
+  contents: read
 
 # A newer push replaces the build before it.
 concurrency:
@@ -31,11 +31,6 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-
-      - name: Report the start
-        run: bash .github/report.sh started
-        env:
-          TOKEN: ${{ github.token }}
 
       - uses: actions/checkout@v4
         with:
@@ -62,7 +57,6 @@ jobs:
 
       # The build number is the run number, so two installs never carry the same CFBundleVersion.
       - name: Build for a device, unsigned
-        id: build
         run: |
           set -o pipefail
           mkdir -p build
@@ -76,7 +70,6 @@ jobs:
 
       # An .ipa is a zip with the app under Payload/. -y keeps the symlinks of the bundle as symlinks.
       - name: Pack the .ipa
-        id: pack
         run: |
           mkdir -p build/ipa/Payload
           cp -R build/ios-dd/Build/Products/Release-iphoneos/RestoApp.app build/ipa/Payload/
@@ -85,15 +78,16 @@ jobs:
 
       # archive: false uploads the file itself, not a zip around it. The artifact takes the file's name.
       - uses: actions/upload-artifact@v7
-        id: upload
         with:
           path: build/ipa/RestoApp-${{ github.run_number }}.ipa
           archive: false
           if-no-files-found: error
 
-      - name: Report the end
+      # The log of a failed build is the one thing worth keeping from it, hence always().
+      - uses: actions/upload-artifact@v7
         if: always()
-        run: bash .github/report.sh "${{ job.status }}"
-        env:
-          TOKEN: ${{ github.token }}
-          STEPS: ${{ toJSON(steps) }}
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          retention-days: 14
+          if-no-files-found: ignore
