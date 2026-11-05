@@ -2,6 +2,7 @@ package cx.m42.restoapp.demo
 
 import kotlin.random.Random
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 /*
  * The demo server's data: the menu of the old native «Склад» and the evening of the old «Заказы»,
@@ -255,6 +256,20 @@ internal data class DemoState(
     val promotions: List<DemoPromotion> = emptyList(),
     val codes: List<DemoCode> = emptyList(),
     val applications: List<DemoApplication> = emptyList(),
+    /**
+     * «Настройки»: what was set, by key. This and the lists below default to what the server starts with, so the
+     * storage of a demo older than these apps comes up with them filled in, and everything else it held stays.
+     */
+    val settingValues: Map<String, JsonElement> = DemoSettings.initial,
+    /** «Каналы продаж». */
+    val channels: List<DemoChannel> = DemoChannels.all,
+    /** «Система»: the programs, and the restart they wait for. */
+    val modules: List<DemoModule> = DemoModules.all,
+    val restartScheduled: Boolean = false,
+    /** A restart ordered «сейчас»: the moment it was, while it is going. */
+    val restartOrderedAt: Long? = null,
+    /** Which run of the server this is: a reminder of a run before it is spent. */
+    val boot: Int = 1,
 )
 
 internal object DemoCatalog {

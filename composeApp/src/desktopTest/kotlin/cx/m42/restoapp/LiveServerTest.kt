@@ -186,7 +186,8 @@ class LiveServerTest {
             setContent { RestoApp(host) }
             waitForIdle()
             signIn(base, "channeler")
-            waitUntil(timeoutMillis = 30_000L) { host.active.value.superizer.registry.get(AppId("channels")) != null }
+            // On the live server: the demo the host starts on has this app too.
+            waitUntil(timeoutMillis = 30_000L) { host.current.value?.id == slug(base) && host.active.value.superizer.registry.get(AppId("channels")) != null }
             waitForIdle()
 
             onNodeWithTag("home:tile-channels").performClick()
@@ -241,7 +242,7 @@ class LiveServerTest {
             setContent { RestoApp(reader) }
             waitForIdle()
             signIn(base, "channelview")
-            waitUntil(timeoutMillis = 30_000L) { reader.active.value.superizer.registry.get(AppId("channels")) != null }
+            waitUntil(timeoutMillis = 30_000L) { reader.current.value?.id == slug(base) && reader.active.value.superizer.registry.get(AppId("channels")) != null }
             onNodeWithTag("home:tile-channels").performClick()
             waitUntil(timeoutMillis = 15_000L) { exists("channels:list") }
             onAllNodesWithText("Бот", substring = true).onFirst().performClick()

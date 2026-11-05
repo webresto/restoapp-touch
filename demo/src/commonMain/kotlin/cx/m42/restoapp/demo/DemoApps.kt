@@ -71,13 +71,13 @@ private const val ORDERS_ICON =
     "M19.5 3.5 18 2l-1.5 1.5L15 2l-1.5 1.5L12 2l-1.5 1.5L9 2 7.5 3.5 6 2v14H3v3c0 1.66 1.34 3 3 3h12c1.66 0 3-1.34 3-3V2l-1.5 1.5z" +
         "M19 19c0 .55-.45 1-1 1s-1-.45-1-1v-3H8V5h11v14zM9 7h6v2H9zm7 0h2v2h-2zm-7 3h6v2H9zm7 0h2v2h-2z"
 
-private fun stringProperty(maxLength: Int, minLength: Int? = null) = buildJsonObject {
+internal fun stringProperty(maxLength: Int, minLength: Int? = null) = buildJsonObject {
     put("type", "string")
     minLength?.let { put("minLength", it) }
     put("maxLength", maxLength)
 }
 
-private fun objectSchema(required: List<String>, properties: Map<String, JsonObject>) = buildJsonObject {
+internal fun objectSchema(required: List<String>, properties: Map<String, JsonObject>) = buildJsonObject {
     put("type", "object")
     if (required.isNotEmpty()) putJsonArray("required") { required.forEach { add(JsonPrimitive(it)) } }
     put("properties", JsonObject(properties))
@@ -89,7 +89,7 @@ private fun intProperty(minimum: Int, maximum: Int) = buildJsonObject {
     put("maximum", maximum)
 }
 
-private fun booleanProperty() = buildJsonObject { put("type", "boolean") }
+internal fun booleanProperty() = buildJsonObject { put("type", "boolean") }
 
 /** The chosen options of a dish, as `apps/pos.ts` declares them. */
 private fun chosenOptionsProperty() = buildJsonObject {

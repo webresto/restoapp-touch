@@ -63,6 +63,9 @@ class DemoContractTest {
                 "clients" to emptyList(),
                 "pos" to listOf("p1", "p2"),
                 "marketing" to emptyList(),
+                "channels" to emptyList(),
+                "settings" to emptyList(),
+                "system" to emptyList(),
             ),
             ids(admin),
         )

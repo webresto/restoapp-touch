@@ -65,6 +65,7 @@ public class DemoBackend(
 
     private val lock = Mutex()
     private var state: DemoState? = null
+    private val system = DemoSystem(clock, serverName) { save(it) }
 
     private val _role = MutableStateFlow(initialRole)
     public val role: StateFlow<DemoRole> get() = _role.asStateFlow()
@@ -92,7 +93,7 @@ public class DemoBackend(
 
     override suspend fun call(token: String, method: String, params: JsonObject, place: String?, lang: String): Answer<JsonElement> =
         lock.withLock {
-            val current = loadLocked()
+            val current = system.settled(loadLocked())
             val declaration = declaration(current.role, lang)
             val app = declaration.apps.firstOrNull { app -> app.methods.any { it.name == method } }
                 ?: fail(MobileApiException.FORBIDDEN, "Method is not available")
@@ -111,6 +112,9 @@ public class DemoBackend(
                 CLIENTS -> clients(method, params, current, words)
                 POS -> pos(method, params, point!!, current, words)
                 MARKETING -> marketing(method, params, current, words, declaration)
+                CHANNELS -> system.channels(method, params, current, words)
+                SETTINGS -> system.settings(method, params, current, words)
+                SYSTEM -> system.system(method, params, current, words)
                 else -> fail(MobileApiException.FORBIDDEN, "Method is not available")
             }
             Answer(result, declaration.revision, PROTOCOL_VERSION)
@@ -152,11 +156,11 @@ public class DemoBackend(
             // «Маркетинг»: both rights of the section. The marketer may not read an order, so the money of
             // the applications is not in their declaration at all (`marketing.plan.md`, the summary by rights).
             if (role == DemoRole.Admin || role == DemoRole.Marketer) marketingApp(words, money = role == DemoRole.Admin) else null,
-        )
+        ) + if (role == DemoRole.Admin) listOf(channelsApp(words), settingsApp(words), systemApp(words)) else emptyList()
         val used = apps.flatMap { it.places }.toSet()
         return Declaration(
             protocolVersion = PROTOCOL_VERSION,
-            revision = "demo-${role.name.lowercase()}-${places.joinToString(",") { it.id }}-3",
+            revision = "demo-${role.name.lowercase()}-${places.joinToString(",") { it.id }}-4",
             server = ServerFacts(serverName, VERSION, currency = "RUB", timezone = "Europe/Moscow", locale = "ru"),
             user = DeclaredUser(JsonPrimitive(role.ordinal + 1), loginOf(role), fullName = fullNameOf(role, words), isAdministrator = role == DemoRole.Admin),
             places = places.filter { it.id in used }.sortedBy { it.title },
@@ -1372,7 +1376,7 @@ public class DemoBackend(
         /** «Демо-точка»: one point, and so no point switch at all. */
         public val ONE_POINT: List<Place> = listOf(Place("p1", "Садовая, 3", "ул. Садовая, 3"))
 
-        private const val PAGE = 50
+        internal const val PAGE = 50
     }
 
     /** One action of a record, as `_actions` carries it. */
@@ -1391,19 +1395,20 @@ public class DemoBackend(
         )
     }
 
-    private fun page(items: List<JsonObject>, offset: Int, counts: Map<String, Int>): JsonObject {
-        val shown = items.drop(offset).take(PAGE)
-        val next = offset + shown.size
-        return buildJsonObject {
-            put("items", JsonArray(shown))
-            put("nextCursor", if (next < items.size) JsonPrimitive(next.toString()) else JsonNull)
-            put("counts", JsonObject(counts.mapValues { JsonPrimitive(it.value) }))
-            put("total", items.size)
-        }
+}
+
+internal fun page(items: List<JsonObject>, offset: Int, counts: Map<String, Int>): JsonObject {
+    val shown = items.drop(offset).take(DemoBackend.PAGE)
+    val next = offset + shown.size
+    return buildJsonObject {
+        put("items", JsonArray(shown))
+        put("nextCursor", if (next < items.size) JsonPrimitive(next.toString()) else JsonNull)
+        put("counts", JsonObject(counts.mapValues { JsonPrimitive(it.value) }))
+        put("total", items.size)
     }
 }
 
-private fun fail(code: String, message: String): Nothing = throw MobileApiException(
+internal fun fail(code: String, message: String): Nothing = throw MobileApiException(
     code = code,
     message = message,
     status = when (code) {
@@ -1416,17 +1421,17 @@ private fun fail(code: String, message: String): Nothing = throw MobileApiExcept
 
 private fun JsonObject.int(name: String): Int? = (this[name] as? JsonPrimitive)?.intOrNull
 
-private fun JsonObject.string(name: String): String =
+internal fun JsonObject.string(name: String): String =
     (this[name] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotEmpty() && it.length <= 100 }
         ?: fail(MobileApiException.INVALID, "Parameters do not match the method schema: $name")
 
-private fun JsonObject.stringOrNull(name: String, maxLength: Int): String? {
+internal fun JsonObject.stringOrNull(name: String, maxLength: Int): String? {
     val value = this[name] ?: return null
     return (value as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.length <= maxLength }
         ?: fail(MobileApiException.INVALID, "Parameters do not match the method schema: $name")
 }
 
-private fun JsonObject.enumOf(name: String, values: List<String>, default: String): String =
+internal fun JsonObject.enumOf(name: String, values: List<String>, default: String): String =
     stringOrNull(name, 100)?.also { if (it !in values) fail(MobileApiException.INVALID, "Parameters do not match the method schema: $name") } ?: default
 
 private fun JsonObject.int(name: String, range: IntRange): Int {
@@ -1448,13 +1453,13 @@ private fun JsonObject.intOrNull(name: String): Int? {
         ?: fail(MobileApiException.INVALID, "Parameters do not match the method schema: $name")
 }
 
-private fun JsonObject.booleanOrNull(name: String): Boolean? {
+internal fun JsonObject.booleanOrNull(name: String): Boolean? {
     val value = this[name] ?: return null
     return (value as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull
         ?: fail(MobileApiException.INVALID, "Parameters do not match the method schema: $name")
 }
 
-private fun JsonObject.boolean(name: String): Boolean =
+internal fun JsonObject.boolean(name: String): Boolean =
     (this[name] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull
         ?: fail(MobileApiException.INVALID, "Parameters do not match the method schema: $name")
 
