@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
 import cx.m42.restoapp.protocol.Tones
 import cx.m42.restoapp.render.Badge
+import cx.m42.restoapp.render.HoldUnsaved
 import cx.m42.restoapp.render.NativeActionScope
 import cx.m42.restoapp.render.Notice
 import cx.m42.restoapp.render.prettyJson
@@ -141,13 +142,17 @@ internal fun SettingTransfer(scope: NativeActionScope) {
             .onFailure { problem = it.message }
     }
 
+    // Nothing is written until the person says so; what would be lost is the preview and its ticks,
+    // and those are not something to "save".
+    HoldUnsaved(diff != null && results == null, scope.hold, save = null)
+
     val writable = diff.orEmpty().filter { it.status == "changed" && !it.locked }
 
     Column(modifier = Modifier.fillMaxSize().testTag("settings:transfer")) {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             AppButton(
                 text = words.cancel,
-                onClick = scope.close,
+                onClick = scope.leave,
                 variant = ButtonVariant.Ghost,
                 size = ButtonSize.Sm,
                 modifier = Modifier.testTag("settings:transfer-cancel"),

@@ -18,9 +18,6 @@ internal class SettingsWords(val lang: String) {
     val about: String = t("Описание", "Description")
     val toDefault: String = t("К умолчанию", "To the default")
     val notSetYet: String = t("Значение ещё не задано", "No value is set yet")
-    val leaveQuestion: String = t("Уйти, не сохранив правки?", "Leave without saving?")
-    val leave: String = t("Уйти", "Leave")
-    val stay: String = t("Остаться", "Stay")
 
     val envPinned: String =
         t(

@@ -44,6 +44,7 @@ import cx.m42.superizer.theme.AppTheme
 import cx.m42.superizer.ui.components.AppButton
 import cx.m42.superizer.ui.components.ButtonSize
 import cx.m42.superizer.ui.components.ButtonVariant
+import cx.m42.superizer.ui.platform.ScreenSteps
 import cx.m42.superizer.ui.platform.SystemBackHandler
 
 /*
@@ -89,6 +90,11 @@ internal fun PosScreen(instance: PosInstance) {
                 PlaceLine(place!!.title, place!!.address, { pointSheet = true }, "pos:place")
             }
 
+            val catalog = state.catalog
+            ScreenSteps(
+                listOfNotNull(state.order, state.placed).size +
+                    (if (catalog != null) 1 + catalog.path.size + (if (catalog.query.isNotEmpty()) 1 else 0) else 0),
+            )
             when {
                 places.isEmpty() -> EmptyState(words.noPlaces, null, null, null, "pos:no-places")
                 state.placed != null -> {

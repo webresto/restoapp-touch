@@ -75,9 +75,9 @@ class SettingsShotsTest {
             waitForIdle()
             // A screen with edits asks before it leaves (point 13 of the web page's checklist); this
             // walk is done with them by then, and the question is worth a picture once.
-            if (exists("settings:editor-leave")) {
+            if (exists("unsaved:question")) {
                 if (!taken.contains("xx-leave-without-saving")) shot("xx-leave-without-saving")
-                onNodeWithTag("settings:editor-leave:action").performScrollTo().performClick()
+                onNodeWithTag("unsaved:leave").performClick()
                 waitForIdle()
             }
         }

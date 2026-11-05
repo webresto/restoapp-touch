@@ -1,6 +1,9 @@
 package cx.m42.restoapp
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -9,7 +12,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.v2.runComposeUiTest
 import cx.m42.restoapp.demo.DemoRole
@@ -153,6 +158,113 @@ class RestoAppTest {
         assertEquals(3, host.contexts.value.size)
         onNodeWithText("Демо-сервер 2").assertIsDisplayed()
         onNodeWithTag("home:tile-orders").assertIsDisplayed()
+    }
+
+    private fun androidx.compose.ui.test.ComposeUiTest.has(tag: String) =
+        runCatching { onNodeWithTag(tag).assertExists() }.isSuccess
+
+    /** A card of a new customer on top of the list: two screens of one app, and a form to fill. */
+    private fun androidx.compose.ui.test.ComposeUiTest.openClients(host: RestoAppHost) {
+        waitUntil(timeoutMillis = 5_000L) { "clients" in host.allRegistered() }
+        waitForIdle()
+        onNodeWithTag("home:tile-clients").performClick()
+        waitUntil(timeoutMillis = 5_000L) { has("clients:list") }
+    }
+
+    private fun androidx.compose.ui.test.ComposeUiTest.toCard() {
+        onNodeWithTag("clients:add").performClick()
+        waitForIdle()
+        onNodeWithTag("clients:form:name").performTextInput("Сергей Крылов")
+        onNodeWithTag("clients:form:phone").performTextInput("+7 999 123-45-67")
+        onNodeWithTag("clients:form:submit").performClick()
+        waitUntil(timeoutMillis = 5_000L) { has("clients:detail") }
+    }
+
+    private fun androidx.compose.ui.test.ComposeUiTest.arrow() {
+        onNodeWithContentDescription("Назад").performClick()
+        waitForIdle()
+    }
+
+    /** The bug itself: the arrow of the top bar dropped to the menu from any depth. */
+    @Test
+    fun theArrowWalksBackThroughTheScreensAndOnlyThenToTheMenu() = runComposeUiTest {
+        val host = restoApp()
+        setContent { RestoApp(host) }
+        openClients(host)
+        toCard()
+        arrow()
+        waitUntil(timeoutMillis = 5_000L) { has("clients:list") }
+        onNodeWithTag("clients:detail").assertDoesNotExist()
+        arrow()
+        waitUntil(timeoutMillis = 5_000L) { has("home:tile-clients") }
+    }
+
+    @Test
+    fun theSwipeFromTheRightEdgeGoesBackOneScreen() = runComposeUiTest {
+        val host = restoApp()
+        setContent { RestoApp(host) }
+        openClients(host)
+        toCard()
+        onRoot().performTouchInput { swipe(Offset(right - 2f, centerY), Offset(left + 2f, centerY), durationMillis = 300) }
+        mainClock.advanceTimeBy(1_000)
+        waitUntil(timeoutMillis = 5_000L) { has("clients:list") }
+        onNodeWithTag("clients:detail").assertDoesNotExist()
+    }
+
+    /** Half a swipe, written out for the eye: `build/swipe-back.png`. */
+    @Test
+    fun halfASwipeShowsTheCardShrunkOverThePreviousScreen() = runComposeUiTest {
+        val host = restoApp()
+        setContent { RestoApp(host) }
+        openClients(host)
+        toCard()
+        waitForIdle()
+        onRoot().performTouchInput {
+            down(Offset(right - 2f, centerY))
+            moveBy(Offset(-width * 0.45f, 0f))
+        }
+        waitForIdle()
+        onNodeWithTag("shell:back-preview").assertExists()
+        val shot = File("build/swipe-back.png").apply { parentFile.mkdirs() }
+        shot.writeBytes(
+            org.jetbrains.skia.Image.makeFromBitmap(onRoot().captureToImage().asSkiaBitmap())
+                .encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)!!.bytes,
+        )
+    }
+
+    @Test
+    fun theArrowAsksAboutAFilledFormInsteadOfLosingIt() = runComposeUiTest {
+        val host = restoApp()
+        setContent { RestoApp(host) }
+        openClients(host)
+        onNodeWithTag("clients:add").performClick()
+        waitForIdle()
+        onNodeWithTag("clients:form:name").performTextInput("Сергей Крылов")
+        waitForIdle()
+        arrow()
+        onNodeWithTag("unsaved:question").assertExists()
+        onNodeWithTag("clients:list").assertExists()
+        onNodeWithTag("unsaved:leave").performClick()
+        waitForIdle()
+        onNodeWithTag("clients:form").assertDoesNotExist()
+        onNodeWithTag("clients:list").assertExists()
+    }
+
+    @Test
+    fun theMenuAsksAboutAFilledFormToo() = runComposeUiTest {
+        val host = restoApp()
+        setContent { RestoApp(host) }
+        openClients(host)
+        onNodeWithTag("clients:add").performClick()
+        waitForIdle()
+        onNodeWithTag("clients:form:name").performTextInput("Сергей Крылов")
+        waitForIdle()
+        onNodeWithContentDescription("Открыть меню").performClick()
+        waitForIdle()
+        onNodeWithText("Главная").performClick()
+        waitForIdle()
+        onNodeWithTag("shell:close-dialog").assertExists()
+        onNodeWithTag("shell:close-dialog:save").assertExists()
     }
 
     @Test

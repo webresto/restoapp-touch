@@ -531,9 +531,10 @@ public fun FormCard(
     submit: String,
     busy: Boolean,
     words: RenderWords,
-    onSubmit: (Map<String, JsonElement>) -> Unit,
+    onSubmit: (Map<String, JsonElement>, saved: () -> Unit) -> Unit,
     onCancel: (() -> Unit)?,
     tag: String,
+    hold: (UnsavedWork?) -> Unit = {},
 ) {
     val tokens = AppTheme
     val values = remember(tag, fields) { mutableStateMapOf<String, String>() }
@@ -544,6 +545,25 @@ public fun FormCard(
             else -> values[field.name].isNullOrBlank()
         }
     }
+    fun send(saved: () -> Unit) = onSubmit(
+        fields.mapNotNull { field ->
+            when {
+                field.type == "boolean" -> field.name to JsonPrimitive(flags[field.name] == true)
+                else -> values[field.name]?.takeIf { it.isNotBlank() }?.let { typed ->
+                    field.name to when (field.type) {
+                        "integer" -> JsonPrimitive(typed.trim().toLongOrNull() ?: 0L)
+                        "number" -> JsonPrimitive(typed.trim().replace(',', '.').toDoubleOrNull() ?: 0.0)
+                        else -> JsonPrimitive(typed.trim())
+                    }
+                }
+            }
+        }.toMap(),
+        saved,
+    )
+    val dirty = values.values.any { it.isNotBlank() } || flags.values.any { it }
+    HoldUnsaved(dirty, hold) { saved -> if (filled && !busy) send(saved) }
+    // Filled in, the form is a step of its own: back closes it, not the screen under it.
+    SystemBackHandler(enabled = dirty && onCancel != null) { onCancel?.invoke() }
 
     Column(
         modifier = Modifier
@@ -590,22 +610,7 @@ public fun FormCard(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AppButton(
                 text = submit,
-                onClick = {
-                    onSubmit(
-                        fields.mapNotNull { field ->
-                            when {
-                                field.type == "boolean" -> field.name to JsonPrimitive(flags[field.name] == true)
-                                else -> values[field.name]?.takeIf { it.isNotBlank() }?.let { typed ->
-                                    field.name to when (field.type) {
-                                        "integer" -> JsonPrimitive(typed.trim().toLongOrNull() ?: 0L)
-                                        "number" -> JsonPrimitive(typed.trim().replace(',', '.').toDoubleOrNull() ?: 0.0)
-                                        else -> JsonPrimitive(typed.trim())
-                                    }
-                                }
-                            }
-                        }.toMap(),
-                    )
-                },
+                onClick = { send {} },
                 enabled = !busy && filled,
                 size = ButtonSize.Sm,
                 modifier = Modifier.testTag("$tag:submit"),

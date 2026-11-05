@@ -181,8 +181,42 @@ class PromotionEditorTest {
         retype("marketing:editor-name", "Не сохранится")
         tap("marketing:editor-cancel")
         idle()
+        assertShown("unsaved:question")
+        tap("unsaved:leave")
+        idle()
         assertAbsent("marketing:editor")
         assertShown("marketing:detail")
         node("marketing:title").assertTextEquals("Летняя скидка")
+    }
+
+    @Test
+    fun nothingChangedLeavesWithoutAsking() = editor {
+        tap("marketing:editor-cancel")
+        idle()
+        assertAbsent("unsaved:question")
+        assertAbsent("marketing:editor")
+    }
+
+    @Test
+    fun saveAndLeaveTakesTheNewNameToTheCard() = editor {
+        retype("marketing:editor-name", "Зимняя скидка")
+        tap("marketing:editor-cancel")
+        idle()
+        tap("unsaved:save")
+        idle()
+        assertAbsent("marketing:editor")
+        node("marketing:title").assertTextEquals("Зимняя скидка")
+    }
+
+    @Test
+    fun anInvalidFormStaysOpenAndSaysWhy() = editor {
+        retype("marketing:editor-name", "")
+        tap("marketing:editor-cancel")
+        idle()
+        tap("unsaved:save")
+        idle()
+        assertAbsent("unsaved:question")
+        assertShown("marketing:editor-refusal")
+        assertShown("marketing:editor")
     }
 }

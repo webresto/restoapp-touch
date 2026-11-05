@@ -29,6 +29,11 @@ public class RenderWords(public val lang: String) {
     public val places: String = t("Точки", "Points")
     public val confirm: String = t("Подтвердить", "Confirm")
     public val cancel: String = t("Отмена", "Cancel")
+    public val unsavedTitle: String = t("Несохранённые изменения будут потеряны", "Unsaved changes will be lost")
+    public val unsavedHint: String = t("Сохранить их перед выходом?", "Save them before leaving?")
+    public val saveAndLeave: String = t("Сохранить и выйти", "Save and leave")
+    public val leaveWithoutSaving: String = t("Выйти без сохранения", "Leave without saving")
+    public val stay: String = t("Остаться", "Stay")
     public val set: String = t("Установить", "Set")
     /** What a drag handle is called for a screen reader. */
     public val reorder: String = t("Перетащите, чтобы поменять порядок", "Drag to reorder")
