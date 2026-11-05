@@ -13,7 +13,7 @@ jsonSchemaValidator = "1.5.9"
 quickjs = "1.0.15"
 
 # The library. Bumped by an explicit commit, as in Unitool.
-superizer = "0.7.1"
+superizer = "0.8.0"
 
 [libraries]
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
