@@ -96,6 +96,9 @@ internal class ScriptAppInstance(
         }
     }
 
+    /** How many routes stand under the one on screen. */
+    val steps: Int get() = (stack.size - 1).coerceAtLeast(0)
+
     /** `act.back`, the frame's arrow and the system's back button: the previous route, entered again. */
     fun back() {
         val running = script ?: return

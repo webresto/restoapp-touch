@@ -44,6 +44,7 @@ import cx.m42.superizer.ui.components.ButtonVariant
 import cx.m42.superizer.ui.components.RowDivider
 import cx.m42.superizer.ui.components.Section
 import cx.m42.superizer.ui.components.ToggleRow
+import cx.m42.superizer.ui.platform.ScreenSteps
 import cx.m42.superizer.ui.platform.SystemBackHandler
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -548,6 +549,7 @@ private fun CatalogPicker(
 
     val up: () -> Unit = { if (group != null) group = null else onClose() }
     SystemBackHandler(enabled = true, onBack = up)
+    ScreenSteps(if (group != null) 2 else 1)
     CatalogShell(
         back = words.back,
         onBack = up,

@@ -64,6 +64,7 @@ import cx.m42.superizer.ui.components.ButtonVariant
 import cx.m42.superizer.ui.components.RowDivider
 import cx.m42.superizer.ui.components.Section
 import cx.m42.superizer.ui.components.ToggleRow
+import cx.m42.superizer.ui.platform.ScreenSteps
 import cx.m42.superizer.ui.platform.SystemBackHandler
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -124,6 +125,7 @@ internal fun ServerAppScreen(instance: ServerAppInstance) {
                 val frames by instance.frames.collectAsState()
                 val request by instance.native.collectAsState()
                 val native = request?.let { NativeActions.of(it.method.ui?.control?.screen)?.to(it) }
+                ScreenSteps(frames.size - 1 + if (native != null) 1 else 0)
                 val frame = frames.lastOrNull()
                 val view = frame?.let { declared.method(it.method)?.ui?.view }
                 when {

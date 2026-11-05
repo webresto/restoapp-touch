@@ -46,6 +46,7 @@ import cx.m42.superizer.ui.components.AppTextField
 import cx.m42.superizer.ui.components.ButtonSize
 import cx.m42.superizer.ui.components.ButtonVariant
 import com.composeunstyled.Text
+import cx.m42.superizer.ui.platform.ScreenSteps
 import cx.m42.superizer.ui.platform.SystemBackHandler
 import cx.m42.superizer.theme.AppTheme
 import kotlin.math.roundToInt
@@ -79,6 +80,7 @@ internal fun ScriptAppScreen(instance: ScriptAppInstance) {
             error?.let { text ->
                 Notice(text, "danger", words.retry, { instance.retry() }, "script:error")
             }
+            ScreenSteps(instance.steps)
             if (chrome.canGoBack) {
                 SystemBackHandler(enabled = true) { instance.back() }
                 AppButton(

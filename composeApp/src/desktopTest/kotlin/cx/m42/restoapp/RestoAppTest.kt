@@ -1,7 +1,9 @@
 package cx.m42.restoapp
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -207,6 +209,27 @@ class RestoAppTest {
         mainClock.advanceTimeBy(1_000)
         waitUntil(timeoutMillis = 5_000L) { has("clients:list") }
         onNodeWithTag("clients:detail").assertDoesNotExist()
+    }
+
+    /** Half a swipe, written out for the eye: `build/swipe-back.png`. */
+    @Test
+    fun halfASwipeShowsTheCardShrunkOverThePreviousScreen() = runComposeUiTest {
+        val host = restoApp()
+        setContent { RestoApp(host) }
+        openClients(host)
+        toCard()
+        waitForIdle()
+        onRoot().performTouchInput {
+            down(Offset(right - 2f, centerY))
+            moveBy(Offset(-width * 0.45f, 0f))
+        }
+        waitForIdle()
+        onNodeWithTag("shell:back-preview").assertExists()
+        val shot = File("build/swipe-back.png").apply { parentFile.mkdirs() }
+        shot.writeBytes(
+            org.jetbrains.skia.Image.makeFromBitmap(onRoot().captureToImage().asSkiaBitmap())
+                .encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)!!.bytes,
+        )
     }
 
     @Test

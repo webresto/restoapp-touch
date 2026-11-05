@@ -54,9 +54,9 @@ public class NativeActionScope(
     public val notice: (String) -> Unit,
     public val close: () -> Unit,
     /** The screen's own «Отмена»: [close], after the question if it [hold]s edits. */
-    public val leave: () -> Unit,
+    public val leave: () -> Unit = close,
     /** Through [HoldUnsaved]: what this screen would lose by closing, or null when nothing. */
-    public val hold: (UnsavedWork?) -> Unit,
+    public val hold: (UnsavedWork?) -> Unit = {},
 )
 
 /** The screens this build has. The host registers them at startup, as it registers its native apps. */
