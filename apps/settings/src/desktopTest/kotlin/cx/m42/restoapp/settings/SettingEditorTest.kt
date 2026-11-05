@@ -137,15 +137,35 @@ class SettingEditorTest {
         retype("settings:field", "another-stand")
         tap("settings:editor-cancel")
         idle()
-        assertShown("settings:editor-leave")
+        assertShown("unsaved:question")
         assertShown("settings:editor")
-        tap("settings:editor-stay")
+        tap("unsaved:stay")
         idle()
-        assertAbsent("settings:editor-leave")
+        assertAbsent("unsaved:question")
         tap("settings:editor-cancel")
         idle()
-        tap("settings:editor-leave:action")
+        tap("unsaved:leave")
         idle()
+        assertAbsent("settings:editor")
+    }
+
+    @Test
+    fun saveAndLeaveSendsTheValueThenLeaves() = editor("PROJECT_NAME") { server ->
+        retype("settings:field", "another-stand")
+        tap("settings:editor-cancel")
+        idle()
+        tap("unsaved:save")
+        idle()
+        assertEquals("settings.update", server.calls.last().first)
+        assertAbsent("unsaved:question")
+        assertAbsent("settings:editor")
+    }
+
+    @Test
+    fun nothingEditedLeavesWithoutAsking() = editor("PROJECT_NAME") { _ ->
+        tap("settings:editor-cancel")
+        idle()
+        assertAbsent("unsaved:question")
         assertAbsent("settings:editor")
     }
 

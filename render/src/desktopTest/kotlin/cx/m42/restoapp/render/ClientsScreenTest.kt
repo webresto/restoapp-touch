@@ -4,6 +4,7 @@ package cx.m42.restoapp.render
 
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollTo
 import cx.m42.restoapp.demo.DemoRole
@@ -13,6 +14,7 @@ import cx.m42.superizer.testing.AppTestScope
 import cx.m42.superizer.testing.runAppTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
@@ -86,6 +88,73 @@ class ClientsScreenTest {
         tap("clients:form:submit")
         idle()
         assertShown("clients:detail")
+    }
+
+    @Test
+    fun anEmptyFormClosesWithoutAsking() = clients {
+        idle()
+        tap("clients:add")
+        tap("clients:add")
+        idle()
+        assertAbsent("unsaved:question")
+        assertAbsent("clients:form")
+    }
+
+    @Test
+    fun aFilledFormAsksBeforeItIsThrownAway() = clients {
+        idle()
+        tap("clients:add")
+        type("clients:form:name", "Сергей Крылов")
+        tap("clients:form:cancel")
+        idle()
+        assertShown("unsaved:question")
+        tap("unsaved:stay")
+        idle()
+        assertAbsent("unsaved:question")
+        node("clients:form:name").assertTextContains("Сергей Крылов")
+        tap("clients:form:cancel")
+        idle()
+        tap("unsaved:leave")
+        idle()
+        assertAbsent("clients:form")
+    }
+
+    @Test
+    fun saveAndLeaveWaitsForWhatTheSchemaRequires() = clients {
+        idle()
+        tap("clients:add")
+        type("clients:form:name", "Без телефона")
+        tap("clients:form:cancel")
+        idle()
+        tap("unsaved:save")
+        idle()
+        assertAbsent("unsaved:question")
+        assertShown("clients:form")
+        type("clients:form:phone", "+7 999 000-00-00")
+        tap("clients:form:cancel")
+        idle()
+        tap("unsaved:save")
+        idle()
+        assertAbsent("clients:form")
+        assertShown("clients:detail")
+    }
+
+    /** The ways out the shell owns: the menu and another server ask through the veto. */
+    @Test
+    fun theHostsQuestionCanSaveToo() = clients {
+        idle()
+        assertTrue(runBlocking { screen.onCloseRequested() })
+        tap("clients:add")
+        type("clients:form:name", "Без телефона")
+        idle()
+        assertFalse(runBlocking { screen.onCloseRequested() })
+        assertTrue(screen.canSaveBeforeClose)
+        assertFalse(runBlocking { screen.saveBeforeClose() })
+        type("clients:form:phone", "+7 999 000-00-00")
+        idle()
+        assertTrue(runBlocking { screen.saveBeforeClose() })
+        idle()
+        assertTrue(runBlocking { screen.onCloseRequested() })
     }
 
     @Test

@@ -31,6 +31,7 @@ import cx.m42.restoapp.render.CatalogShell
 import cx.m42.restoapp.render.Chips
 import cx.m42.restoapp.render.EmptyState
 import cx.m42.restoapp.render.GroupTile
+import cx.m42.restoapp.render.HoldUnsaved
 import cx.m42.restoapp.render.ListRow
 import cx.m42.restoapp.render.NativeActionScope
 import cx.m42.restoapp.render.Notice
@@ -43,6 +44,7 @@ import cx.m42.superizer.ui.components.ButtonVariant
 import cx.m42.superizer.ui.components.RowDivider
 import cx.m42.superizer.ui.components.Section
 import cx.m42.superizer.ui.components.ToggleRow
+import cx.m42.superizer.ui.platform.SystemBackHandler
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -224,6 +226,14 @@ internal fun PromotionEditor(scope: NativeActionScope) {
     var form by remember(scope.record) { mutableStateOf(formOf(scope.record)) }
     var picking by remember { mutableStateOf<Picking?>(null) }
     var refusal by remember { mutableStateOf<String?>(null) }
+    val opened = remember(scope.record) { formOf(scope.record) }
+
+    fun save(saved: () -> Unit) {
+        val why = refusalOf(form, words)
+        refusal = why
+        if (why == null) scope.submitThen(paramsOf(form, scope.record), saved)
+    }
+    HoldUnsaved(form != opened, scope.hold) { saved -> if (!scope.busy) save(saved) }
 
     Box(modifier = Modifier.fillMaxSize().testTag("marketing:editor")) {
         if (picking != null) {
@@ -242,7 +252,7 @@ internal fun PromotionEditor(scope: NativeActionScope) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 AppButton(
                     text = words.cancel,
-                    onClick = scope.close,
+                    onClick = scope.leave,
                     variant = ButtonVariant.Ghost,
                     size = ButtonSize.Sm,
                     modifier = Modifier.testTag("marketing:editor-cancel"),
@@ -257,11 +267,7 @@ internal fun PromotionEditor(scope: NativeActionScope) {
                 )
                 AppButton(
                     text = if (scope.busy) words.saving else words.save,
-                    onClick = {
-                        val why = refusalOf(form, words)
-                        refusal = why
-                        if (why == null) scope.submit(paramsOf(form, scope.record))
-                    },
+                    onClick = { save {} },
                     enabled = !scope.busy,
                     size = ButtonSize.Sm,
                     modifier = Modifier.testTag("marketing:editor-save"),
@@ -540,9 +546,11 @@ private fun CatalogPicker(
         Picking.GIFT -> words.gift
     }
 
+    val up: () -> Unit = { if (group != null) group = null else onClose() }
+    SystemBackHandler(enabled = true, onBack = up)
     CatalogShell(
         back = words.back,
-        onBack = { if (group != null) group = null else onClose() },
+        onBack = up,
         title = title,
         query = query,
         searchHint = words.searchProduct,

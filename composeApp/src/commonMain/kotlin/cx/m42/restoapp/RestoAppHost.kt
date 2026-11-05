@@ -403,7 +403,7 @@ public fun RestoApp(host: RestoAppHost) {
     val connection by host.active.collectAsState()
     // A new key per Superizer: nothing the previous one's shell remembered survives into the next.
     key(connection) {
-        SuperizerShell(connection.superizer)
+        SuperizerShell(connection.superizer, swipeBack = true)
     }
 }
 

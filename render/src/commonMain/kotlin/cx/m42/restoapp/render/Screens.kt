@@ -129,12 +129,12 @@ internal fun ServerAppScreen(instance: ServerAppInstance) {
                 when {
                     // A screen of the client's own, over everything: it has its own way back.
                     native != null -> {
-                        SystemBackHandler(enabled = true) { instance.closeNative() }
+                        SystemBackHandler(enabled = true) { instance.leave(instance::closeNative) }
                         NativeActionScreen(instance, context, native.second, native.first)
                     }
                     frame == null -> EmptyState(words.unknownView, null, null, null, "${declared.id}:unknown")
                     frames.size > 1 -> {
-                        SystemBackHandler(enabled = true) { instance.back() }
+                        SystemBackHandler(enabled = true) { instance.leave(instance::back) }
                         when (view) {
                             Views.LIST -> ListScreen(instance, context, frame, bottom = false)
                             Views.DETAIL -> DetailScreen(instance, context, frame)
@@ -147,6 +147,17 @@ internal fun ServerAppScreen(instance: ServerAppInstance) {
                 }
             }
         }
+        val leaving by instance.leaving.collectAsState()
+        val unsaved by instance.unsaved.collectAsState()
+        if (leaving != null) {
+            UnsavedQuestion(
+                words = words,
+                canSave = unsaved?.save != null,
+                onSave = instance::saveAndLeave,
+                onLeave = instance::leaveWithoutSaving,
+                onStay = instance::stay,
+            )
+        }
     }
 }
 
@@ -155,7 +166,7 @@ internal fun ServerAppScreen(instance: ServerAppInstance) {
 private fun BackLine(instance: ServerAppInstance, context: RenderContext) {
     AppButton(
         text = "← " + context.words.back,
-        onClick = instance::back,
+        onClick = { instance.leave(instance::back) },
         variant = ButtonVariant.Ghost,
         size = ButtonSize.Sm,
         modifier = Modifier.padding(8.dp).testTag("${context.tag}:back"),
@@ -187,6 +198,8 @@ private fun NativeActionScreen(
                 submitThen = { params, saved -> submitNative(instance, request, params, saved) },
                 notice = instance::showNotice,
                 close = instance::closeNative,
+                leave = { instance.leave(instance::closeNative) },
+                hold = instance::hold,
             ),
         )
     }
@@ -301,7 +314,8 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, fram
                     text = if (adding) words.cancel else "+ ${action.title}",
                     onClick = {
                         if (nativeList != null) instance.openNative(JsonObject(emptyMap()), RecordAction(action.name), action)
-                        else adding = !adding
+                        else if (adding) instance.leave { adding = false }
+                        else adding = true
                     },
                     variant = if (adding) ButtonVariant.Ghost else ButtonVariant.Default,
                     size = ButtonSize.Sm,
@@ -315,8 +329,14 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, fram
                     submit = action.title,
                     busy = "list:${action.name}" in busy,
                     words = words,
-                    onSubmit = { values -> instance.actOnList(action, JsonObject(values)) { adding = false } },
-                    onCancel = { adding = false },
+                    onSubmit = { values, saved ->
+                        instance.actOnList(action, JsonObject(values)) {
+                            adding = false
+                            saved()
+                        }
+                    },
+                    onCancel = { instance.leave { adding = false } },
+                    hold = instance::hold,
                     tag = "$tag:form",
                 )
             }

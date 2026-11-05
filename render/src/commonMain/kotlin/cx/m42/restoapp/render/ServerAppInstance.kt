@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
@@ -590,6 +591,62 @@ internal class ServerAppInstance(
         setFrames(_frames.value + frame)
         loadTop()
         startPolling()
+    }
+
+    // ---- edits the server has not got ----
+
+    private val _unsaved = MutableStateFlow<UnsavedWork?>(null)
+    val unsaved: StateFlow<UnsavedWork?> get() = _unsaved.asStateFlow()
+
+    /** Where the person was going when the question went up; null while it is not up. */
+    private val _leaving = MutableStateFlow<(() -> Unit)?>(null)
+    val leaving: StateFlow<(() -> Unit)?> get() = _leaving.asStateFlow()
+
+    fun hold(work: UnsavedWork?) {
+        _unsaved.value = work
+        if (work == null) _leaving.value = null
+    }
+
+    /**
+     * Every way off a screen that holds edits goes through here. While something is being sent it does
+     * nothing: the answer decides whether there is still anything to ask about.
+     */
+    fun leave(then: () -> Unit) {
+        when {
+            _unsaved.value == null -> then()
+            _busy.value.isEmpty() -> _leaving.value = then
+        }
+    }
+
+    fun stay() {
+        _leaving.value = null
+    }
+
+    fun leaveWithoutSaving() {
+        val then = _leaving.value ?: return
+        hold(null)
+        then()
+    }
+
+    /** Only the server's yes goes on to [leave]'s destination; on a refusal the screen stays, saying why. */
+    fun saveAndLeave() {
+        val then = _leaving.value ?: return
+        _leaving.value = null
+        _unsaved.value?.save?.invoke(then)
+    }
+
+    /** Leaving through the menu or for another server asks in the host's dialog: the shell owns those ways out. */
+    override suspend fun onCloseRequested(): Boolean = _unsaved.value == null
+
+    override val canSaveBeforeClose: Boolean get() = _unsaved.value?.save != null
+
+    /** True only on the server's yes. A save that started is in [busy] from the call on; an invalid form never gets there. */
+    override suspend fun saveBeforeClose(): Boolean {
+        val save = _unsaved.value?.save ?: return false
+        var done = false
+        save { done = true }
+        _busy.first { it.isEmpty() }
+        return done
     }
 
     /** Back one frame; the bottom one is the app's own screen, and the host closes the app from there. */

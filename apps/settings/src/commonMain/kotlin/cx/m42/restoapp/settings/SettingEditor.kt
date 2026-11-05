@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
 import cx.m42.restoapp.protocol.Tones
+import cx.m42.restoapp.render.HoldUnsaved
 import cx.m42.restoapp.render.NativeActionScope
 import cx.m42.restoapp.render.Notice
 import cx.m42.restoapp.render.SchemaEditor
@@ -135,7 +136,6 @@ internal fun SettingEditor(scope: NativeActionScope) {
 
     var edited by remember(record) { mutableStateOf(stored) }
     var touched by remember(record) { mutableStateOf(false) }
-    var asking by remember(record) { mutableStateOf(false) }
 
     val problem = problemOf(node, edited, schemaWords)
     // A secret with an empty field means «leave the stored value alone»: there is nothing to save.
@@ -143,11 +143,25 @@ internal fun SettingEditor(scope: NativeActionScope) {
     val dirty = touched && edited != stored
     val canSave = !scope.busy && problem == null && !nothingTyped
 
+    fun save(saved: () -> Unit) {
+        scope.submitThen(buildJsonObject { put("id", key); put("value", edited ?: JsonNull) }) {
+            // Only once the server has taken it: a value that only applies at boot leaves a
+            // reminder on the screen underneath, and the key waits for this run to end.
+            if (record.flag("restartRequired")) {
+                RestartPending.mark(record.text("boot"), key)
+                scope.notice(words.restartNeeded)
+            }
+            saved()
+        }
+    }
+    // What is wrong with the value is on the screen already, under the field it is about.
+    HoldUnsaved(dirty, scope.hold) { saved -> if (canSave) save(saved) }
+
     Column(modifier = Modifier.fillMaxSize().testTag("settings:editor")) {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             AppButton(
                 text = words.cancel,
-                onClick = { if (dirty) asking = true else scope.close() },
+                onClick = scope.leave,
                 variant = ButtonVariant.Ghost,
                 size = ButtonSize.Sm,
                 modifier = Modifier.testTag("settings:editor-cancel"),
@@ -162,16 +176,7 @@ internal fun SettingEditor(scope: NativeActionScope) {
             )
             AppButton(
                 text = if (scope.busy) words.saving else words.save,
-                onClick = {
-                    scope.submitThen(buildJsonObject { put("id", key); put("value", edited ?: JsonNull) }) {
-                        // Only once the server has taken it: a value that only applies at boot leaves a
-                        // reminder on the screen underneath, and the key waits for this run to end.
-                        if (record.flag("restartRequired")) {
-                            RestartPending.mark(record.text("boot"), key)
-                            scope.notice(words.restartNeeded)
-                        }
-                    }
-                },
+                onClick = { save {} },
                 enabled = canSave,
                 size = ButtonSize.Sm,
                 modifier = Modifier.testTag("settings:editor-save"),
@@ -179,19 +184,6 @@ internal fun SettingEditor(scope: NativeActionScope) {
         }
 
         Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            if (asking) {
-                Notice(words.leaveQuestion, Tones.WARNING, words.leave, scope.close, "settings:editor-leave")
-                Row(modifier = Modifier.padding(horizontal = 12.dp)) {
-                    AppButton(
-                        text = words.stay,
-                        onClick = { asking = false },
-                        variant = ButtonVariant.Ghost,
-                        size = ButtonSize.Sm,
-                        modifier = Modifier.testTag("settings:editor-stay"),
-                    )
-                }
-            }
-
             // What cannot be changed here, and why — the red plate of the web page, word for word.
             record.element("envOverride")?.let { env ->
                 Notice(words.envPinned, Tones.DANGER, null, null, "settings:editor-env")
