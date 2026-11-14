@@ -1,0 +1,62 @@
+# The Android app as a debug APK — signed by the build's own debug key, so it installs on a phone as is —
+# in the run's artifacts: RestoApp-<run>.apk. No secret is involved; the release for Google Play is
+# built and signed by hand on guibot2 (RELEASING.md), never here.
+#
+# Built on main and by hand, as the iPhone app is (ios.yml); a commit of notes alone builds nothing.
+name: android
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['.ai-notes/**', '**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same Superizer as the iPhone build (ios.yml): one commit of the library for both.
+      - uses: actions/checkout@v4
+        with:
+          repository: adminization/superizer
+          ref: 16ce162ccdb4f3b26fade05b625bce0eb9e100ba
+          path: superizer-checkout
+
+      - name: Put the library where settings.gradle.kts looks for it
+        run: mv superizer-checkout ../superizer
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # The runner's own Android SDK (ANDROID_HOME); the platform and build tools are fetched by AGP.
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The run number is the versionCode (composeApp/build.gradle.kts), so a newer APK installs over an older one.
+      - name: Build the debug APK
+        env:
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          ./gradlew --no-daemon --max-workers=2 "-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8" \
+            :composeApp:assembleDebug
+          mkdir -p build/apk
+          cp composeApp/build/outputs/apk/debug/composeApp-debug.apk "build/apk/RestoApp-${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          path: build/apk/RestoApp-${{ github.run_number }}.apk
+          archive: false
+          if-no-files-found: error

@@ -75,11 +75,14 @@ node tools/fake-llm/serve.mjs 17321 &   # the panel: CLOUD_AI_ENABLED=true CLOUD
 Xcode; only the klibs compile without it (`./gradlew :composeApp:compileKotlinIosArm64`).
 `.github/workflows/ios.yml` builds on `main`, on `ios-ipa` and by hand, and leaves an **unsigned**
 `RestoApp-<run>.ipa` in the run's artifacts. A phone installs it only after it is signed.
+`.github/workflows/android.yml` does the same for Android on `main` and by hand: `RestoApp-<run>.apk`, a debug
+build signed by its own debug key, which a phone installs as is.
 
 What does not work on iOS yet (`order-entry.plan.md`, «Платформы»):
 
-- A real server: there is no PoW solver for the login CAPTCHA, so only the demo servers open. iOS also
-  refuses plain `http://` addresses until `Info.plist` allows them.
+- A real server: there is no PoW solver for the login CAPTCHA, so signing in opens only the demo servers. A
+  server signed in on another device comes over by «Перенос входов» (a file, no CAPTCHA). iOS also refuses
+  plain `http://` addresses until `Info.plist` allows them.
 - Storage per server: `PrefsStorage` has one suite, so Home, the language and the apps' data are shared.
 - The device token is a protected file, not the Keychain.
 - The app has no icon yet.
@@ -99,11 +102,11 @@ variables are there, and unsigned otherwise — `RELEASING.md`. A real server wo
 solver is the desktop's, `jvmAndAndroidMain`), and each server has its own `SharedPreferences`.
 Plain `http://` addresses are refused, as on iOS.
 
-«Управление серверами → Перенос входов» (Android and the desktop) saves every server but the demo ones, with its
+«Управление серверами → Перенос входов» (the desktop, Android and the iPhone) saves every server but the demo ones, with its
 device token, to a file sealed by a password (`AuthFile.kt`: PBKDF2-HMAC-SHA256, ChaCha20, HMAC-SHA256 — common
 code, so a file written on one platform opens on any) and loads such a file in another app. A copy of the
 sign-in, not a move: to the servers both are one device. The file dialogs are the platform's (`AuthFiles`:
-`DesktopAuthFiles`, `AndroidAuthFiles` over the Storage Access Framework); iOS has none yet, and no such section.
+`DesktopAuthFiles`, `AndroidAuthFiles` over the Storage Access Framework, `IosAuthFiles` over the document picker).
 
 ## How it is put together
 

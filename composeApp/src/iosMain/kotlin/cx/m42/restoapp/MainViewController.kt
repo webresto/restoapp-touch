@@ -23,6 +23,9 @@ private val host: RestoAppHost by lazy {
         store = IosServerStore(),
         debug = Platform.isDebugBinary,
         device = DeviceInfo(UIDevice.currentDevice.name, "ios"),
+        // «Перенос входов»: on the iPhone it is also the way in to a real server — the sign-in of another device,
+        // since there is no CAPTCHA solver here yet.
+        files = IosAuthFiles(),
     )
 }
 
