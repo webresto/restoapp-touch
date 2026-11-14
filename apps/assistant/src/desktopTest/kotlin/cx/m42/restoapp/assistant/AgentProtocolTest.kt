@@ -62,7 +62,7 @@ class AgentProtocolTest {
         val messages = Json.parseToJsonElement(
             """[
               {"role":"system","content":"x"},
-              {"role":"user","content":"Покажи серверы"},
+              {"role":"User","content":"Покажи серверы"},
               {"role":"assistant","content":[{"type":"text","text":"Смотрю"},{"type":"tool-call","toolCallId":"c1","toolName":"call_tool","input":{"tool_name":"cloud.resources.list"}}]},
               {"role":"tool","content":[{"type":"tool-result","toolCallId":"c1","toolName":"call_tool","output":{"type":"json","value":{"items":[]}}}]},
               {"role":"assistant","content":"Серверов нет."},

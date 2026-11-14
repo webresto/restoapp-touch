@@ -75,6 +75,7 @@ class AssistantWalkTest {
     }
 
     private fun ComposeUiTest.ask(text: String, answer: String) {
+        waitUntil(timeoutMillis = 15_000L) { !exists("assistant:busy") }
         onNodeWithTag("assistant:input").performTextInput(text)
         waitForIdle()
         onNodeWithTag("assistant:send").performClick()
@@ -133,7 +134,8 @@ class AssistantWalkTest {
             shot("03-cloud-open")
             // A fresh conversation, so the walk does not depend on what the account asked before.
             onNodeWithTag("assistant:new").performClick()
-            waitUntil(timeoutMillis = 15_000L) { exists("assistant:welcome") }
+            // The new conversation exists on the server before anything is sent to it.
+            waitUntil(timeoutMillis = 15_000L) { exists("assistant:welcome") && !exists("assistant:busy") }
             shot("04-cloud-welcome")
             val question = "Привет из приложения ${System.currentTimeMillis() % 100000}"
             onNodeWithTag("assistant:input").performTextInput(question)
@@ -141,6 +143,8 @@ class AssistantWalkTest {
             onNodeWithTag("assistant:send").performClick()
             waitUntil(timeoutMillis = 60_000L) { exists("assistant:reply") && exists("assistant:send") }
             shot("05-cloud-reply")
+            // The person's own message stays on screen with the reply (the cloud's history writes `User`).
+            assertTrue(hasText(question), "the question is not on screen")
             onNodeWithTag("assistant:conversations").performClick()
             waitUntil(timeoutMillis = 15_000L) { hasText(question) }
             shot("06-cloud-conversations")

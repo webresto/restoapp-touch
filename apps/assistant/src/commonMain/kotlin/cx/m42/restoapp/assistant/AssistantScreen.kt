@@ -84,8 +84,8 @@ internal fun AssistantScreen(instance: AssistantInstance) {
                 }
             }
         }
-        if (state.loading && state.status != null) {
-            Text(words.loading, style = tokens.footnote, color = tokens.muted, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp))
+        if ((state.loading || state.busy) && state.status != null) {
+            Text(words.loading, style = tokens.footnote, color = tokens.muted, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).testTag("assistant:busy"))
         }
     }
 }
@@ -104,14 +104,14 @@ private fun Toolbar(state: AssistantState, words: AssistantWords, instance: Assi
             onClick = { instance.openList(!state.listOpen) },
             variant = ButtonVariant.Outline, size = ButtonSize.Sm,
             modifier = Modifier.testTag("assistant:conversations"),
-            enabled = !state.running,
+            enabled = !state.running && !state.busy,
         )
         AppButton(
             text = words.newConversation,
             onClick = { instance.newConversation() },
             variant = ButtonVariant.Ghost, size = ButtonSize.Sm,
             modifier = Modifier.testTag("assistant:new"),
-            enabled = !state.running,
+            enabled = !state.running && !state.busy,
         )
         Spacer(Modifier.weight(1f))
         state.meta?.takeIf { it.totalTokens > 0 }?.let {
@@ -140,7 +140,7 @@ private fun Conversation(state: AssistantState, words: AssistantWords, instance:
                     s,
                     style = tokens.label, color = tokens.foreground,
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(tokens.radius)).border(1.dp, tokens.border, RoundedCornerShape(tokens.radius))
-                        .clickable { instance.send(s) }.padding(horizontal = 14.dp, vertical = 10.dp).testTag("assistant:suggestion-$i"),
+                        .clickable(enabled = !state.busy) { instance.send(s) }.padding(horizontal = 14.dp, vertical = 10.dp).testTag("assistant:suggestion-$i"),
                 )
             }
         }
@@ -240,7 +240,7 @@ private fun Composer(state: AssistantState, words: AssistantWords, instance: Ass
         if (state.running) {
             AppButton(words.stop, { instance.stop() }, variant = ButtonVariant.Outline, size = ButtonSize.Default, modifier = Modifier.testTag("assistant:stop"))
         } else {
-            AppButton(words.send, { instance.send() }, enabled = state.draft.isNotBlank(), size = ButtonSize.Default, modifier = Modifier.testTag("assistant:send"))
+            AppButton(words.send, { instance.send() }, enabled = state.draft.isNotBlank() && !state.busy, size = ButtonSize.Default, modifier = Modifier.testTag("assistant:send"))
         }
     }
 }

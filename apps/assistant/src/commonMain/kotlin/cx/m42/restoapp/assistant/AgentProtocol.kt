@@ -170,7 +170,8 @@ public fun chatOf(messages: List<JsonElement>): List<ChatMessage> {
     }
     for (m in messages) {
         val o = m.obj
-        when (o.str("role")) {
+        // Lower case: the cloud's stored history has `User` where ai-sdk writes `user`.
+        when (o.str("role")?.lowercase()) {
             "user" -> {
                 flush()
                 val parts = contentParts(o["content"]).mapNotNull { p ->

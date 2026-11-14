@@ -35,6 +35,8 @@ public data class AssistantState(
     val listOpen: Boolean = false,
     val meta: AgentMeta? = null,
     val draft: String = "",
+    /** A conversation is being created, picked or deleted: nothing is sent until it is done. */
+    val busy: Boolean = false,
 )
 
 /**
@@ -60,6 +62,8 @@ public class AssistantInstance(
     private var transport: AssistantTransport? = null
     private var started = false
     private var runJob: Job? = null
+    /** Bumped by every send: a load that began before it must not put the older history over the new message. */
+    private var sends = 0
 
     override suspend fun onLaunch() {
         runtime.scope.launch {
@@ -82,6 +86,7 @@ public class AssistantInstance(
     private suspend fun ensureTransport(): AssistantTransport = transport ?: transportOf(server).also { transport = it }
 
     private suspend fun load() {
+        val since = sends
         _state.update { it.copy(loading = true, error = null) }
         try {
             val t = ensureTransport()
@@ -95,7 +100,9 @@ public class AssistantInstance(
             val messages = t.history()
             val meta = t.meta()
             _state.update {
-                it.copy(loading = false, messages = messages, conversations = list.items, activeId = list.activeId, meta = meta)
+                // A message sent meanwhile is newer than this history: keep what is on screen.
+                val fresh = since == sends && !it.running
+                it.copy(loading = false, messages = if (fresh) messages else it.messages, conversations = list.items, activeId = list.activeId, meta = meta)
             }
         } catch (c: CancellationException) {
             throw c
@@ -111,7 +118,8 @@ public class AssistantInstance(
     /** Sends the draft (or [text]: a suggestion) as the panel's composer does, and streams the reply. */
     public fun send(text: String = _state.value.draft) {
         val message = text.trim()
-        if (message.isEmpty() || _state.value.running) return
+        if (message.isEmpty() || _state.value.running || _state.value.busy) return
+        sends++
         val user = ChatMessage("local-${_state.value.messages.size}", Role.User, listOf(Part.Text(message)))
         _state.update {
             it.copy(messages = it.messages + user, draft = "", running = true, error = null,
@@ -179,7 +187,8 @@ public class AssistantInstance(
     public fun delete(id: String) = act { it.delete(id) }
 
     private fun act(block: suspend (AssistantTransport) -> Unit) {
-        if (_state.value.running) return
+        if (_state.value.running || _state.value.busy) return
+        _state.update { it.copy(busy = true) }
         runtime.scope.launch {
             try {
                 val t = ensureTransport()
@@ -189,6 +198,8 @@ public class AssistantInstance(
                 throw c
             } catch (e: Throwable) {
                 _state.update { it.copy(error = describe(e)) }
+            } finally {
+                _state.update { it.copy(busy = false) }
             }
         }
     }
