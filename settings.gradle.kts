@@ -63,6 +63,10 @@ include(":apps:settings")
 // (system.plan.md, slice C). The app itself is the declaration and :render.
 include(":apps:system")
 
+// «Ассистент»: the assistant of the context's own admin panel — adminizer's AI panel of the cloud or of a
+// RestoApp server — in a chat drawn here (assistant.plan.md). The model, tools and history are the panel's.
+include(":apps:assistant")
+
 // A server's apps are not modules any more (plan section 4): the server declares them and one
 // renderer draws them all. The protocol, the in-process demo server, and that renderer.
 include(":protocol")

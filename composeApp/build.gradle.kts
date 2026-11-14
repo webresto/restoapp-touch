@@ -121,6 +121,8 @@ kotlin {
             implementation(project(":apps:marketing"))
             implementation(project(":apps:settings"))
             implementation(project(":apps:system"))
+            // «Ассистент»: the assistant of the context's admin panel (assistant.plan.md).
+            implementation(project(":apps:assistant"))
         }
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)

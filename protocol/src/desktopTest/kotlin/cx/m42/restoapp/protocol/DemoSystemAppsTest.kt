@@ -288,6 +288,7 @@ class DemoSystemAppsTest {
     /** The menu of a client that cached the old declaration must change: the revision is what tells it to ask again. */
     @Test
     fun theRevisionMovedWithTheDeclaration(): Unit = runBlocking {
-        assertTrue(demo().describe("demo", "ru").value.revision.endsWith("-4"))
+        // -5: «Ассистент» joined the administrator's apps (assistant.plan.md).
+        assertTrue(demo().describe("demo", "ru").value.revision.endsWith("-5"))
     }
 }

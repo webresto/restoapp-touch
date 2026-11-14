@@ -115,6 +115,7 @@ public class DemoBackend(
                 CHANNELS -> system.channels(method, params, current, words)
                 SETTINGS -> system.settings(method, params, current, words)
                 SYSTEM -> system.system(method, params, current, words)
+                ASSISTANT -> assistantSession(words)
                 else -> fail(MobileApiException.FORBIDDEN, "Method is not available")
             }
             Answer(result, declaration.revision, PROTOCOL_VERSION)
@@ -156,11 +157,11 @@ public class DemoBackend(
             // «Маркетинг»: both rights of the section. The marketer may not read an order, so the money of
             // the applications is not in their declaration at all (`marketing.plan.md`, the summary by rights).
             if (role == DemoRole.Admin || role == DemoRole.Marketer) marketingApp(words, money = role == DemoRole.Admin) else null,
-        ) + if (role == DemoRole.Admin) listOf(channelsApp(words), settingsApp(words), systemApp(words)) else emptyList()
+        ) + if (role == DemoRole.Admin) listOf(channelsApp(words), settingsApp(words), systemApp(words), assistantApp(words)) else emptyList()
         val used = apps.flatMap { it.places }.toSet()
         return Declaration(
             protocolVersion = PROTOCOL_VERSION,
-            revision = "demo-${role.name.lowercase()}-${places.joinToString(",") { it.id }}-4",
+            revision = "demo-${role.name.lowercase()}-${places.joinToString(",") { it.id }}-5",
             server = ServerFacts(serverName, VERSION, currency = "RUB", timezone = "Europe/Moscow", locale = "ru"),
             user = DeclaredUser(JsonPrimitive(role.ordinal + 1), loginOf(role), fullName = fullNameOf(role, words), isAdministrator = role == DemoRole.Admin),
             places = places.filter { it.id in used }.sortedBy { it.title },

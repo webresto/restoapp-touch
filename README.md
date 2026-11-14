@@ -55,6 +55,20 @@ window against it:
   -Pcloud.login=user2 -Pcloud.password=user2 -Pcloud.login2=admin -Pcloud.password2=admin
 ```
 
+## Assistant
+
+«Ассистент» (`apps/assistant`, `.ai-notes/assistant.plan.md`) is the assistant of the context's own admin panel — Resto
+Cloud Assistant for a cloud account, the RestoApp assistant for a server — in a chat drawn here. The context declares it
+(`client: {native: "assistant"}`) and its `assistant.session` gives a short session of adminizer's AI panel; the app then
+speaks the panel's own agent routes (runs and their SSE stream), so the conversations are the ones of the web. The demo
+administrator has a canned one. Against a cloud panel on this computer without an LLM key:
+
+```bash
+node tools/fake-llm/serve.mjs 17321 &   # the panel: CLOUD_AI_ENABLED=true CLOUD_AI_API_KEY=fake CLOUD_AI_BASE_URL=http://127.0.0.1:17321/v1 CLOUD_AI_MODEL=fake
+./gradlew :apps:assistant:desktopTest :composeApp:desktopTest --rerun --tests '*Assistant*' \
+  -Passistant.url=http://127.0.0.1:17320 -Pcloud.url=http://127.0.0.1:17320 -Pcloud.login=user1 -Pcloud.password=user1
+```
+
 ## iPhone
 
 `iosApp/` is the Xcode project, `composeApp/src/iosMain` the host on iOS. Linking needs a Mac with

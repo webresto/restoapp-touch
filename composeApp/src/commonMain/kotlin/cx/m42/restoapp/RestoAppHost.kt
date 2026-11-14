@@ -20,6 +20,7 @@ import cx.m42.restoapp.marketing.MarketingScreens
 import cx.m42.restoapp.settings.SettingsScreens
 import cx.m42.restoapp.system.SystemScreens
 import cx.m42.restoapp.render.RestoServer
+import cx.m42.restoapp.assistant.AssistantApp
 import cx.m42.restoapp.pos.PosApp
 import cx.m42.restoapp.script.ScriptApp
 import cx.m42.restoapp.render.ServerApp
@@ -361,6 +362,8 @@ public class RestoAppHost(
         val apps = declaration?.apps.orEmpty().filter(ServerApp::canShow).map { app ->
             when {
                 PosApp.canDraw(app) -> PosApp(app, live.lang)
+                // The assistant of this context's panel — the cloud's or the server's, the same chat.
+                AssistantApp.canDraw(app) -> AssistantApp(app, live.lang)
                 ScriptApp.canRun(app) -> ScriptApp(app, live.lang) { declared -> live.script(declared) }
                 else -> ServerApp(app, live.lang)
             }

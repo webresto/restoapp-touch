@@ -66,10 +66,12 @@ class DemoContractTest {
                 "channels" to emptyList(),
                 "settings" to emptyList(),
                 "system" to emptyList(),
+                "assistant" to emptyList(),
             ),
             ids(admin),
         )
         assertEquals("pos", admin.app("pos")?.native)
+        assertEquals("assistant", admin.app("assistant")?.native)
         assertEquals(null, admin.app("orders")?.native)
         demo.setRole(DemoRole.Stock)
         assertEquals(mapOf("dishes" to listOf("p1", "p2")), ids(demo.describe("demo", "ru").value))

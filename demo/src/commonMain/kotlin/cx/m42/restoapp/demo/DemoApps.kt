@@ -33,6 +33,7 @@ internal const val ORDERS = "orders"
 internal const val CLIENTS = "clients"
 internal const val POS = "pos"
 internal const val MARKETING = "marketing"
+internal const val ASSISTANT = "assistant"
 
 /** The hook's `locales/` for «Блюда», and the plan's words for «Заказы». */
 internal class DemoWords(lang: String) {
@@ -884,3 +885,37 @@ private fun savePromotionInput(): JsonObject = buildJsonObject {
         },
     )
 }
+
+/** Material Symbols "smart_toy" — the icon of «Ассистент» in the cloud too. */
+private const val ASSISTANT_ICON =
+    "M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v4c0 1.1.9 2 2 2h12" +
+        "c1.1 0 2-.9 2-2v-4c1.66 0 3-1.34 3-3s-1.34-3-3-3zM7.5 11.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5S9.83 13 9 13s-1.5-.67-1.5-1.5z" +
+        "M16 17H8v-2h8v2zm-1-4c-.83 0-1.5-.67-1.5-1.5S14.17 10 15 10s1.5.67 1.5 1.5S15.83 13 15 13z"
+
+/**
+ * «Ассистент» as a server declares it (`.ai-notes/assistant.plan.md`): drawn by the client, one method — the session
+ * of the panel's agent. The demo's session says `transport: "demo"`, and the client talks to its canned assistant.
+ */
+internal fun assistantApp(words: DemoWords): DeclaredApp = DeclaredApp(
+    id = ASSISTANT,
+    version = "1.0.0",
+    title = words.t("Ассистент", "Assistant"),
+    icon = Icon(ASSISTANT_ICON),
+    category = words.t("Помощь", "Help"),
+    home = "assistant.session",
+    scope = DeclaredApp.SCOPE_SERVER,
+    client = ClientRender(native = "assistant", min = 1),
+    methods = listOf(
+        DeclaredMethod(name = "assistant.session", kind = DeclaredMethod.KIND_QUERY, title = words.t("Демо-ассистент", "Demo assistant"), input = objectSchema(emptyList(), emptyMap())),
+    ),
+)
+
+internal fun assistantSession(words: DemoWords): JsonObject = JsonObject(
+    mapOf(
+        "transport" to JsonPrimitive("demo"),
+        "model" to JsonPrimitive("demo"),
+        "title" to JsonPrimitive(words.t("Демо-ассистент", "Demo assistant")),
+        "base" to JsonPrimitive("demo://assistant"),
+        "cookie" to JsonObject(mapOf("name" to JsonPrimitive("demo"), "value" to JsonPrimitive("demo"))),
+    ),
+)
