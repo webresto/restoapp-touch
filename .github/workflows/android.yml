@@ -45,7 +45,11 @@ jobs:
       - name: Android SDK
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
+      # The default branch is mobile-client, and setup-gradle writes its cache only there unless told
+      # otherwise; main writes, the rest read (ios.yml).
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       # The run number is the versionCode (composeApp/build.gradle.kts), so a newer APK installs over an older one.
       - name: Build the debug APK

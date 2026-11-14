@@ -49,7 +49,38 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # The default branch is mobile-client, and setup-gradle writes its cache only there unless told
+      # otherwise: every build on main started from an empty ~/.gradle (145 tasks of 145 executed).
+      # main writes, the rest read — as in Unitool's android-play.yml and agentiz-client.
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      # ~/.konan — the Kotlin/Native compiler, LLVM and the iOS platform klibs — is not part of
+      # ~/.gradle and was downloaded on every run. Restore and save are split, so the toolchain is kept
+      # even when the Xcode build fails after it: actions/cache saves only at the end of a green job.
+      - name: Restore Kotlin/Native toolchain
+        id: konan-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: |
+            konan-${{ runner.os }}-${{ runner.arch }}-
+
+      # The framework is linked here, before Xcode, so the build phase of iosApp finds it UP-TO-DATE.
+      # Gradle's output is then visible task by task (under xcodebuild it comes in one piece at the
+      # end), a Kotlin error is read here, not in xcodebuild.log, and Xcode gets a warm daemon.
+      # The very task embedAndSignAppleFrameworkForXcode builds for Release on a device.
+      - name: Link the Kotlin framework
+        run: ./gradlew :composeApp:linkReleaseFrameworkIosArm64
+
+      - name: Save Kotlin/Native toolchain
+        if: steps.konan-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.konan
+          key: ${{ steps.konan-cache.outputs.cache-primary-key }}
 
       # The build number is the run number, so two installs never carry the same CFBundleVersion.
       - name: Build for a device, unsigned
