@@ -151,7 +151,9 @@ tasks.withType<Test>().configureEach {
     (findProperty("restoapp.serverUrl") as String?)?.let { systemProperty("restoapp.serverUrl", it) }
     // CloudServerTest: the cloud panel (cloud-panel, layers/app-mobile-api) — `-Pcloud.url=http://localhost:17280`
     // and an account of it, `-Pcloud.login=user2 -Pcloud.password=user2` (a second one: `-Pcloud.login2/password2`).
-    listOf("cloud.url", "cloud.login", "cloud.password", "cloud.login2", "cloud.password2").forEach { name ->
+    // CloudServerTest's fleet: `-Pcloud.fleetLogin=` of cloud-panel's test/mobile-app/fleet-fixture.mjs and a RestoApp of
+    // one's own, `-Prestoapp.localUrl=http://127.0.0.1:4851` (tools/fake-server).
+    listOf("cloud.url", "cloud.login", "cloud.password", "cloud.login2", "cloud.password2", "cloud.fleetLogin", "cloud.fleetPassword", "restoapp.localUrl").forEach { name ->
         (findProperty(name) as String?)?.let { systemProperty(name, it) }
     }
 }

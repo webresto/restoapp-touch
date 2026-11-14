@@ -310,7 +310,28 @@ public object Tones {
  * (`POST /api/mobile/auth/register`) — Resto Cloud in test mode; a RestoApp never says so.
  */
 @Serializable
-public data class ServerAbout(val name: String, val version: String? = null, val registration: Boolean = false)
+public data class ServerAbout(
+    val name: String,
+    val version: String? = null,
+    val registration: Boolean = false,
+    /** A Resto Cloud account, not a RestoApp: its servers come from `/cloud/servers` and sit under it in the switcher. */
+    val cloud: Boolean = false,
+)
+
+/** A server (a RestoApp service) of a cloud account, as `GET /api/mobile/cloud/servers` lists it. */
+@Serializable
+public data class CloudServer(
+    val id: String,
+    val title: String,
+    /** starting, online, stopping, stopped, error, deleting. */
+    val status: String,
+    val url: String? = null,
+    val adminUrl: String? = null,
+)
+
+/** How to sign in to one server of the account: its address and the RestoApp administrator the cloud made for it. */
+@Serializable
+public data class CloudServerAccess(val url: String, val login: String, val password: String, val status: String? = null)
 
 @Serializable
 public data class SignedInUser(
