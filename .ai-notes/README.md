@@ -303,7 +303,8 @@
   `.secrets/keystore.properties`, без ключа собирается неподписанным.
   - JVM-код общий для десктопа и Android — группа `jvmAndAndroid` в иерархии source set-ов
     (`protocol`: решатель PoW, `render`: даты на java.time через desugaring, `script`: QuickJS).
-    Поэтому на Android, в отличие от iOS, **настоящий сервер открывается** — CAPTCHA решается.
+    Поэтому на Android **настоящий сервер открывается** — CAPTCHA решается. На iOS с 2026-11-14 — тоже:
+    `KotlinPuzzleSolver` в `commonMain` (свои большие числа и крипто), решатель по умолчанию у `RestoAppHost`.
   - Хранилище по серверам (Q4) — без правки Superizer: `AndroidServerStore` даёт `PrefsStorage.init`
     контекст, у которого `SharedPreferences` свои на сервер (`restoapp.server.<id>`). Файлы
     сервера — `files/restoapp/servers/<id>/`, как на десктопе. Токен — файл, не Keystore; в
@@ -328,6 +329,28 @@ macOS считала **правую и среднюю кнопки мыши за
 указатель для него так и не отпускался. Лечится нажатием и отпусканием правой и средней кнопок
 (или переподключением мыши). Нажатия через Accessibility при этом работают — по этому и видно.
 Тест `clickingTheBurgerWithAMouseOpensTheDrawer` держит, что сам хост мышь понимает.
+
+## На iPhone «Не получилось решить задачу входа» (2026-11-14)
+
+Вход по паролю в облако (dev.resto.cloud, аккаунт `e2emwehunh2`) и на любой настоящий сервер с iPhone
+всегда кончался этой строкой. Сервер ни при чём: тот же логин через `POST /api/mobile/auth/login` и
+Kotlin-клиент на десктопе входили, а в `mobile_device` панели не появилось ни одного устройства с телефона.
+
+- **Причина.** `MainViewController` не передавал `solver`, а по умолчанию `RestoAppHost` брал заглушку,
+  которая бросала `PowException`: `CryptoPuzzleSolver` — JVM-код (`jvmAndAndroidMain`). `signInTo`
+  пробует задачу дважды и отдаёт исключение наверх; `HostWords.failure` любое не-`MobileApiException`
+  показывает как «Не получилось решить задачу входа», поэтому было похоже на сбой CAPTCHA, а не на
+  «нет решателя».
+- **Исправление.** `KotlinPuzzleSolver` в `protocol/commonMain` — crypto-puzzle 5 на чистом Kotlin:
+  свои большие числа (возведение в квадрат — умножение Монтгомери на 32-битных limbs) и `PuzzleCrypto`
+  (SHA-256, HMAC, PBKDF2, AES-GCM). Это решатель по умолчанию у `RestoAppHost`, iOS передаёт его явно.
+  Десктоп и Android по-прежнему на JDK-шном `CryptoPuzzleSolver`. Тесты — `KotlinPuzzleSolverTest`:
+  все задачи `pow-testdata.json` (в т. ч. с ключом, начинающимся с нулевого байта) и сверка с JDK.
+- **Скорость.** На задаче dev новый решатель на JVM — 2,8 с, `CryptoPuzzleSolver` — 10,5 с. Кандидат и
+  для Android, где `BigInteger` медленнее.
+- **Что осталось.** Ошибка показывается внизу формы (`problem` после кнопок) и на телефоне уходит под
+  клавиатуру — сначала казалось, что «ошибки нет». На стороне панели метка CAPTCHA —
+  `mobile-login:<req.ip>`, а `req.ip` на dev — адрес ingress: одна метка на всех клиентов.
 
 ## Открытые вопросы
 

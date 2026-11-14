@@ -80,9 +80,9 @@ build signed by its own debug key, which a phone installs as is.
 
 What does not work on iOS yet (`order-entry.plan.md`, «Платформы»):
 
-- A real server: there is no PoW solver for the login CAPTCHA, so signing in opens only the demo servers. A
-  server signed in on another device comes over by «Перенос входов» (a file, no CAPTCHA). iOS also refuses
-  plain `http://` addresses until `Info.plist` allows them.
+- Plain `http://` addresses: iOS refuses them until `Info.plist` allows them. (The login CAPTCHA of a
+  real server is solved by `KotlinPuzzleSolver`, the plain-Kotlin solver, since 2026-11-14; «Перенос входов»
+  brings the sign-ins of another device without a CAPTCHA.)
 - Storage per server: `PrefsStorage` has one suite, so Home, the language and the apps' data are shared.
 - The device token is a protected file, not the Keychain.
 - The app has no icon yet.

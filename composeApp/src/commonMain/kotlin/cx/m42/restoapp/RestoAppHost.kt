@@ -11,7 +11,7 @@ import cx.m42.restoapp.protocol.DeviceInfo
 import cx.m42.restoapp.protocol.HttpMobileApi
 import cx.m42.restoapp.protocol.MobileApi
 import cx.m42.restoapp.protocol.MobileApiException
-import cx.m42.restoapp.protocol.PowException
+import cx.m42.restoapp.protocol.KotlinPuzzleSolver
 import cx.m42.restoapp.protocol.PowSolver
 import cx.m42.restoapp.protocol.ProtocolJson
 import cx.m42.restoapp.protocol.ServerAbout
@@ -111,8 +111,8 @@ public class RestoAppHost(
     private val debug: Boolean,
     /** What the server's list of devices calls this one. */
     private val device: DeviceInfo = DeviceInfo("RestoApp", "desktop"),
-    /** The login CAPTCHA's solver: the JVM's on desktop. */
-    private val solver: PowSolver = PowSolver { _, _ -> throw PowException("This platform cannot solve the CAPTCHA yet") },
+    /** The login CAPTCHA's solver: the JVM's on desktop and Android, the plain-Kotlin one elsewhere (iOS). */
+    private val solver: PowSolver = KotlinPuzzleSolver,
     /** The one network every server shares; Ktor by default. */
     network: NetworkService? = null,
     private val clock: () -> Long = { SystemClock.now() },

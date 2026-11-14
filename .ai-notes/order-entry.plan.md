@@ -457,7 +457,7 @@ URL, клиент грузит через `NetworkService` и кеширует �
 
 | Что | Сейчас | Нужно |
 |---|---|---|
-| Решатель PoW | `CryptoPuzzleSolver` в `desktopMain`, на JVM-крипто | Общая реализация: sha256 и AES из `commonMain` (своя или мультиплатформенной библиотекой), тесты на тех же задачах настоящего crypto-puzzle (`tools/pow-testdata.mjs`) |
+| Решатель PoW | **Готово (2026-11-14):** `KotlinPuzzleSolver` в `commonMain` — свои большие числа (Монтгомери), SHA-256/HMAC/PBKDF2 и AES-GCM (`PuzzleCrypto`), решатель по умолчанию у `RestoAppHost` (iOS); десктоп и Android — по-прежнему `CryptoPuzzleSolver` на JDK | Тесты — `KotlinPuzzleSolverTest` на тех же задачах настоящего crypto-puzzle (`tools/pow-testdata.mjs`) и против JDK |
 | Хранилище по серверам | `PrefsStorage.useDirectory` — только десктоп (Q4) | Префикс ключей в Superizer: один `PrefsStorage` на процесс, но свой раздел у каждого сервера |
 | Токен устройства | файл `session.json` с правами 600 | Сейф платформы: Keychain (iOS, macOS), EncryptedSharedPreferences / Keystore (Android), для веба — политика хранения отдельно; `SecretVault` одной реализацией на хост |
 | Картинки каталога | загрузчика нет нигде | Свой маленький загрузчик на `NetworkService` с кешем в хранилище сервера либо coil3; решить вместе с фотографиями |

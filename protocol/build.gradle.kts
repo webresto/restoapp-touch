@@ -7,8 +7,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
  * `NetworkService`; the PoW solver for the login CAPTCHA.
  *
  * No Compose and no host: the renderer, the demo server and the host all speak through this.
- * The solver is JVM code, in `jvmAndAndroidMain`: the desktop and Android share it, iOS has no solver
- * yet, and it and the web will need their own big integers.
+ * Two solvers: the JDK's in `jvmAndAndroidMain` (the desktop and Android share it) and the plain-Kotlin
+ * `KotlinPuzzleSolver` in `commonMain`, with big integers and crypto of its own, for iOS (and the web).
  */
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
