@@ -82,6 +82,18 @@ public class HttpMobileApi(
         return result
     }
 
+    /** The servers of a Resto Cloud account (an extension of protocol 1, only where [ServerAbout.cloud]). */
+    public suspend fun cloudServers(token: String): List<CloudServer> {
+        val answer = send(NetworkRequest("GET", "$api/cloud/servers", HEADERS + bearer(token))).value as? JsonObject
+            ?: throw MobileApiException(MobileApiException.PROTOCOL, "No servers in the answer")
+        val items = answer["items"] as? JsonArray ?: throw MobileApiException(MobileApiException.PROTOCOL, "No servers in the answer")
+        return items.map { decode(it, CloudServer.serializer()) }
+    }
+
+    /** The address and the administrator of one server of the account, to sign in to it. */
+    public suspend fun cloudServerAccess(token: String, id: String): CloudServerAccess =
+        decode(post("$api/cloud/servers/$id/connect", JsonObject(emptyMap()), token).value, CloudServerAccess.serializer())
+
     override suspend fun logout(token: String) {
         post("$api/auth/logout", JsonObject(emptyMap()), token)
     }

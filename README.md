@@ -99,6 +99,12 @@ variables are there, and unsigned otherwise — `RELEASING.md`. A real server wo
 solver is the desktop's, `jvmAndAndroidMain`), and each server has its own `SharedPreferences`.
 Plain `http://` addresses are refused, as on iOS.
 
+«Управление серверами → Перенос входов» (Android and the desktop) saves every server but the demo ones, with its
+device token, to a file sealed by a password (`AuthFile.kt`: PBKDF2-HMAC-SHA256, ChaCha20, HMAC-SHA256 — common
+code, so a file written on one platform opens on any) and loads such a file in another app. A copy of the
+sign-in, not a move: to the servers both are one device. The file dialogs are the platform's (`AuthFiles`:
+`DesktopAuthFiles`, `AndroidAuthFiles` over the Storage Access Framework); iOS has none yet, and no such section.
+
 ## How it is put together
 
 ```

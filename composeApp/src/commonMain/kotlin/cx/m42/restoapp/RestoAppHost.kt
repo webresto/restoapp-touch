@@ -42,8 +42,12 @@ import cx.m42.superizer.runtime.HostInfo
 import cx.m42.superizer.runtime.HostLifecycle
 import cx.m42.superizer.runtime.NetworkService
 import cx.m42.superizer.ui.shell.SuperizerShell
+import kotlinx.coroutines.delay
+import cx.m42.restoapp.render.ServerStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -62,6 +66,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 
@@ -113,8 +118,20 @@ public class RestoAppHost(
     private val clock: () -> Long = { SystemClock.now() },
     /** Where «Resto Cloud» of "Подключить сервер" leads; another one for a cloud panel on a laptop. */
     internal val cloudAddress: String = ServerProfile.CLOUD_ADDRESS,
+    /** «Сохранить в файл» and «Загрузить из файла» of the sign-ins; none — no «Перенос входов». Android sets it per activity. */
+    files: AuthFiles? = null,
     private val extra: SuperizerBuilder.() -> Unit = {},
 ) : ContextPort {
+
+    private val _files = MutableStateFlow(files)
+    internal val filesFlow: StateFlow<AuthFiles?> get() = _files.asStateFlow()
+
+    /** The platform's file dialogs: Android's are its activity's, so a new activity sets its own. */
+    public var files: AuthFiles?
+        get() = _files.value
+        set(value) {
+            _files.value = value
+        }
 
     private val network: NetworkService by lazy { network ?: KtorNetworkService(KtorNetworkService.defaultClient()) }
 
@@ -128,13 +145,26 @@ public class RestoAppHost(
     private val _servers = MutableStateFlow(list.value.servers)
     public val servers: StateFlow<List<ServerProfile>> get() = _servers.asStateFlow()
 
+    /** The language of the switcher's words (statuses): the person's, followed from the Superizer in force. */
+    private var lang: String = "ru"
+
     private val _contexts = MutableStateFlow(list.value.servers.map { it.toContext() })
     override val contexts: StateFlow<List<HostContext>> get() = _contexts.asStateFlow()
 
     private val _current = MutableStateFlow<HostContext?>(list.value.currentProfile().toContext())
     override val current: StateFlow<HostContext?> get() = _current.asStateFlow()
 
-    override val addScreen: HostScreen = AddServerScreen(this)
+    override val addScreen: HostScreen = AddServerScreen(this, cloudAccount = false)
+
+    /** «Подключить сервер» — a RestoApp by its address or the demo; «Подключить облачный аккаунт» — Resto Cloud. */
+    override val addScreens: List<HostScreen> = listOf(addScreen, AddServerScreen(this, cloudAccount = true))
+
+    /** Why a server of a cloud account could not be signed in to, by server id: the Home banner says it. */
+    private val _cloudProblems = MutableStateFlow<Map<String, String>>(emptyMap())
+    internal val cloudProblems: StateFlow<Map<String, String>> get() = _cloudProblems.asStateFlow()
+
+    /** One reconciliation of the list at a time: two syncs at once would add a server twice. */
+    private val listing = Mutex()
     override val manageScreen: HostScreen = ManageServersScreen(this)
 
     /** One switch or rebuild at a time: two in a row must not build two Superizers on one storage. */
@@ -155,11 +185,19 @@ public class RestoAppHost(
         SystemScreens.register()
         // Only now: what the server says may rebuild the Superizer, and that needs `active`.
         _active.value.session.refreshInBackground()
+        // The servers of every cloud account, now and then every minute: one started in the cloud shows up by itself.
+        scope.launch {
+            while (true) {
+                syncAllCloud()
+                delay(CLOUD_SYNC_MS)
+            }
+        }
+        signInToCloudServerIfNeeded(_active.value)
     }
 
     override fun title(langTag: String): String = if (langTag.startsWith("ru")) "Серверы" else "Servers"
 
-    override fun previous(): HostContext? = list.value.find(list.value.previous)?.toContext()
+    override fun previous(): HostContext? = list.value.find(list.value.previous)?.toContext(lang)
 
     override fun switchTo(id: String) {
         scope.launch { switchNow(id) }
@@ -180,6 +218,105 @@ public class RestoAppHost(
         save(list.value.copy(current = id, previous = old.profile.id))
         _active.value = connect(target, language, session = null)
         _active.value.session.refreshInBackground()
+        signInToCloudServerIfNeeded(_active.value)
+        scope.launch { syncAllCloud() }
+    }
+
+    // ------------------------------------------------------------------ cloud accounts and their servers
+
+    /** Brings the servers of every cloud account on the list in step with the cloud. */
+    public suspend fun syncAllCloud() {
+        list.value.servers.filter { it.cloud }.forEach { account -> runCatching { syncCloud(account.id) } }
+    }
+
+    /**
+     * The servers of one cloud account, all of them, right under it: new ones added, gone ones removed with what they
+     * kept, names, addresses and statuses refreshed. The person does not pick them — an account brings its servers.
+     */
+    public suspend fun syncCloud(accountId: String) {
+        val account = list.value.find(accountId)?.takeIf { it.cloud } ?: return
+        val token = storedToken(accountId) ?: return
+        val servers = HttpMobileApi(account.address, network).cloudServers(token)
+        listing.withLock {
+            val now = list.value
+            val existing = now.servers.filter { it.parent == accountId }.associateBy { it.cloudId }
+            val children = servers.map { server ->
+                val known = existing[server.id]
+                ServerProfile(
+                    id = known?.id ?: childId(accountId, server.id, now),
+                    name = server.title,
+                    address = server.url ?: known?.address ?: "${account.address}/#${server.id}",
+                    parent = accountId,
+                    cloudId = server.id,
+                    status = server.status,
+                )
+            }.sortedBy { it.name.lowercase() }
+            val keep = children.map { it.id }.toSet()
+            val gone = now.servers.filter { it.parent == accountId && it.id !in keep && it.id != now.current }
+            // Every account, then its servers; servers of an account that is gone go with it.
+            val ordered = buildList {
+                now.servers.filter { it.parent == null }.forEach { profile ->
+                    add(profile)
+                    if (profile.id == accountId) addAll(children)
+                    else addAll(now.servers.filter { it.parent == profile.id })
+                }
+                // The one in force that the cloud no longer has stays until the person leaves it.
+                now.servers.firstOrNull { it.id == now.current && it.parent == accountId && it.id !in keep }?.let { add(it) }
+            }
+            if (ordered != now.servers) save(now.copy(servers = ordered))
+            gone.forEach { store.erase(it.id) }
+        }
+    }
+
+    /**
+     * Signs in to a server of a cloud account: the cloud gives its address and its administrator, the server's own
+     * mobile API takes them (with its CAPTCHA) and gives this device a token of its own. A failure is kept for the
+     * Home banner, which offers to try again.
+     */
+    internal suspend fun connectCloudServer(serverId: String) {
+        val connection = _active.value.takeIf { it.profile.id == serverId } ?: return
+        val profile = connection.profile
+        val account = profile.parent?.let { list.value.find(it) } ?: return
+        val cloudId = profile.cloudId ?: return
+        _cloudProblems.value = _cloudProblems.value - serverId
+        try {
+            val token = storedToken(account.id) ?: throw MobileApiException(MobileApiException.UNAUTHORIZED, "The cloud account is signed out")
+            val access = HttpMobileApi(account.address, network).cloudServerAccess(token, cloudId)
+            if (access.url.trimEnd('/') != profile.address.trimEnd('/')) {
+                // The cloud moved it: the session is bound to the old address, so build the server again.
+                listing.withLock { save(list.value.copy(servers = list.value.servers.map { if (it.id == serverId) it.copy(address = access.url) else it })) }
+                rebuildFresh(serverId)
+            }
+            _active.value.takeIf { it.profile.id == serverId }?.session?.signIn(access.login, access.password) {}
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            _cloudProblems.value = _cloudProblems.value + (serverId to HostWords(lang).cloudServerFailure(failure))
+        }
+    }
+
+    private fun signInToCloudServerIfNeeded(connection: Connection) {
+        if (connection.profile.parent != null && connection.session.status.value == ServerStatus.SignedOut) {
+            scope.launch { connectCloudServer(connection.profile.id) }
+        }
+    }
+
+    /** The server again, on a new session: its address changed. */
+    private suspend fun rebuildFresh(serverId: String): Unit = switching.withLock {
+        val old = _active.value
+        if (old.profile.id != serverId) return@withLock
+        val language = old.superizer.settings.langTag.value
+        old.leave()
+        old.session.close()
+        _active.value = connect(list.value.find(serverId) ?: return@withLock, language, session = null)
+    }
+
+    private fun storedToken(serverId: String): String? = storedSession(serverId)?.token
+
+    private fun childId(accountId: String, cloudId: String, now: ServerList): String {
+        val base = "$accountId--${cloudId.take(8)}"
+        val taken = now.servers.map { it.id }.toSet()
+        return if (base !in taken) base else generateSequence(2) { it + 1 }.map { "$base-$it" }.first { it !in taken }
     }
 
     /** Builds the server in force again on the same session — its menu changed. */
@@ -211,12 +348,14 @@ public class RestoAppHost(
      * Signs in to the server at [base] and adds it, already signed in and with its declaration, then
      * goes to it. Throws what the sign-in throws; nothing is added then.
      */
-    internal suspend fun addServer(base: String, name: String, login: String, password: String, progress: (Float) -> Unit) {
+    internal suspend fun addServer(base: String, name: String, login: String, password: String, cloud: Boolean = false, progress: (Float) -> Unit) {
         val api = HttpMobileApi(base, network)
         val result = signInTo(api, solver, login, password, device, progress)
-        val profile = ServerProfile(id = uniqueId(slug(base)), name = name.trim().ifEmpty { hostOf(base) }, address = base)
+        val profile = ServerProfile(id = uniqueId(slug(base)), name = name.trim().ifEmpty { hostOf(base) }, address = base, cloud = cloud)
         store.write(profile.id, ServerSession.SESSION, ProtocolJson.encodeToString(StoredSession.serializer(), StoredSession(result.token, result.user.login)), private = true)
         save(list.value.copy(servers = list.value.servers + profile))
+        // A cloud account brings its servers at once, before the switch: the switcher shows them under it.
+        if (cloud) runCatching { syncCloud(profile.id) }
         // On the host's scope: the screen that asked goes away with the Superizer it was drawn in.
         scope.launch { switchNow(profile.id) }.join()
     }
@@ -247,9 +386,10 @@ public class RestoAppHost(
             if (failure.code != MobileApiException.CAPTCHA_INVALID) throw failure
             attempt()
         }
-        val profile = ServerProfile(id = uniqueId(slug(base)), name = name.trim().ifEmpty { hostOf(base) }, address = base)
+        val profile = ServerProfile(id = uniqueId(slug(base)), name = name.trim().ifEmpty { hostOf(base) }, address = base, cloud = true)
         store.write(profile.id, ServerSession.SESSION, ProtocolJson.encodeToString(StoredSession.serializer(), StoredSession(result.token, result.user.login)), private = true)
         save(list.value.copy(servers = list.value.servers + profile))
+        runCatching { syncCloud(profile.id) }
         scope.launch { switchNow(profile.id) }.join()
     }
 
@@ -260,23 +400,129 @@ public class RestoAppHost(
 
     /** Moves a server up ([by] < 0) or down the list, which is also the Ctrl+n order. */
     public fun move(id: String, by: Int) {
-        val servers = list.value.servers.toMutableList()
-        val from = servers.indexOfFirst { it.id == id }
-        val to = (from + by).coerceIn(0, servers.lastIndex)
+        // A cloud account moves with its servers; the servers themselves keep the cloud's order under it.
+        val all = list.value.servers
+        val groups = all.filter { it.parent == null }.map { top -> listOf(top) + all.filter { it.parent == top.id } }.toMutableList()
+        val from = groups.indexOfFirst { it.first().id == id }
+        val to = (from + by).coerceIn(0, groups.lastIndex)
         if (from < 0 || from == to) return
-        servers.add(to, servers.removeAt(from))
-        save(list.value.copy(servers = servers))
+        groups.add(to, groups.removeAt(from))
+        save(list.value.copy(servers = groups.flatten()))
     }
 
     /** Forgets a server and everything it kept. Not the one in force: switch away first. */
     public fun remove(id: String) {
-        if (id == list.value.current) return
-        val next = list.value.copy(
-            servers = list.value.servers.filterNot { it.id == id },
-            previous = list.value.previous.takeIf { it != id },
+        val now = list.value
+        // A cloud account goes with its servers; none of them may be the one in force.
+        val leaving = setOf(id) + now.servers.filter { it.parent == id }.map { it.id }
+        if (now.current in leaving) return
+        val next = now.copy(
+            servers = now.servers.filterNot { it.id in leaving },
+            previous = now.previous.takeIf { it !in leaving },
         )
         save(next)
-        store.erase(id)
+        leaving.forEach { store.erase(it) }
+    }
+
+    // ------------------------------------------------------------------ the file of sign-ins
+
+    /** What a file made now would carry: every server but the demo ones. */
+    internal fun transferable(): List<ServerProfile> = list.value.servers.filter { !it.isDemo }
+
+    /**
+     * Every server but the demo ones, with the token it is signed in by, sealed by [password] ([AuthFile]). A copy:
+     * this device stays signed in, and the other one is, to the servers, this same device.
+     */
+    internal suspend fun exportAuth(password: String): ByteArray {
+        val entries = transferable().map { profile ->
+            val session = storedSession(profile.id)
+            AuthEntry(
+                id = profile.id,
+                name = profile.name,
+                address = profile.address,
+                cloud = profile.cloud,
+                parent = profile.parent,
+                cloudId = profile.cloudId,
+                login = session?.login,
+                token = session?.token,
+            )
+        }
+        return withContext(Dispatchers.Default) { AuthFile.seal(AuthBundle(entries), password) }
+    }
+
+    /** What a file brought: servers new to the list, servers on it that were signed out and now are not, and the rest. */
+    internal data class ImportReport(val added: Int, val signedIn: Int, val unchanged: Int)
+
+    /**
+     * The servers of a file of sign-ins, onto the list (nothing is switched to). A server already here under the same
+     * login stays as it is; one here signed out takes the file's token; the rest are added, a cloud account's servers
+     * under it. Throws [AuthFileException] for a wrong password or a file that is not one.
+     */
+    internal suspend fun importAuth(bytes: ByteArray, password: String): ImportReport {
+        val bundle = withContext(Dispatchers.Default) { AuthFile.open(bytes, password) }
+        var added = 0
+        var signedIn = 0
+        var unchanged = 0
+        var activeSignedIn = false
+        listing.withLock {
+            val now = list.value
+            val servers = now.servers.toMutableList()
+            val taken = servers.map { it.id }.toMutableSet()
+            fun unique(base: String): String =
+                if (base !in taken) base else generateSequence(2) { it + 1 }.map { "$base-$it" }.first { it !in taken }
+            // The file's id of a server → its id here, so that a cloud account's servers find their account.
+            val local = mutableMapOf<String, String>()
+            val (accounts, children) = bundle.servers.filter { !it.address.startsWith(ServerProfile.DEMO_SCHEME) }.partition { it.parent == null }
+            for (entry in accounts + children) {
+                // A server of an account the file has not got: skipped, the account brings its servers itself.
+                val parent = if (entry.parent == null) null else (local[entry.parent] ?: continue)
+                val existing = servers.firstOrNull { server ->
+                    if (parent != null) {
+                        server.parent == parent && server.cloudId == entry.cloudId
+                    } else {
+                        server.parent == null && server.cloud == entry.cloud &&
+                            server.address.trimEnd('/') == entry.address.trimEnd('/') &&
+                            storedSession(server.id).let { it?.login == entry.login || (it == null && server.name == entry.name) }
+                    }
+                }
+                if (existing != null) {
+                    local[entry.id] = existing.id
+                    if (entry.token != null && entry.login != null && storedSession(existing.id) == null) {
+                        writeSession(existing.id, entry.token, entry.login)
+                        signedIn++
+                        if (existing.id == now.current) activeSignedIn = true
+                    } else {
+                        unchanged++
+                    }
+                    continue
+                }
+                val id = unique(if (parent != null) "$parent--${entry.cloudId.orEmpty().take(8)}" else slug(entry.address))
+                taken += id
+                local[entry.id] = id
+                if (entry.token != null && entry.login != null) writeSession(id, entry.token, entry.login)
+                val profile = ServerProfile(id = id, name = entry.name, address = entry.address, cloud = entry.cloud, parent = parent, cloudId = entry.cloudId)
+                // A cloud account's server right after the account's last one.
+                val at = if (parent == null) servers.size else servers.indexOfLast { it.id == parent || it.parent == parent } + 1
+                servers.add(at, profile)
+                added++
+            }
+            if (servers != now.servers) save(now.copy(servers = servers))
+        }
+        // The server in force was signed out: a session on the token the file brought.
+        if (activeSignedIn) {
+            rebuildFresh(list.value.current)
+            _active.value.session.refreshInBackground()
+        }
+        scope.launch { syncAllCloud() }
+        return ImportReport(added, signedIn, unchanged)
+    }
+
+    private fun storedSession(serverId: String): StoredSession? =
+        store.read(serverId, ServerSession.SESSION)
+            ?.let { runCatching { ProtocolJson.decodeFromString(StoredSession.serializer(), it) }.getOrNull() }
+
+    private fun writeSession(serverId: String, token: String, login: String) {
+        store.write(serverId, ServerSession.SESSION, ProtocolJson.encodeToString(StoredSession.serializer(), StoredSession(token, login)), private = true)
     }
 
     /** The demo's role switch: the declaration changes, and with it the menu. */
@@ -313,8 +559,8 @@ public class RestoAppHost(
         list.value = next
         store.save(json.encodeToString(ServerList.serializer(), next))
         _servers.value = next.servers
-        _contexts.value = next.servers.map { it.toContext() }
-        _current.value = next.currentProfile().toContext()
+        _contexts.value = next.servers.map { it.toContext(lang) }
+        _current.value = next.currentProfile().toContext(lang)
     }
 
     private fun apiOf(profile: ServerProfile): MobileApi =
@@ -348,6 +594,7 @@ public class RestoAppHost(
             device = device,
             solver = solver,
             lang = language ?: "ru",
+            afterMutation = { if (profile.cloud) scope.launch { runCatching { syncCloud(profile.id) } } },
         )
         val leaving = MutableStateFlow(HostLifecycle.Foreground)
         val lifecycle = combine(PlatformLifecycle.state, leaving) { platform, left ->
@@ -405,7 +652,14 @@ public class RestoAppHost(
         val connection = Connection(profile, superizer, live, serverScope, leaving)
 
         serverScope.launch {
-            superizer.settings.langTag.collect { live.changeLanguage(it) }
+            superizer.settings.langTag.collect {
+                live.changeLanguage(it)
+                if (it != lang) {
+                    lang = it
+                    _contexts.value = list.value.servers.map { profile -> profile.toContext(lang) }
+                    _current.value = list.value.currentProfile().toContext(lang)
+                }
+            }
         }
         serverScope.launch {
             // Another menu — apps granted or taken away, a title in another language — is another
@@ -448,3 +702,6 @@ public fun RestoApp(host: RestoAppHost) {
 }
 
 public const val SCHEME: String = "restoapp"
+
+/** How often the servers of the cloud accounts are re-read. */
+internal const val CLOUD_SYNC_MS: Long = 60_000

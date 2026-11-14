@@ -2,6 +2,7 @@ package cx.m42.restoapp
 
 import cx.m42.restoapp.demo.DemoBackend
 import cx.m42.restoapp.protocol.Declaration
+import cx.m42.restoapp.protocol.DeclaredMethod
 import cx.m42.restoapp.protocol.DeclaredApp
 import cx.m42.restoapp.protocol.DeviceInfo
 import cx.m42.restoapp.protocol.LoginResult
@@ -69,6 +70,8 @@ internal class ServerSession(
     private val device: DeviceInfo,
     private val solver: PowSolver,
     lang: String,
+    /** After a mutation went through — a cloud account re-reads its servers: one was just made, started or deleted. */
+    private val afterMutation: () -> Unit = {},
 ) {
     /** The language declarations are asked in: the person's, set by the host when they change it. */
     var lang: String = lang
@@ -236,6 +239,7 @@ internal class ServerSession(
             val answer = api.call(token, method, params, place?.id, lang)
             if (_status.value != ServerStatus.Online) _status.value = ServerStatus.Online
             if (answer.revision != null && answer.revision != declaration.revision) refreshInBackground()
+            if (app.method(method)?.kind == DeclaredMethod.KIND_MUTATION) afterMutation()
             return answer.value
         } catch (cancelled: CancellationException) {
             throw cancelled

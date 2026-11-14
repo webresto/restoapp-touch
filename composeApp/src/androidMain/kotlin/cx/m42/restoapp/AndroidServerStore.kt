@@ -22,7 +22,8 @@ import java.io.IOException
  *
  * Weaker than the plan wants (`order-entry.plan.md`, «Платформы»): the device token is a file only
  * this app can read, not the Keystore. None of it leaves the phone — no backup, no transfer to a new
- * one (`allowBackup`, `data_extraction_rules.xml`).
+ * one (`allowBackup`, `data_extraction_rules.xml`) — but by the person's own hand, in a file sealed
+ * by a password («Перенос входов», `AuthFile.kt`).
  */
 public class AndroidServerStore(context: Context) : ServerStore {
     private val app: Context = context.applicationContext

@@ -1,5 +1,6 @@
 package cx.m42.restoapp
 
+import cx.m42.superizer.ContextStatus
 import cx.m42.superizer.HostContext
 import kotlinx.serialization.Serializable
 
@@ -14,10 +15,31 @@ public data class ServerProfile(
     val name: String,
     /** `https://admin.cafe.ru` — or `demo://<variant>` for the demo server in process. */
     val address: String,
+    /** A Resto Cloud account: its servers ([parent] = this id) are listed under it and kept in step with the cloud. */
+    val cloud: Boolean = false,
+    /** A server of a cloud account — that account's id. Added and removed by the cloud, not by the person. */
+    val parent: String? = null,
+    /** The cloud's id of this server (a service of the account). */
+    val cloudId: String? = null,
+    /** The cloud's status of this server: online, starting, stopped, error… */
+    val status: String? = null,
 ) {
     val isDemo: Boolean get() = address.startsWith(DEMO_SCHEME)
 
-    internal fun toContext(): HostContext = HostContext(id = id, title = name, subtitle = if (isDemo) null else hostOf(address))
+    internal fun toContext(lang: String = "ru"): HostContext {
+        val ru = lang.startsWith("ru")
+        return HostContext(
+            id = id,
+            title = name,
+            subtitle = when {
+                isDemo -> null
+                cloud -> (if (ru) "Аккаунт облака · " else "Cloud account · ") + hostOf(address)
+                else -> hostOf(address)
+            },
+            parent = parent,
+            status = status?.let { statusOf(it, ru) },
+        )
+    }
 
     public companion object {
         public const val DEMO_SCHEME: String = "demo://"
@@ -31,6 +53,17 @@ public data class ServerProfile(
         /** The demo with one point: no point switch, a stock manager's menu. */
         public const val DEMO_POINT: String = "demo://point"
     }
+}
+
+/** The cloud's status of a server as the switcher shows it. */
+internal fun statusOf(status: String, ru: Boolean): ContextStatus = when (status) {
+    "online" -> ContextStatus(if (ru) "работает" else "online", "success")
+    "starting" -> ContextStatus(if (ru) "запускается" else "starting", "warning")
+    "stopping" -> ContextStatus(if (ru) "останавливается" else "stopping", "warning")
+    "stopped" -> ContextStatus(if (ru) "остановлен" else "stopped", "info")
+    "error" -> ContextStatus(if (ru) "ошибка" else "error", "danger")
+    "deleting" -> ContextStatus(if (ru) "удаляется" else "deleting", "warning")
+    else -> ContextStatus(status, null)
 }
 
 /** Every server, the one in force, and the one before it — where a long press goes back to. */

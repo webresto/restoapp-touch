@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -78,10 +79,11 @@ private fun Superizer.lang(): String {
  * solved here, and the server is in force, signed in (plan section 4). The same address may be added
  * under several accounts: the login then goes into the name, so the switcher tells them apart.
  */
-internal class AddServerScreen(private val host: RestoAppHost) : HostScreen {
-    override val id: String = "add-server"
+internal class AddServerScreen(private val host: RestoAppHost, private val cloudAccount: Boolean) : HostScreen {
+    override val id: String = if (cloudAccount) "add-cloud" else "add-server"
 
-    override fun title(langTag: String): String = "Подключить сервер".ru(langTag, "Connect a server")
+    override fun title(langTag: String): String =
+        if (cloudAccount) HostWords(langTag).connectCloud else "Подключить сервер".ru(langTag, "Connect a server")
 
     @Composable
     override fun Content(superizer: Superizer, back: () -> Unit, open: (HostScreen) -> Unit) {
@@ -110,36 +112,37 @@ internal class AddServerScreen(private val host: RestoAppHost) : HostScreen {
                 .verticalScroll(rememberScrollState())
                 .padding(vertical = 12.dp),
         ) {
-            Option(title = words.demoServer, body = words.demoServerHint, tag = "servers:add-demo", onClick = { host.addDemo() })
-            Option(
-                title = words.cloud,
-                body = words.cloudHint,
-                tag = "servers:add-cloud",
-                selected = cloud,
-                onClick = {
-                    if (working != null) return@Option
-                    cloud = true
-                    custom = false
-                    address = host.cloudAddress
-                    found = null
-                    problem = null
-                    working = words.checking
-                    scope.launch {
-                        try {
-                            val result = host.check(address)
-                            found = result
-                            name = result.second.name
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (failure: Exception) {
-                            problem = words.failure(failure)
-                        } finally {
-                            working = null
-                        }
+            fun openCloud() {
+                if (working != null) return
+                cloud = true
+                custom = false
+                address = host.cloudAddress
+                found = null
+                problem = null
+                working = words.checking
+                scope.launch {
+                    try {
+                        val result = host.check(address)
+                        found = result
+                        name = result.second.name
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        problem = words.failure(failure)
+                    } finally {
+                        working = null
                     }
-                },
-            )
-            Option(
+                }
+            }
+            // «Подключить облачный аккаунт» goes straight to the cloud's sign-in.
+            if (cloudAccount) LaunchedEffect(Unit) { openCloud() }
+
+            if (cloudAccount) {
+                Option(title = words.cloud, body = words.cloudHint, tag = "servers:add-cloud", selected = true, onClick = { if (found == null) openCloud() })
+            } else {
+                Option(title = words.demoServer, body = words.demoServerHint, tag = "servers:add-demo", onClick = { host.addDemo() })
+            }
+            if (!cloudAccount) Option(
                 title = words.ownServer,
                 body = words.ownServerHint,
                 tag = "servers:add-custom",
@@ -268,12 +271,13 @@ internal class AddServerScreen(private val host: RestoAppHost) : HostScreen {
                                     val about = found?.second?.name
                                     // A second account at the same address (or the cloud, where an account is
                                     // the whole point): the login goes into the name, so the switcher tells them apart.
-                                    val shown = if ((cloud || host.hasServerAt(base)) && (name.isBlank() || name.trim() == about)) {
+                                    val shown = if ((cloud || found?.second?.cloud == true || host.hasServerAt(base)) && (name.isBlank() || name.trim() == about)) {
                                         "${about ?: hostOf(base)} · ${login.trim()}"
                                     } else {
                                         name
                                     }
-                                    host.addServer(base, shown, login, password) { fraction -> working = words.progress(fraction) }
+                                    val isCloud = cloud || found?.second?.cloud == true
+                                    host.addServer(base, shown, login, password, cloud = isCloud) { fraction -> working = words.progress(fraction) }
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (failure: Exception) {
@@ -456,7 +460,18 @@ internal class SessionBanner(private val host: RestoAppHost) : HomeBanner {
         val session = connection.session
         val status by session.status.collectAsState()
         val declaration by session.declaration.collectAsState()
+        val problems by host.cloudProblems.collectAsState()
+        val cloudServer = connection.profile.parent != null
+        val scope = rememberCoroutineScope()
         when {
+            // A server of a cloud account signs in by the cloud: say why it did not, and try again by the cloud.
+            cloudServer && status == ServerStatus.SignedOut -> Notice(
+                problems[connection.profile.id] ?: words.connectingViaCloud,
+                if (problems[connection.profile.id] != null) Tones.DANGER else Tones.INFO,
+                words.viaCloud,
+                { scope.launch { host.connectCloudServer(connection.profile.id) } },
+                "home:cloud-sign-in",
+            )
             status == ServerStatus.SignedOut -> Notice(words.needsSignIn, Tones.DANGER, words.signIn, { open(LoginScreen(host)) }, "home:sign-in")
             status == ServerStatus.Offline -> Notice(words.offline, Tones.WARNING, words.retry, { session.refreshInBackground() }, "home:offline")
             status == ServerStatus.UpdateRequired -> Notice(words.updateRequired, Tones.DANGER, null, null, "home:update")
@@ -520,7 +535,9 @@ internal class ManageServersScreen(private val host: RestoAppHost) : HostScreen 
                 servers.forEachIndexed { index, server ->
                     if (index > 0) RowDivider()
                     val isCurrent = server.id == current?.id
-                    Column(modifier = Modifier.padding(12.dp).testTag("servers:row-${server.id}")) {
+                    // A server of a cloud account: under it, and the cloud's to add and remove.
+                    val child = server.parent != null
+                    Column(modifier = Modifier.padding(start = if (child) 40.dp else 12.dp, top = 12.dp, end = 12.dp, bottom = 12.dp).testTag("servers:row-${server.id}")) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Monogram(title = server.name, size = 36.dp)
                             Spacer(Modifier.width(12.dp))
@@ -601,7 +618,14 @@ internal class ManageServersScreen(private val host: RestoAppHost) : HostScreen 
                                 }
                             }
 
-                            else -> Row(
+                            else -> if (child) {
+                                Text(
+                                    text = "Сервер облачного аккаунта — список ведёт облако".ru(lang, "A server of the cloud account — the cloud keeps this list"),
+                                    style = tokens.label,
+                                    color = tokens.muted,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            } else Row(
                                 modifier = Modifier.padding(top = 4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
@@ -655,7 +679,192 @@ internal class ManageServersScreen(private val host: RestoAppHost) : HostScreen 
                 variant = ButtonVariant.Outline,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:add"),
             )
+            Spacer(Modifier.height(8.dp))
+            AppButton(
+                text = "+ " + HostWords(lang).connectCloud,
+                onClick = { open(host.addScreens[1]) },
+                variant = ButtonVariant.Outline,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:add-cloud-account"),
+            )
+            val files by host.filesFlow.collectAsState()
+            files?.let { platform ->
+                Spacer(Modifier.height(12.dp))
+                AuthTransferSection(host, platform, lang)
+            }
         }
+    }
+}
+
+/** Where «Перенос входов» stands: nothing open, a password for a new file, or one for the file just picked. */
+private sealed interface Transfer {
+    data object Idle : Transfer
+    data object Export : Transfer
+    class Import(val bytes: ByteArray) : Transfer
+}
+
+/**
+ * «Перенос входов»: every server's sign-in into a file sealed by a password ([AuthFile]), and such a file onto the
+ * list of another app. A copy of the sign-in — the person is told so, and that the file is a key to every server.
+ */
+@Composable
+private fun AuthTransferSection(host: RestoAppHost, files: AuthFiles, lang: String) {
+    val tokens = AppTheme
+    val scope = rememberCoroutineScope()
+    val servers by host.servers.collectAsState()
+    var mode by remember { mutableStateOf<Transfer>(Transfer.Idle) }
+    var password by remember { mutableStateOf("") }
+    var repeat by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var done by remember { mutableStateOf<String?>(null) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    val count = servers.count { !it.isDemo }
+
+    fun reset(next: Transfer) {
+        mode = next
+        password = ""
+        repeat = ""
+        problem = null
+    }
+
+    fun failure(error: Throwable): String = when ((error as? AuthFileException)?.reason) {
+        AuthFileException.Reason.WrongPassword -> "Неверный пароль, или файл изменён".ru(lang, "Wrong password, or the file was changed")
+        AuthFileException.Reason.NotAuthFile -> "Это не файл входов RestoApp".ru(lang, "Not a file of RestoApp sign-ins")
+        AuthFileException.Reason.Unsupported -> "Файл другой версии приложения — обновите его".ru(lang, "A file of another version of the app — update it")
+        null -> ("Не получилось: ".ru(lang, "Failed: ")) + (error.message ?: error::class.simpleName.orEmpty())
+    }
+
+    fun launchWork(work: suspend () -> Unit) {
+        busy = true
+        problem = null
+        done = null
+        scope.launch {
+            try {
+                work()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                problem = failure(error)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    Section(
+        title = "Перенос входов".ru(lang, "Transfer sign-ins"),
+        hint = "Входы на все серверы — в файл под паролем и из него в другом приложении"
+            .ru(lang, "Sign-ins to every server into a password-protected file, and from it in another app"),
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            when (val now = mode) {
+                Transfer.Idle -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppButton(
+                        text = "Сохранить в файл".ru(lang, "Save to a file"),
+                        onClick = { done = null; reset(Transfer.Export) },
+                        enabled = count > 0 && !busy,
+                        variant = ButtonVariant.Outline,
+                        size = ButtonSize.Sm,
+                        modifier = Modifier.testTag("servers:export"),
+                    )
+                    AppButton(
+                        text = "Загрузить из файла".ru(lang, "Load from a file"),
+                        onClick = {
+                            launchWork {
+                                val bytes = files.open() ?: return@launchWork
+                                reset(Transfer.Import(bytes))
+                            }
+                        },
+                        enabled = !busy,
+                        variant = ButtonVariant.Outline,
+                        size = ButtonSize.Sm,
+                        modifier = Modifier.testTag("servers:import"),
+                    )
+                }
+
+                Transfer.Export -> {
+                    Text(
+                        text = ("В файл попадут входы на $count сервер(а/ов) — демо-серверы не переносятся. " +
+                            "Кто знает пароль файла, войдёт на них без логина и пароля. Для серверов это одно устройство: " +
+                            "выход на одном отменит вход и на другом.").ru(
+                            lang,
+                            "The file gets the sign-ins to $count server(s) — the demo servers stay here. Whoever has the file " +
+                                "and its password is signed in to them. To the servers it is one device: signing out on one signs out the other.",
+                        ),
+                        style = tokens.label,
+                        color = tokens.muted,
+                        modifier = Modifier.testTag("servers:export-warning"),
+                    )
+                    PasswordField(password, { password = it }, "Пароль файла".ru(lang, "File password"), "servers:export-password")
+                    PasswordField(repeat, { repeat = it }, "Ещё раз".ru(lang, "Once more"), "servers:export-repeat")
+                    val short = password.length < AuthFile.MIN_PASSWORD
+                    if (password.isNotEmpty() && short) {
+                        Text(text = "Не короче ${AuthFile.MIN_PASSWORD} символов".ru(lang, "At least ${AuthFile.MIN_PASSWORD} characters"), style = tokens.label, color = tokens.muted)
+                    } else if (repeat.isNotEmpty() && repeat != password) {
+                        Text(text = "Пароли не совпадают".ru(lang, "The passwords differ"), style = tokens.label, color = tokens.muted)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppButton(
+                            text = if (busy) "Шифруем…".ru(lang, "Sealing…") else "Сохранить".ru(lang, "Save"),
+                            onClick = {
+                                val typed = password
+                                launchWork {
+                                    val bytes = host.exportAuth(typed)
+                                    if (files.save("restoapp-sign-ins.${AuthFile.EXTENSION}", bytes)) {
+                                        reset(Transfer.Idle)
+                                        done = "Файл сохранён. Храните его как пароль.".ru(lang, "The file is saved. Keep it as you keep a password.")
+                                    }
+                                }
+                            },
+                            enabled = !busy && !short && repeat == password,
+                            size = ButtonSize.Sm,
+                            modifier = Modifier.testTag("servers:export-save"),
+                        )
+                        AppButton(
+                            text = "Отмена".ru(lang, "Cancel"),
+                            onClick = { reset(Transfer.Idle) },
+                            enabled = !busy,
+                            variant = ButtonVariant.Ghost,
+                            size = ButtonSize.Sm,
+                        )
+                    }
+                }
+
+                is Transfer.Import -> {
+                    Text(
+                        text = "Пароль, которым файл был сохранён".ru(lang, "The password the file was saved with"),
+                        style = tokens.label,
+                        color = tokens.muted,
+                    )
+                    PasswordField(password, { password = it }, "Пароль файла".ru(lang, "File password"), "servers:import-password")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppButton(
+                            text = if (busy) "Открываем…".ru(lang, "Opening…") else "Загрузить".ru(lang, "Load"),
+                            onClick = {
+                                val typed = password
+                                launchWork {
+                                    val report = host.importAuth(now.bytes, typed)
+                                    reset(Transfer.Idle)
+                                    done = ("Добавлено серверов: ${report.added}, вход восстановлен: ${report.signedIn}, уже были: ${report.unchanged}")
+                                        .ru(lang, "Servers added: ${report.added}, signed in again: ${report.signedIn}, already here: ${report.unchanged}")
+                                }
+                            },
+                            enabled = !busy && password.isNotEmpty(),
+                            size = ButtonSize.Sm,
+                            modifier = Modifier.testTag("servers:import-load"),
+                        )
+                        AppButton(
+                            text = "Отмена".ru(lang, "Cancel"),
+                            onClick = { reset(Transfer.Idle) },
+                            enabled = !busy,
+                            variant = ButtonVariant.Ghost,
+                            size = ButtonSize.Sm,
+                        )
+                    }
+                }
+            }
+            done?.let { Text(text = it, style = tokens.label, color = tokens.foreground, modifier = Modifier.testTag("servers:transfer-done")) }
+        }
+        problem?.let { Problem(it) }
     }
 }
 

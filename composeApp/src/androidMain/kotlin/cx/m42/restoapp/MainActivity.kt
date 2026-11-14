@@ -39,8 +39,22 @@ class MainActivity : FragmentActivity() {
         // Vibration, the lifecycle, the network's state and links out — before the first composition.
         AndroidHost.init(this)
         val host = Holder.host(applicationContext)
+        // The file dialogs of «Перенос входов» are this activity's: registered before it starts, let go of with it.
+        files = AndroidAuthFiles(this).also { host.files = it }
 
         setContent { RestoApp(host) }
+    }
+
+    private var files: AndroidAuthFiles? = null
+
+    override fun onDestroy() {
+        files?.let { mine ->
+            val host = Holder.host(applicationContext)
+            if (host.files === mine) host.files = null
+            mine.release()
+        }
+        files = null
+        super.onDestroy()
     }
 
     /**

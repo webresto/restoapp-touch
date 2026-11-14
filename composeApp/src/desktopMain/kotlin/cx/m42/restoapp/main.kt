@@ -42,6 +42,7 @@ fun main(args: Array<String>) {
                 cloudAddress = args.firstOrNull { it.startsWith("--cloud=") }?.substringAfter('=')
                     ?: System.getenv("RESTOAPP_CLOUD_URL")?.takeIf { it.isNotBlank() }
                     ?: ServerProfile.CLOUD_ADDRESS,
+                files = DesktopAuthFiles(),
             )
         }
         val connection by host.active.collectAsState()

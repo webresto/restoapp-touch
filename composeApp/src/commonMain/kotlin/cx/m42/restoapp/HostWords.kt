@@ -53,6 +53,31 @@ internal class HostWords(lang: String) {
     val resetDemo = t("Сбросить демо-данные", "Reset demo data")
     val demoTitle = t("Демо-сервер", "Demo server")
 
+    val connectCloud = t("Подключить облачный аккаунт", "Connect a cloud account")
+    val viaCloud = t("Подключить через облако", "Connect via the cloud")
+    val connectingViaCloud = t("Подключаемся к серверу через облако…", "Connecting to the server via the cloud…")
+
+    /** A server of a cloud account could not be signed in to. */
+    fun cloudServerFailure(error: Throwable): String {
+        val failure = error as? MobileApiException ?: return t("Не получилось войти на сервер", "Could not sign in to the server")
+        return when (failure.code) {
+            MobileApiException.NETWORK -> t(
+                "Сервер не отвечает — запустите его в «Серверах» облачного аккаунта",
+                "The server does not answer — start it in «Services» of the cloud account",
+            )
+            MobileApiException.PROTOCOL, MobileApiException.NOT_FOUND -> t(
+                "На сервере нет мобильного API — обновите RestoApp или откройте админку в браузере",
+                "The server has no mobile API — update RestoApp or open its admin in the browser",
+            )
+            MobileApiException.UNAUTHORIZED -> t("Облачный аккаунт вышел — войдите в него снова", "The cloud account is signed out — sign in to it again")
+            MobileApiException.INVALID_CREDENTIALS -> t(
+                "Администратор сервера сменил пароль — войдите вручную",
+                "The server's administrator changed the password — sign in by hand",
+            )
+            else -> failure(error)
+        }
+    }
+
     fun signedInAs(login: String) = t("Вы вошли как $login", "Signed in as $login")
 
     fun placeGone(title: String) = t("Доступ к точке «$title» снят", "Access to the point “$title” was removed")
