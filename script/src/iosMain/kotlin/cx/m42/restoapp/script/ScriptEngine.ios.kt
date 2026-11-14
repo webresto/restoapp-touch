@@ -10,7 +10,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/** The desktop's engine with the same limits (`ScriptEngine.desktop.kt`); only the thread is made differently. */
+/** The JVM's engine with the same limits (`ScriptEngine.jvm.kt`); only the thread is made differently. */
 @OptIn(DelicateCoroutinesApi::class, ExperimentalCoroutinesApi::class)
 public actual class ScriptEngine public actual constructor(private val host: ScriptHost) {
     private val thread = newSingleThreadContext("restoapp-script")

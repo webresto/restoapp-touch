@@ -13,7 +13,7 @@ declaration. Two exceptions are drawn by the client itself: the POS, which a ser
 «+» is not a list with actions on a record — and the editor of a promotion, one *action* of
 «Маркетинг» declared with `control: {type: "native", screen: "promotion-editor"}` (`apps/marketing`,
 `marketing.plan.md`). The demo server answers the same protocol in process.
-Built for the desktop today, written for every platform. The decisions are in
+Built for the desktop, Android and the iPhone, written for every platform. The decisions are in
 [`.ai-notes`](.ai-notes/README.md), the protocol in `server-apps-and-rights.plan.md`.
 
 ## Requirements
@@ -40,6 +40,21 @@ cd ../restoapp-dev && npx tsx ../restoapp-mobile-admin/tools/fake-server/serve.t
 # then connect to http://127.0.0.1:4851 as stock / secret-password (or admin, operator)
 ```
 
+## Resto Cloud
+
+«Подключить сервер → Resto Cloud» signs in to the cloud (`https://dev.resto.cloud`, `ServerProfile.CLOUD_ADDRESS`)
+with a Cloud Console account: the cloud answers the same protocol 1 (`layers/app-mobile-api` of cloud-panel) and
+declares «Серверы» (the account's services: start, stop, restart, delete, a new one), «Аккаунт» (balance,
+transactions) and, for an administrator, «Аккаунты». Each account is one more server in the switcher, named
+«Resto Cloud · <login>», so several accounts of one cloud live side by side. A cloud panel on this computer:
+`./gradlew :composeApp:run --args=--cloud=http://localhost:17280` (or `RESTOAPP_CLOUD_URL`). The walk through the
+window against it:
+
+```bash
+./gradlew :composeApp:desktopTest --rerun --tests '*CloudServerTest*' -Pcloud.url=http://localhost:17280 \
+  -Pcloud.login=user2 -Pcloud.password=user2 -Pcloud.login2=admin -Pcloud.password2=admin
+```
+
 ## iPhone
 
 `iosApp/` is the Xcode project, `composeApp/src/iosMain` the host on iOS. Linking needs a Mac with
@@ -55,11 +70,27 @@ What does not work on iOS yet (`order-entry.plan.md`, «Платформы»):
 - The device token is a protected file, not the Keychain.
 - The app has no icon yet.
 
+## Android
+
+`composeApp/src/androidMain` is the host on Android — «RestoApp touch», `org.restoapp.touch`
+(`.ai-notes` D14). Built on guibot2 only, never on the laptop:
+
+```bash
+./gradlew :composeApp:assembleDebug        # composeApp/build/outputs/apk/debug/composeApp-debug.apk
+./gradlew :composeApp:bundleRelease        # composeApp/build/outputs/bundle/release/composeApp-release.aab
+```
+
+The release is signed by the upload key when `.secrets/keystore.properties` or the `ANDROID_KEY*`
+variables are there, and unsigned otherwise — `RELEASING.md`. A real server works here (the PoW
+solver is the desktop's, `jvmAndAndroidMain`), and each server has its own `SharedPreferences`.
+Plain `http://` addresses are refused, as on iOS.
+
 ## How it is put together
 
 ```
 protocol/                        protocol 1: the declaration and envelopes, HttpMobileApi over
-                                 Superizer's NetworkService, the PoW solver (CryptoPuzzleSolver, JVM)
+                                 Superizer's NetworkService, the PoW solver (CryptoPuzzleSolver, JVM
+                                 and Android: jvmAndAndroidMain)
 demo/                            DemoBackend: the protocol in process — «Блюда» as the hook has them,
                                  «Заказы» in the shape of slice 2, «Клиенты», the POS and
                                  «Маркетинг», two points, four roles
@@ -84,6 +115,8 @@ composeApp/src/
   commonMain/ServerScreens.kt    connect a server, sign in, the demo's role, the Home banner, Settings
   desktopMain/main.kt            the window; ⌘/Ctrl+1…9 switch servers
   desktopMain/DesktopServerStore ~/.restoapp/servers.json, and ~/.restoapp/servers/<id>/ per server
+  androidMain/MainActivity.kt    the activity; one host per process
+  androidMain/AndroidServerStore the same layout under the app's files, SharedPreferences per server
 tools/fake-server/serve.ts       the app-mobile-api hook on fake deps, for development and live tests
 tools/real-server/serve.ts       the whole backend on sails-disk: adminizer, core, the hook — what the
                                  walkthrough tests drive the window against

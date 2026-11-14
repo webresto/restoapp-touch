@@ -72,9 +72,11 @@ private fun Superizer.lang(): String {
 }
 
 /**
- * "Подключить сервер", as GitHub's "Add account": the demo server in one tap, or a RestoApp of your
- * own — its address, `server.about` to see it is one, then the admin panel's login and password,
- * the CAPTCHA solved here, and the server is in force, signed in (plan section 4).
+ * "Подключить сервер", as GitHub's "Add account": the demo server in one tap, Resto Cloud (the cloud
+ * account — its services and balance, [ServerProfile.CLOUD_ADDRESS]), or a RestoApp of your own — its
+ * address, `server.about` to see it is one, then the admin panel's login and password, the CAPTCHA
+ * solved here, and the server is in force, signed in (plan section 4). The same address may be added
+ * under several accounts: the login then goes into the name, so the switcher tells them apart.
  */
 internal class AddServerScreen(private val host: RestoAppHost) : HostScreen {
     override val id: String = "add-server"
@@ -88,6 +90,11 @@ internal class AddServerScreen(private val host: RestoAppHost) : HostScreen {
         val tokens = AppTheme
         val scope = rememberCoroutineScope()
         var custom by remember { mutableStateOf(false) }
+        var cloud by remember { mutableStateOf(false) }
+        // Sign-up instead of sign-in: only on a cloud whose `server.about` says registration is open.
+        var signUp by remember { mutableStateOf(false) }
+        var fullName by remember { mutableStateOf("") }
+        var email by remember { mutableStateOf("") }
         var address by remember { mutableStateOf("") }
         var found by remember { mutableStateOf<Pair<String, ServerAbout>?>(null) }
         var name by remember { mutableStateOf("") }
@@ -104,11 +111,62 @@ internal class AddServerScreen(private val host: RestoAppHost) : HostScreen {
                 .padding(vertical = 12.dp),
         ) {
             Option(title = words.demoServer, body = words.demoServerHint, tag = "servers:add-demo", onClick = { host.addDemo() })
-            Option(title = words.ownServer, body = words.ownServerHint, tag = "servers:add-custom", selected = custom, onClick = { custom = true })
+            Option(
+                title = words.cloud,
+                body = words.cloudHint,
+                tag = "servers:add-cloud",
+                selected = cloud,
+                onClick = {
+                    if (working != null) return@Option
+                    cloud = true
+                    custom = false
+                    address = host.cloudAddress
+                    found = null
+                    problem = null
+                    working = words.checking
+                    scope.launch {
+                        try {
+                            val result = host.check(address)
+                            found = result
+                            name = result.second.name
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            problem = words.failure(failure)
+                        } finally {
+                            working = null
+                        }
+                    }
+                },
+            )
+            Option(
+                title = words.ownServer,
+                body = words.ownServerHint,
+                tag = "servers:add-custom",
+                selected = custom,
+                onClick = {
+                    if (cloud) {
+                        address = ""
+                        found = null
+                        problem = null
+                    }
+                    custom = true
+                    cloud = false
+                },
+            )
 
-            if (custom) {
+            if (cloud && found == null) {
+                Text(
+                    text = working ?: words.cloudHint,
+                    style = tokens.label,
+                    color = tokens.muted,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp).testTag("servers:cloud-status"),
+                )
+            }
+
+            if (custom || (cloud && found != null)) {
                 Spacer(Modifier.height(12.dp))
-                Section(title = words.address) {
+                if (custom) Section(title = words.address) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         AppTextField(
                             value = address,
@@ -132,7 +190,7 @@ internal class AddServerScreen(private val host: RestoAppHost) : HostScreen {
                     }
                 }
                 if (found == null) {
-                    AppButton(
+                    if (custom) AppButton(
                         text = if (working != null) words.checking else words.next,
                         onClick = {
                             working = words.checking
@@ -154,8 +212,45 @@ internal class AddServerScreen(private val host: RestoAppHost) : HostScreen {
                         enabled = working == null && address.isNotBlank(),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:check"),
                     )
+                } else if (cloud && signUp) {
+                    Section(title = words.signUp, hint = words.signUpHint) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AppTextField(value = login, onValueChange = { login = it }, placeholder = words.login, modifier = Modifier.fillMaxWidth().testTag("servers:signup-login"))
+                            AppTextField(value = fullName, onValueChange = { fullName = it }, placeholder = words.fullName, modifier = Modifier.fillMaxWidth().testTag("servers:signup-name"))
+                            AppTextField(value = email, onValueChange = { email = it }, placeholder = words.email, modifier = Modifier.fillMaxWidth().testTag("servers:signup-email"))
+                            PasswordField(password, { password = it }, words.passwordRule, "servers:signup-password")
+                        }
+                    }
+                    AppButton(
+                        text = working ?: words.signUpButton,
+                        onClick = {
+                            val base = found?.first ?: return@AppButton
+                            val about = found?.second?.name ?: hostOf(base)
+                            working = words.signingUp
+                            problem = null
+                            scope.launch {
+                                try {
+                                    host.registerServer(base, "$about · ${login.trim()}", login, fullName, email, password) { fraction -> working = words.progress(fraction) }
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (failure: Exception) {
+                                    problem = words.failure(failure)
+                                } finally {
+                                    working = null
+                                }
+                            }
+                        },
+                        enabled = working == null && login.isNotBlank() && fullName.isNotBlank() && password.length >= 8,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:signup"),
+                    )
+                    AppButton(
+                        text = words.haveAccount,
+                        onClick = { signUp = false; problem = null },
+                        variant = ButtonVariant.Ghost,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:to-signin"),
+                    )
                 } else {
-                    Section(title = words.signIn) {
+                    Section(title = words.signIn, hint = if (cloud) words.cloudSignIn else null) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             AppTextField(value = login, onValueChange = { login = it }, placeholder = words.login, modifier = Modifier.fillMaxWidth().testTag("servers:login"))
                             PasswordField(password, { password = it }, words.password, "servers:password")
@@ -170,7 +265,15 @@ internal class AddServerScreen(private val host: RestoAppHost) : HostScreen {
                             problem = null
                             scope.launch {
                                 try {
-                                    host.addServer(base, name, login, password) { fraction -> working = words.progress(fraction) }
+                                    val about = found?.second?.name
+                                    // A second account at the same address (or the cloud, where an account is
+                                    // the whole point): the login goes into the name, so the switcher tells them apart.
+                                    val shown = if ((cloud || host.hasServerAt(base)) && (name.isBlank() || name.trim() == about)) {
+                                        "${about ?: hostOf(base)} · ${login.trim()}"
+                                    } else {
+                                        name
+                                    }
+                                    host.addServer(base, shown, login, password) { fraction -> working = words.progress(fraction) }
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (failure: Exception) {
@@ -183,9 +286,17 @@ internal class AddServerScreen(private val host: RestoAppHost) : HostScreen {
                         enabled = working == null && login.isNotBlank() && password.isNotEmpty(),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:connect"),
                     )
+                    if (cloud && found?.second?.registration == true) {
+                        AppButton(
+                            text = words.noAccount,
+                            onClick = { signUp = true; problem = null },
+                            variant = ButtonVariant.Ghost,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:to-signup"),
+                        )
+                    }
                 }
-                problem?.let { Problem(it) }
             }
+            problem?.let { Problem(it) }
         }
     }
 }

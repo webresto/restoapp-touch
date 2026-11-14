@@ -1,3 +1,6 @@
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 /**
  * Apps whose code comes from the server as one JS file (js-module.plan.md, D12; the long plan is
  * script-apps.plan.md). The engine is QuickJS — proved by the prototype in `.ai-notes/quick/` — and
@@ -9,12 +12,28 @@
  */
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
+    alias(libs.plugins.androidLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinxSerialization)
 }
 
 kotlin {
+    // The default hierarchy (iosMain and the rest) and one group more: the two JVMs, so the engine
+    // on its own thread is written once for the desktop and Android.
+    @OptIn(ExperimentalKotlinGradlePluginApi::class)
+    applyDefaultHierarchyTemplate {
+        common {
+            group("jvmAndAndroid") {
+                withJvm()
+                withAndroidTarget()
+            }
+        }
+    }
+
+    androidTarget {
+        compilerOptions { jvmTarget.set(JvmTarget.JVM_11) }
+    }
     jvm("desktop")
     iosArm64()
     iosSimulatorArm64()
@@ -30,9 +49,10 @@ kotlin {
             implementation(libs.compose.foundation)
             implementation(libs.compose.ui)
         }
-        val desktopMain by getting
-        desktopMain.dependencies {
-            // The JS engine of the desktop host; Android and iOS take the same library, the web none.
+        val jvmAndAndroidMain by getting
+        jvmAndAndroidMain.dependencies {
+            // The JS engine of the desktop and Android, one engine for both; iOS takes the same
+            // library, the web none.
             implementation(libs.quickjs)
         }
         iosMain.dependencies {
@@ -46,6 +66,16 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
             implementation(kotlin("test"))
         }
+    }
+}
+
+android {
+    namespace = "cx.m42.restoapp.script"
+    compileSdk = libs.versions.androidCompileSdk.get().toInt()
+    defaultConfig { minSdk = libs.versions.androidMinSdk.get().toInt() }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
 }
 

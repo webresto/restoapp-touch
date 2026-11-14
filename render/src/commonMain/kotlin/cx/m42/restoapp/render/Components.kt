@@ -514,6 +514,8 @@ public data class FormField(
     val titles: Map<String, String> = emptyMap(),
     /** `phone`, `money`, `datetime` — a hint, not a type. */
     val format: String? = null,
+    /** The schema's `default`: what the form starts with — the current value when a record's form edits it. */
+    val initial: String? = null,
 )
 
 /**
@@ -537,8 +539,16 @@ public fun FormCard(
     hold: (UnsavedWork?) -> Unit = {},
 ) {
     val tokens = AppTheme
-    val values = remember(tag, fields) { mutableStateMapOf<String, String>() }
-    val flags = remember(tag, fields) { mutableStateMapOf<String, Boolean>() }
+    val values = remember(tag, fields) {
+        mutableStateMapOf<String, String>().apply {
+            fields.forEach { field -> if (field.type != "boolean") field.initial?.let { put(field.name, it) } }
+        }
+    }
+    val flags = remember(tag, fields) {
+        mutableStateMapOf<String, Boolean>().apply {
+            fields.forEach { field -> if (field.type == "boolean" && field.initial == "true") put(field.name, true) }
+        }
+    }
     val filled = fields.none { field ->
         field.required && when {
             field.type == "boolean" -> false
@@ -560,7 +570,11 @@ public fun FormCard(
         }.toMap(),
         saved,
     )
-    val dirty = values.values.any { it.isNotBlank() } || flags.values.any { it }
+    // Changed against what it started with: a form of a record starts filled in and is not "unsaved" until edited.
+    val dirty = fields.any { field ->
+        if (field.type == "boolean") (flags[field.name] == true) != (field.initial == "true")
+        else values[field.name].orEmpty() != field.initial.orEmpty()
+    }
     HoldUnsaved(dirty, hold) { saved -> if (filled && !busy) send(saved) }
     // Filled in, the form is a step of its own: back closes it, not the screen under it.
     SystemBackHandler(enabled = dirty && onCancel != null) { onCancel?.invoke() }

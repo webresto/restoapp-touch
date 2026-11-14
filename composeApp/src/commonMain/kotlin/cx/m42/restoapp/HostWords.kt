@@ -29,6 +29,24 @@ internal class HostWords(lang: String) {
     val demoServerHint = t("Блюда и заказы на двух точках, без сети — чтобы посмотреть, как всё работает", "Dishes and orders at two points, no network — to see how it all works")
     val ownServer = t("Свой сервер", "Your server")
     val ownServerHint = t("По адресу вашего RestoApp: вход по логину и паролю админки", "By your RestoApp's address: sign in with your admin panel login")
+    val cloud = "Resto Cloud"
+    val cloudHint = t(
+        "Аккаунт облака dev.resto.cloud: ваши серверы, их запуск и остановка, баланс. Можно добавить несколько аккаунтов",
+        "A dev.resto.cloud account: your services, starting and stopping them, the balance. Add as many accounts as you like",
+    )
+    val cloudSignIn = t("Логин и пароль Cloud Console", "Your Cloud Console login and password")
+    val noAccount = t("Нет аккаунта? Зарегистрироваться", "No account? Sign up")
+    val haveAccount = t("Уже есть аккаунт? Войти", "Have an account? Sign in")
+    val signUp = t("Регистрация", "Sign up")
+    val signUpHint = t(
+        "Новый аккаунт облака: на балансе сразу будут приветственные кредиты",
+        "A new cloud account: it starts with the welcome credits",
+    )
+    val signUpButton = t("Зарегистрироваться", "Sign up")
+    val signingUp = t("Создаём аккаунт…", "Creating the account…")
+    val fullName = t("Имя", "Name")
+    val email = t("Почта (необязательно)", "Email (optional)")
+    val passwordRule = t("Пароль — не короче 8 символов", "Password: at least 8 characters")
     val demoData = t("Демо-данные хранятся только на этом компьютере", "Demo data is kept on this computer only")
     val role = t("Роль", "Role")
     val change = t("Сменить", "Change")

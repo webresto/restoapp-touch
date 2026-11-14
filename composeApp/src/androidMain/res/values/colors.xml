@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Superizer's background (ui-theme Tokens): the frame before Compose draws is already its colour. -->
+    <color name="window_background">#FFFFFF</color>
+</resources>

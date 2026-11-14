@@ -2,6 +2,15 @@
 # The same toolchain as Unitool (../client), so the two hosts build against one Superizer.
 kotlin = "2.4.10"
 composeMultiplatform = "1.11.1"
+# Superizer's own: an included build with another AGP is not allowed in one Gradle build.
+agp = "8.13.2"
+# As in Unitool and Superizer. Google Play takes new apps and updates only at target API 36.
+androidCompileSdk = "36"
+androidMinSdk = "24"
+androidTargetSdk = "36"
+androidxActivityCompose = "1.13.0"
+# java.time on API 24–25 (render's dates): the JDK's library, rewritten into the app by D8.
+desugarJdkLibs = "2.1.5"
 kotlinxCoroutines = "1.10.2"
 # Superizer's, so the host and the library share one runtime.
 kotlinxSerializationJson = "1.9.0"
@@ -20,6 +29,8 @@ compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.re
 compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "composeMultiplatform" }
 compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMultiplatform" }
 compose-ui-test = { module = "org.jetbrains.compose.ui:ui-test", version.ref = "composeMultiplatform" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivityCompose" }
+desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
@@ -35,6 +46,8 @@ superizer-testing = { module = "cx.m42.superizer:testing", version.ref = "superi
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+androidApplication = { id = "com.android.application", version.ref = "agp" }
+androidLibrary = { id = "com.android.library", version.ref = "agp" }
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlinxSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

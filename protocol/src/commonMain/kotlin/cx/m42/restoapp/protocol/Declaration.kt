@@ -305,9 +305,12 @@ public object Tones {
     public const val DANGER: String = "danger"
 }
 
-/** What `server.about` tells before anyone signs in. */
+/**
+ * What `server.about` tells before anyone signs in. [registration]: the server lets a person sign up from the app
+ * (`POST /api/mobile/auth/register`) — Resto Cloud in test mode; a RestoApp never says so.
+ */
 @Serializable
-public data class ServerAbout(val name: String, val version: String? = null)
+public data class ServerAbout(val name: String, val version: String? = null, val registration: Boolean = false)
 
 @Serializable
 public data class SignedInUser(

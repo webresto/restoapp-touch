@@ -22,6 +22,12 @@ public data class ServerProfile(
     public companion object {
         public const val DEMO_SCHEME: String = "demo://"
 
+        /**
+         * Resto Cloud — the cloud's own mobile API (`layers/app-mobile-api` of cloud-panel): the account's
+         * services, their start and stop, the balance. One more server to the app, as many accounts as wanted.
+         */
+        public const val CLOUD_ADDRESS: String = "https://dev.resto.cloud"
+
         /** The demo with one point: no point switch, a stock manager's menu. */
         public const val DEMO_POINT: String = "demo://point"
     }

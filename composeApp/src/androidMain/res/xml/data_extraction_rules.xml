@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (android:dataExtractionRules); below 12 allowBackup="false" says the same. Nothing
+  goes to Google's backup and nothing is copied to a new phone: each server's device token is a file
+  here, and on another phone it would be a second device under this one's name (AndroidServerStore).
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+    </device-transfer>
+</data-extraction-rules>

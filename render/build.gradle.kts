@@ -1,3 +1,6 @@
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 /**
  * The universal renderer (plan section 4): one `SuperizerApp` per app the server declares, its
  * screens drawn from `ui` — lists, cards, steppers, toggles, buttons — and never a screen of its
@@ -8,12 +11,29 @@
  */
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
+    alias(libs.plugins.androidLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinxSerialization)
 }
 
 kotlin {
+    // The default hierarchy (iosMain and the rest) and one group more: the two JVMs, so the dates on
+    // java.time are written once for the desktop and Android (below API 26 the app's desugaring
+    // brings java.time, composeApp).
+    @OptIn(ExperimentalKotlinGradlePluginApi::class)
+    applyDefaultHierarchyTemplate {
+        common {
+            group("jvmAndAndroid") {
+                withJvm()
+                withAndroidTarget()
+            }
+        }
+    }
+
+    androidTarget {
+        compilerOptions { jvmTarget.set(JvmTarget.JVM_11) }
+    }
     jvm("desktop")
     iosArm64()
     iosSimulatorArm64()
@@ -37,5 +57,15 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
             implementation(kotlin("test"))
         }
+    }
+}
+
+android {
+    namespace = "cx.m42.restoapp.render"
+    compileSdk = libs.versions.androidCompileSdk.get().toInt()
+    defaultConfig { minSdk = libs.versions.androidMinSdk.get().toInt() }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
 }

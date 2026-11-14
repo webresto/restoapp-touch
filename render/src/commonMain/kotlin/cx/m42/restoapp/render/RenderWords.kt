@@ -16,6 +16,7 @@ public class RenderWords(public val lang: String) {
     public val loading: String = t("Загружаем…", "Loading…")
     public val retry: String = t("Повторить", "Retry")
     public val back: String = t("Назад", "Back")
+    public val save: String = t("Сохранить", "Save")
     public val nothingFound: String = t("Ничего не найдено", "Nothing found")
     public val offline: String = t("Нет связи с сервером — показано то, что было", "No connection to the server — showing what was there")
     public val signedOut: String = t("Нужно войти заново", "Sign in again")

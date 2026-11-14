@@ -50,6 +50,7 @@ import cx.m42.restoapp.protocol.schemaTitle
 import cx.m42.restoapp.protocol.schemaType
 import cx.m42.restoapp.protocol.actions
 import cx.m42.restoapp.protocol.enumValues
+import cx.m42.restoapp.protocol.defaultString
 import cx.m42.restoapp.protocol.id
 import cx.m42.restoapp.protocol.links
 import cx.m42.restoapp.protocol.open
@@ -70,6 +71,8 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.intOrNull
 
 /** Everything a screen needs to turn a record into text, in one place. */
@@ -592,7 +595,10 @@ private fun RecordCard(
                 )
             }
             Controls.BUTTONS -> ButtonsCard(instance, context, record, action, method, waiting)
-            // `form` and unknown controls: v1 of this client does not draw them (plan section 4).
+            // A form on a record — «Настройки» of a service: a button, and under it the fields of the record's own
+            // schema (`_actions` input), which start with the record's values (`default`).
+            Controls.FORM -> RecordFormCard(instance, context, record, action, method, waiting)
+            // Unknown controls are not drawn (plan section 4).
             else -> Unit
         }
     }
@@ -737,6 +743,55 @@ private fun StepperCard(
     }
 }
 
+/** A form of one record: closed it is a button, open — the fields, filled with what the record has now. */
+@Composable
+private fun RecordFormCard(
+    instance: ServerAppInstance,
+    context: RenderContext,
+    record: JsonObject,
+    action: RecordAction,
+    method: DeclaredMethod,
+    waiting: Boolean,
+) {
+    val id = record.id() ?: return
+    val tag = "${context.tag}:${method.name}"
+    var open by remember(id, method.name) { mutableStateOf(false) }
+    if (!open) {
+        Card {
+            AppButton(
+                text = method.title,
+                onClick = { open = true },
+                enabled = !waiting,
+                variant = ButtonVariant.Ghost,
+                size = ButtonSize.Default,
+                modifier = Modifier.fillMaxWidth().padding(12.dp).testTag(tag),
+            )
+        }
+        return
+    }
+    val input = action.input ?: method.input
+    FormCard(
+        title = method.title,
+        fields = formFields(method, input),
+        submit = context.words.save,
+        busy = waiting,
+        words = context.words,
+        onSubmit = { values, saved ->
+            val params = buildJsonObject {
+                if (input.property("id") != null) put("id", JsonPrimitive(id))
+                values.forEach { (key, value) -> put(key, value) }
+            }
+            instance.actWith(record, action, method, params) {
+                open = false
+                saved()
+            }
+        },
+        onCancel = { instance.leave { open = false } },
+        hold = instance::hold,
+        tag = "$tag:form",
+    )
+}
+
 /**
  * One button per allowed value — the record's own list when the server narrowed it (`_actions`
  * input), the method's otherwise. `confirm` is asked before a `danger` value: REJECT asks, COOKING
@@ -781,10 +836,12 @@ private fun ButtonsCard(
  * `title` from the server, `enum` as chips. A property shape v1 cannot draw — an object, an array —
  * is left out, so a method that grows one still shows the rest instead of nothing.
  */
-internal fun formFields(method: DeclaredMethod): List<FormField> {
-    val required = method.input.requiredNames()
-    return method.input.propertyNames().mapNotNull { name ->
-        val schema = method.input.property(name) ?: return@mapNotNull null
+internal fun formFields(method: DeclaredMethod, input: JsonObject = method.input): List<FormField> {
+    val required = input.requiredNames()
+    return input.propertyNames().mapNotNull { name ->
+        // The id of the record is the record's, not a field to type in.
+        if (name == "id" && input !== method.input) return@mapNotNull null
+        val schema = input.property(name) ?: return@mapNotNull null
         val type = schema.schemaType() ?: "string"
         if (type !in setOf("string", "integer", "number", "boolean")) return@mapNotNull null
         FormField(
@@ -795,6 +852,7 @@ internal fun formFields(method: DeclaredMethod): List<FormField> {
             values = schema.enumValues(),
             titles = schema.titles(),
             format = schema.schemaFormat(),
+            initial = schema.defaultString(),
         )
     }
 }

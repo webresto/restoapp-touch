@@ -24,7 +24,8 @@ import kotlinx.coroutines.SupervisorJob
 
 /**
  * RestoApp as a desktop window. `--link=` and `--activate=` stand in for a QR code and a
- * notification tap, as in Unitool; they go to the server in force at start.
+ * notification tap, as in Unitool; they go to the server in force at start. `--cloud=<address>` (or
+ * `RESTOAPP_CLOUD_URL`) points «Resto Cloud» at another cloud panel — one on this computer.
  */
 fun main(args: Array<String>) {
     // Its own directory (D2), and inside it a list of servers and a directory per server (D6).
@@ -38,6 +39,9 @@ fun main(args: Array<String>) {
                 debug = true,
                 device = DeviceInfo(deviceName(), "desktop-" + System.getProperty("os.name").orEmpty().lowercase().substringBefore(' ')),
                 solver = CryptoPuzzleSolver,
+                cloudAddress = args.firstOrNull { it.startsWith("--cloud=") }?.substringAfter('=')
+                    ?: System.getenv("RESTOAPP_CLOUD_URL")?.takeIf { it.isNotBlank() }
+                    ?: ServerProfile.CLOUD_ADDRESS,
             )
         }
         val connection by host.active.collectAsState()

@@ -110,6 +110,8 @@ public class RestoAppHost(
     /** The one network every server shares; Ktor by default. */
     network: NetworkService? = null,
     private val clock: () -> Long = { SystemClock.now() },
+    /** Where «Resto Cloud» of "Подключить сервер" leads; another one for a cloud panel on a laptop. */
+    internal val cloudAddress: String = ServerProfile.CLOUD_ADDRESS,
     private val extra: SuperizerBuilder.() -> Unit = {},
 ) : ContextPort {
 
@@ -195,6 +197,9 @@ public class RestoAppHost(
         add(ServerProfile("demo-$n", "Демо-сервер $n", "demo://demo-$n"))
     }
 
+    /** A server at this address is on the list already — under another account, most likely. */
+    internal fun hasServerAt(base: String): Boolean = list.value.servers.any { it.address.trimEnd('/') == base.trimEnd('/') }
+
     /** "Is there a RestoApp at this address?" — `server.about`, before anyone signs in. */
     internal suspend fun check(typed: String): Pair<String, ServerAbout> {
         val base = normalizeAddress(typed) ?: throw MobileApiException(MobileApiException.PROTOCOL, "Not an address")
@@ -212,6 +217,38 @@ public class RestoAppHost(
         store.write(profile.id, ServerSession.SESSION, ProtocolJson.encodeToString(StoredSession.serializer(), StoredSession(result.token, result.user.login)), private = true)
         save(list.value.copy(servers = list.value.servers + profile))
         // On the host's scope: the screen that asked goes away with the Superizer it was drawn in.
+        scope.launch { switchNow(profile.id) }.join()
+    }
+
+    /**
+     * Signs up at [base] (Resto Cloud with registration open) and adds the new account, signed in, as [addServer]
+     * does. The CAPTCHA is the sign-in's: the same task, solved here.
+     */
+    internal suspend fun registerServer(
+        base: String,
+        name: String,
+        login: String,
+        fullName: String,
+        email: String?,
+        password: String,
+        progress: (Float) -> Unit,
+    ) {
+        val api = HttpMobileApi(base, network)
+        val lang = _active.value.superizer.settings.langTag.value
+        // A task that went stale while the person typed is answered `captcha_invalid`: one more, then give up.
+        suspend fun attempt() = api.register(
+            login.trim(), fullName.trim(), email?.trim(), password,
+            api.challenge()?.let { task -> solver.solve(task, progress) }, device, lang,
+        )
+        val result = try {
+            attempt()
+        } catch (failure: MobileApiException) {
+            if (failure.code != MobileApiException.CAPTCHA_INVALID) throw failure
+            attempt()
+        }
+        val profile = ServerProfile(id = uniqueId(slug(base)), name = name.trim().ifEmpty { hostOf(base) }, address = base)
+        store.write(profile.id, ServerSession.SESSION, ProtocolJson.encodeToString(StoredSession.serializer(), StoredSession(result.token, result.user.login)), private = true)
+        save(list.value.copy(servers = list.value.servers + profile))
         scope.launch { switchNow(profile.id) }.join()
     }
 

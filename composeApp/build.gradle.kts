@@ -1,4 +1,6 @@
+import java.util.Properties
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 /**
  * RestoApp: a host on Superizer for administering the RestoApp servers (.ai-notes). The same shape
@@ -6,11 +8,13 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
  * package, scheme, settings and window, so the two never share a Home or a language (D2).
  *
  * A list of servers, each its own Superizer with the apps that server declares (D6, D8): a real
- * RestoApp by its address, or the demo server in process. No push, no promo codes (D3). The desktop and
- * the iPhone: a multiplatform module, so Android and the web come back as targets rather than as a rewrite.
+ * RestoApp by its address, or the demo server in process. No push, no promo codes (D3). The desktop,
+ * Android and the iPhone (D14): a multiplatform module, so the web comes back as a target rather than
+ * as a rewrite. Android's release is signed by the upload key when one is set up — RELEASING.md.
  */
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
+    alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinxSerialization)
@@ -64,6 +68,10 @@ val generateBuildInfo by tasks.registering {
 }
 
 kotlin {
+    androidTarget {
+        compilerOptions { jvmTarget.set(JvmTarget.JVM_11) }
+    }
+
     jvm("desktop")
 
     /**
@@ -114,6 +122,9 @@ kotlin {
             implementation(project(":apps:settings"))
             implementation(project(":apps:system"))
         }
+        androidMain.dependencies {
+            implementation(libs.androidx.activity.compose)
+        }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
         }
@@ -138,6 +149,112 @@ tasks.withType<Test>().configureEach {
     systemProperty("restoapp.dev", dev.absolutePath)
     systemProperty("restoapp.tools", rootProject.file("tools").absolutePath)
     (findProperty("restoapp.serverUrl") as String?)?.let { systemProperty("restoapp.serverUrl", it) }
+    // CloudServerTest: the cloud panel (cloud-panel, layers/app-mobile-api) — `-Pcloud.url=http://localhost:17280`
+    // and an account of it, `-Pcloud.login=user2 -Pcloud.password=user2` (a second one: `-Pcloud.login2/password2`).
+    listOf("cloud.url", "cloud.login", "cloud.password", "cloud.login2", "cloud.password2").forEach { name ->
+        (findProperty(name) as String?)?.let { systemProperty(name, it) }
+    }
+}
+
+/**
+ * The upload key, as in Unitool: a per-deployment secret, so nothing of it is in the repository. The
+ * environment first (`ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+ * `ANDROID_KEY_PASSWORD` — what CI has), then `.secrets/keystore.properties` in the project root
+ * (`storeFile`, `storePassword`, `keyAlias`, `keyPassword` — what a person signing by hand has;
+ * `.secrets/` is gitignored whole). With neither, `release` builds unsigned: a fresh clone must
+ * compile without a key. RELEASING.md says where the key lives.
+ */
+val keystoreProperties: Properties? = rootProject.layout.projectDirectory.file(".secrets/keystore.properties")
+    .let { file -> providers.fileContents(file).asText.orNull }
+    ?.let { text -> Properties().apply { load(text.reader()) } }
+
+fun signingValue(env: String, property: String): String? =
+    providers.environmentVariable(env).orNull?.ifEmpty { null }
+        ?: keystoreProperties?.getProperty(property)?.trim()?.ifEmpty { null }
+
+/** `~/…` as a shell has it, and a relative path from the project root rather than from this module. */
+val keystoreFile: File? = signingValue("ANDROID_KEYSTORE_PATH", "storeFile")?.let { path ->
+    when {
+        path.startsWith("~/") -> File(System.getProperty("user.home"), path.removePrefix("~/"))
+        else -> rootProject.file(path)
+    }
+}
+
+android {
+    // The code's package stays `cx.m42.restoapp` (D2); only the id Google Play knows the app by is the brand's.
+    namespace = "cx.m42.restoapp"
+    compileSdk = libs.versions.androidCompileSdk.get().toInt()
+
+    buildFeatures {
+        // The host is told whether it is a debug build (BuildConfig.DEBUG), as on the desktop and iOS.
+        buildConfig = true
+    }
+
+    defaultConfig {
+        applicationId = "org.restoapp.touch"
+        minSdk = libs.versions.androidMinSdk.get().toInt()
+        targetSdk = libs.versions.androidTargetSdk.get().toInt()
+        // Play refuses a versionCode it has seen: CI hands the next one in, a build by hand is 1.
+        versionCode = providers.environmentVariable("ANDROID_VERSION_CODE").orNull?.toIntOrNull() ?: 1
+        versionName = appVersionName
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+        // :render's dates are java.time, which Android has only from API 26; minSdk is 24.
+        isCoreLibraryDesugaringEnabled = true
+    }
+
+    signingConfigs {
+        // Only when there is a key: a signingConfig whose file is missing fails the build instead of
+        // leaving it unsigned.
+        if (keystoreFile != null) {
+            create("release") {
+                storeFile = keystoreFile
+                storePassword = signingValue("ANDROID_KEYSTORE_PASSWORD", "storePassword")
+                keyAlias = signingValue("ANDROID_KEY_ALIAS", "keyAlias")
+                keyPassword = signingValue("ANDROID_KEY_PASSWORD", "keyPassword")
+                // As in Unitool: v1 is read only by API 23 and below, and minSdk is 24.
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            // R8, as Play expects of a release; proguard-rules.pro says what has to be kept by hand.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            // No key ⇒ an unsigned release, which still builds.
+            signingConfig = signingConfigs.findByName("release")
+        }
+    }
+
+    bundle {
+        // The app's words are Kotlin, not Android resources, and Settings switches the language at
+        // run time: a split per language would install only the phone's (as in Unitool).
+        language {
+            enableSplit = false
+        }
+    }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/versions/9/previous-compilation-data.bin"
+        }
+    }
+}
+
+dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 }
 
 compose.desktop {

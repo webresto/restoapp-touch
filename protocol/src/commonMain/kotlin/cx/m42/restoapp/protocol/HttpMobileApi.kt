@@ -55,6 +55,33 @@ public class HttpMobileApi(
         return result
     }
 
+    /**
+     * A new account, signed in at once — only where [ServerAbout.registration] is true (Resto Cloud). Not part of
+     * [MobileApi]: a RestoApp has no sign-up, and the demo none either. A refused field comes as
+     * [MobileApiException.INVALID] with its message already in the person's language.
+     */
+    public suspend fun register(
+        login: String,
+        fullName: String,
+        email: String?,
+        password: String,
+        captchaSolution: String?,
+        device: DeviceInfo,
+        lang: String,
+    ): LoginResult {
+        val body = jsonObjectOf(
+            "login" to JsonPrimitive(login),
+            "fullName" to JsonPrimitive(fullName),
+            "email" to email?.takeIf { it.isNotBlank() }?.let(::JsonPrimitive),
+            "password" to JsonPrimitive(password),
+            "captchaSolution" to captchaSolution?.let(::JsonPrimitive),
+            "device" to jsonObjectOf("name" to JsonPrimitive(device.name), "platform" to JsonPrimitive(device.platform)),
+        )
+        val result = decode(post("$api/auth/register?lang=$lang", body, token = null).value, LoginResult.serializer())
+        if (result.protocolVersion != PROTOCOL_VERSION) throw updateRequired(result.protocolVersion)
+        return result
+    }
+
     override suspend fun logout(token: String) {
         post("$api/auth/logout", JsonObject(emptyMap()), token)
     }
