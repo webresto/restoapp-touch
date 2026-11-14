@@ -40,8 +40,10 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      # The runner's own Android SDK (ANDROID_HOME); the platform and build tools are fetched by AGP.
-      - uses: android-actions/setup-android@v3
+      # No setup-android: the runner has its own SDK (ANDROID_HOME), and AGP fetches the platform and build tools
+      # it lacks. setup-android@v3 fails there installing the long-gone `tools` package.
+      - name: Android SDK
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - uses: gradle/actions/setup-gradle@v4
 
