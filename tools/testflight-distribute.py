@@ -125,7 +125,8 @@ def owners_answer(declaration):
     The owner's export-compliance answer: the app uses encryption — standard algorithms in addition
     to iOS's own (ChaCha20 of the sign-in transfer file, AuthFile.kt; AES-GCM of the login CAPTCHA,
     PuzzleCrypto.kt) — nothing proprietary, not on the French store. Given once by hand in App Store
-    Connect for the first build (RELEASING.md, iOS). A declaration that says anything else is not
+    Connect for build 12; Apple kept no declaration for it, only usesNonExemptEncryption = false on
+    the build, which is what Info.plist now says. A declaration that says anything else is not
     theirs to repeat.
     """
     a = declaration["attributes"]
@@ -148,8 +149,8 @@ def answer_export_compliance(asc, app_id, build, build_number):
     app encryption declaration), so a new build does not wait for someone to open the console. The
     first answer is a person's: this only repeats it, and says so when there is none to repeat.
 
-    Info.plist does not answer it: ITSAppUsesNonExemptEncryption=NO would say the app has no
-    encryption of its own, and it has (owners_answer). So every build asks, and this answers it.
+    Info.plist answers it (NO, see compliance_code), so a build normally never waits here. This is
+    for one that still does, or after Apple asked anyway.
     """
     state = beta_state(asc, build["id"])
     if state != "MISSING_EXPORT_COMPLIANCE":
@@ -206,8 +207,8 @@ def compliance_code(asc, app_id):
     The key of the app's approved encryption documentation, or None while it has none.
 
     Apple refuses an upload whose Info.plist says "uses non-exempt encryption" without that key
-    (ITMS-90592, Unitool 2026-10-06). So Info.plist leaves it unsaid while the app is not on the
-    French store, and the lane writes YES with the key once there is one. The key is read here on
+    (ITMS-90592, Unitool 2026-10-06). So Info.plist says NO, which is Apple's own reading of
+    standard algorithms off the French store, and the lane writes YES with the key once there is one. The key is read here on
     every build rather than kept in the repo, so new documentation brings its own. The owner's answer is preferred; any other one Apple has not turned down is used with a
     warning.
     """

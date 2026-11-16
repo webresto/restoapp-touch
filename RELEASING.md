@@ -113,10 +113,12 @@ Connect → `distribute` (ubuntu) ждёт, пока Apple обработает 
 ## Export compliance
 
 Приложение шифрует само, стандартными алгоритмами: ChaCha20 в файле переноса входов
-(`AuthFile.kt`), AES-GCM в CAPTCHA входа (`PuzzleCrypto.kt`). Поэтому `ITSAppUsesNonExemptEncryption
-= NO` в Info.plist не ставим. Ответ дан один раз руками в App Store Connect на первой сборке
-(«стандартные алгоритмы вместо или вдобавок к шифрованию iOS», «не во Франции»), дальше
-`tools/testflight-distribute.py` повторяет его для каждой новой сборки.
+(`AuthFile.kt`), AES-GCM в CAPTCHA входа (`PuzzleCrypto.kt`), и во Франции его нет. На сборке 12
+это ответили руками в App Store Connect («Standard encryption algorithms instead of, or in addition
+to…» → France: No), и Apple сам записал сборке `usesNonExemptEncryption = false`, отдельного
+ответа (declaration) не сохранил. Поэтому в Info.plist `ITSAppUsesNonExemptEncryption = NO`, как у
+Unitool, и сборки больше не ждут ответа. Если приложение пойдёт во Францию, ответ меняется: Apple
+выдаёт ключ документации, и lane `testflight` сам пишет YES с этим ключом.
 
 ## Тестировщики
 

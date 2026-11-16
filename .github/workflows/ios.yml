@@ -175,10 +175,10 @@ jobs:
           mkdir -p "$HOME/private_keys"
           printf '%s' "$P8" | base64 --decode > "$HOME/private_keys/AuthKey_$KEY_ID.p8"
 
-      # Info.plist does not say whether the app uses non-exempt encryption: it does use standard
-      # algorithms of its own (tools/testflight-distribute.py, owners_answer), and an upload that says
-      # YES must carry the key of approved documentation, or Apple refuses it (ITMS-90592). So should
-      # Apple ever issue one, it is read here on every build and written in together with the YES.
+      # Info.plist says NO: standard algorithms off the French store, which Apple itself turns into
+      # usesNonExemptEncryption = false (RELEASING.md). An upload that says YES must carry the key of
+      # approved documentation, or Apple refuses it (ITMS-90592). So should Apple ever issue one, for
+      # the French store, it is read here on every build and written in together with the YES.
       - name: Export compliance key
         if: steps.gate.outputs.ready == 'true'
         env:

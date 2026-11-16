@@ -32,6 +32,16 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!--
+	  Export compliance, answered here so no build waits for a person: the app's own encryption is
+	  standard algorithms (ChaCha20 of AuthFile.kt, AES-GCM of PuzzleCrypto.kt), and it is not on the
+	  French store. Given that answer in App Store Connect for build 12 (2026-11-16), Apple itself set
+	  usesNonExemptEncryption = false and kept no declaration, so NO is the same answer (RELEASING.md).
+	  Should the app go to France, Apple issues a documentation key; the testflight lane then writes
+	  YES with it (tools/testflight-distribute.py, compliance_code).
+	-->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
