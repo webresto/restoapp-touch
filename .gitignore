@@ -38,6 +38,8 @@ keystore.properties
 *.p8
 *.pem
 *.key
+# Written for one CI run by tools/ios-ci-signing.py: manual signing with the run's profile.
+iosApp/Configuration/Signing.xcconfig
 *.mobileprovision
 google-services*.json
 GoogleService-Info*.plist

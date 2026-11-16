@@ -78,3 +78,48 @@ export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
   в `superizer:host`, без `google-services.json` не запускается).
 - В меню видна версия и коммит; собранное из копии без `.git` (как на guibot2 после `tar`)
   показывает `unknown`.
+
+# Выпуск iOS-сборки (TestFlight)
+
+RestoApp touch в App Store Connect — личная команда **Ivan Sizyi** (Team ID `ZK66E83UL5`), не
+AVTOTREID, где Unitool. Bundle ID `org.restoapp.touch` (как в Play), App ID явный, с Push
+Notifications. Приложение в App Store Connect — Apple ID `6835381795`, SKU `restoapp-touch`.
+
+Выпускает GitHub Actions, как у Unitool (`.github/workflows/ios.yml`): каждый push в `main`
+(кроме заметок и `*.md`), запуск вручную на `main` или метка `testflight` на PR в `main` →
+lane `testflight` (macos-26) собирает Release, подписывает вручную и загружает в App Store
+Connect → `distribute` (ubuntu) ждёт, пока Apple обработает сборку, и кладёт её во внутреннюю
+группу TestFlight `dev` (переменная репозитория `TESTFLIGHT_GROUP`, по умолчанию `dev`). В группе
+включена автоматическая раздача, отзывы и сборки для Mac/Vision — как у Unitool. `CFBundleVersion`
+— номер запуска workflow, `CFBundleShortVersionString` — `MARKETING_VERSION` в проекте (0.1).
+
+## Секреты репозитория
+
+| Секрет | Что |
+|---|---|
+| `IOS_DIST_CERT_P12_BASE64` | сертификат Apple Distribution с закрытым ключом, `.p12`, base64 |
+| `IOS_DIST_CERT_PASSWORD` | пароль `.p12` |
+| `IOS_PROFILE_BASE64` | профиль App Store «RestoApp touch App Store» для `org.restoapp.touch`, base64 |
+| `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8_BASE64` | ключ App Store Connect API `restoapp-touch-ci` (App Manager), issuer, `.p8` base64 |
+
+Оригиналы — на guibot2 в `~/Documents/apple-ivan-sizyi/` (каталог 700), в git не попадают никогда:
+`ios_distribution.key` + `.certSigningRequest` (сделаны openssl), `distribution.cer`/`.pem`,
+`ios_distribution.p12` + `ios_distribution.p12.password` (`openssl pkcs12 -export -legacy` — иначе
+`security import` на macOS его не читает), `RestoApp_touch_App_Store.mobileprovision`,
+`AuthKey_<KEY_ID>.p8` (Apple отдаёт его один раз). Сертификат действует до 2027-11-16; новый
+профиль нужен, когда меняется сертификат или возможности App ID (`tools/ios-ci-signing.py` назовёт,
+какой секрет не тот).
+
+## Export compliance
+
+Приложение шифрует само, стандартными алгоритмами: ChaCha20 в файле переноса входов
+(`AuthFile.kt`), AES-GCM в CAPTCHA входа (`PuzzleCrypto.kt`). Поэтому `ITSAppUsesNonExemptEncryption
+= NO` в Info.plist не ставим. Ответ дан один раз руками в App Store Connect на первой сборке
+(«стандартные алгоритмы вместо или вдобавок к шифрованию iOS», «не во Франции»), дальше
+`tools/testflight-distribute.py` повторяет его для каждой новой сборки.
+
+## Тестировщики
+
+Во внутренней группе могут быть только участники команды (Users and Access). Новый человек:
+пригласить в команду (роль Developer, доступ только к RestoApp touch), после принятия приглашения
+добавить в группу `dev`.
