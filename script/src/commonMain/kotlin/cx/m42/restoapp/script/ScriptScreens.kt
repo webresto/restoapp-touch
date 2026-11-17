@@ -41,18 +41,19 @@ import cx.m42.restoapp.render.RenderWords
 import cx.m42.restoapp.render.SheetChoice
 import cx.m42.restoapp.render.SwitchControl
 import cx.m42.superizer.runtime.LocalAppRuntime
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.AppTextField
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
 import com.composeunstyled.Text
 import cx.m42.superizer.ui.platform.ScreenSteps
 import cx.m42.superizer.ui.platform.SystemBackHandler
+import cx.m42.superizer.ui.platform.hostDrawsBack
 import cx.m42.superizer.theme.AppTheme
 import kotlin.math.roundToInt
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.superizer.kit.Input
 
 /**
  * The screen a script drew (js-module.plan.md, stage 0): a tree of nodes, drawn by the components
@@ -83,8 +84,11 @@ internal fun ScriptAppScreen(instance: ScriptAppInstance) {
             ScreenSteps(instance.steps)
             if (chrome.canGoBack) {
                 SystemBackHandler(enabled = true) { instance.back() }
-                AppButton(
-                    text = "← " + words.back,
+                // `script:nested` — a screen standing on another one, which the way back returns from.
+                Box(Modifier.testTag("script:nested"))
+                // Only where the host has no arrow of its own: the shell's goes through the handler above.
+                if (!hostDrawsBack) Button(
+                    text = "‹ " + words.back,
                     onClick = instance::back,
                     variant = ButtonVariant.Ghost,
                     size = ButtonSize.Sm,
@@ -284,7 +288,7 @@ private fun ScriptRowView(row: ScriptRow, instance: ScriptAppInstance, words: Re
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 row.actions.forEachIndexed { index, action ->
-                    AppButton(
+                    Button(
                         text = action.title.orEmpty(),
                         onClick = { press(action.press, action.onPress, instance) },
                         variant = if (action.tone == "danger") ButtonVariant.Destructive else ButtonVariant.Outline,
@@ -355,7 +359,7 @@ private fun ScriptFieldView(node: ScriptNode, instance: ScriptAppInstance, tag: 
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         node.title?.let { Text(text = it, style = AppTheme.footnote, color = AppTheme.muted) }
-        AppTextField(
+        Input(
             value = typed,
             onValueChange = { value ->
                 typed = value
@@ -380,11 +384,11 @@ private fun ScriptSelectView(node: ScriptNode, instance: ScriptAppInstance, word
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         node.title?.let { Text(text = it, style = AppTheme.footnote, color = AppTheme.muted) }
-        AppButton(
+        Button(
             text = chosen?.title ?: node.value ?: node.placeholder.orEmpty(),
             onClick = { open = true },
             variant = ButtonVariant.Outline,
-            size = ButtonSize.Default,
+            size = ButtonSize.Lg,
             modifier = Modifier.fillMaxWidth().testTag("$tag:select-$key"),
         )
     }

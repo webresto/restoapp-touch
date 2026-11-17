@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: adminization/superizer
-          ref: 16ce162ccdb4f3b26fade05b625bce0eb9e100ba
+          ref: 24ae337c74d5adecb820df2774dacc98eb0d3f99
           path: superizer-checkout
 
       - name: Put the library where settings.gradle.kts looks for it

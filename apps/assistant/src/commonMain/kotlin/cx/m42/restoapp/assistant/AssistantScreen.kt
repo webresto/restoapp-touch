@@ -34,25 +34,50 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.composeunstyled.Text
 import cx.m42.restoapp.protocol.Tones
 import cx.m42.restoapp.render.EmptyState
 import cx.m42.restoapp.render.Notice
 import cx.m42.superizer.runtime.LocalAppRuntime
 import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.AppTextField
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
 import cx.m42.superizer.ui.platform.SystemBackHandler
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import com.composables.icons.lucide.ArrowUp
+import com.composables.icons.lucide.ChevronDown
+import com.composables.icons.lucide.ChevronRight
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.MessageSquare
+import com.composables.icons.lucide.PanelLeft
+import com.composables.icons.lucide.Paperclip
+import com.composables.icons.lucide.Sparkles
+import com.composables.icons.lucide.Square
+import com.composables.icons.lucide.SquarePen
+import com.composables.icons.lucide.Trash2
+import com.composables.icons.lucide.X
+import cx.m42.superizer.kit.Icon
+import cx.m42.superizer.kit.IconButton
+import cx.m42.superizer.kit.Kit
+import cx.m42.superizer.kit.Spinner
+import cx.m42.superizer.kit.Text
+import cx.m42.superizer.kit.TextVariant
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.superizer.kit.Input
 
 /**
- * The chat, laid out as the panel's assistant (adminizer's ai-assistant bundle): the conversation with the reply
- * as it streams, tool calls and reasoning folded under their names, the welcome hint and suggestions of an empty
- * conversation, the composer with Stop while a reply runs, and the list of conversations behind «Диалоги».
+ * The chat, laid out as the panel's assistant (adminizer's ai-assistant bundle) and drawn the way a phone's chat
+ * is (ChatGPT on the iPhone): the conversation on white, the person's words in a grey bubble on the right and the
+ * reply as plain text across the screen, tool calls and reasoning folded under their names, the welcome and the
+ * suggestions of an empty conversation, a rounded composer with a round send (Stop while a reply runs), and the
+ * list of conversations behind the icon at the top left.
  */
 @Composable
 internal fun AssistantScreen(instance: AssistantInstance) {
@@ -63,8 +88,7 @@ internal fun AssistantScreen(instance: AssistantInstance) {
     LaunchedEffect(instance) { instance.start() }
     SystemBackHandler(enabled = state.listOpen) { instance.openList(false) }
 
-    val tokens = AppTheme
-    Box(Modifier.fillMaxSize().background(AppTheme.pageBackground).testTag("assistant")) {
+    Box(Modifier.fillMaxSize().background(Kit.colors.background).testTag("assistant")) {
         Column(Modifier.fillMaxSize().imePadding()) {
             Toolbar(state, words, instance)
             state.error?.let { Notice(it, Tones.DANGER, words.close, { instance.dismissError() }, "assistant:error") }
@@ -84,64 +108,80 @@ internal fun AssistantScreen(instance: AssistantInstance) {
                 }
             }
         }
-        if ((state.loading || state.busy) && state.status != null) {
-            Text(words.loading, style = tokens.footnote, color = tokens.muted, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).testTag("assistant:busy"))
-        }
     }
 }
 
+/** The conversations at the left, the usage and a new conversation at the right — ChatGPT's bar, under the shell's. */
 @Composable
 private fun Toolbar(state: AssistantState, words: AssistantWords, instance: AssistantInstance) {
-    val tokens = AppTheme
     if (state.status?.ready != true) return
+    val idle = !state.running && !state.busy
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        AppButton(
-            text = if (state.listOpen) words.close else words.conversations,
+        IconButton(
+            if (state.listOpen) Lucide.X else Lucide.PanelLeft,
+            contentDescription = if (state.listOpen) words.close else words.conversations,
             onClick = { instance.openList(!state.listOpen) },
-            variant = ButtonVariant.Outline, size = ButtonSize.Sm,
+            enabled = idle,
             modifier = Modifier.testTag("assistant:conversations"),
-            enabled = !state.running && !state.busy,
         )
-        AppButton(
-            text = words.newConversation,
-            onClick = { instance.newConversation() },
-            variant = ButtonVariant.Ghost, size = ButtonSize.Sm,
-            modifier = Modifier.testTag("assistant:new"),
-            enabled = !state.running && !state.busy,
+        Text(
+            text = if (state.listOpen) words.conversations else state.title.ifBlank { words.welcome },
+            style = Kit.typography.p.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
         )
-        Spacer(Modifier.weight(1f))
-        state.meta?.takeIf { it.totalTokens > 0 }?.let {
-            Text(words.tokens(it.totalTokens), style = tokens.footnote, color = tokens.muted, modifier = Modifier.testTag("assistant:usage"))
+        if ((state.loading || state.busy) && state.status != null) {
+            Spinner(size = 16.dp, modifier = Modifier.padding(end = 8.dp).testTag("assistant:busy"))
         }
+        state.meta?.takeIf { it.totalTokens > 0 && !state.listOpen }?.let {
+            Text(words.tokens(it.totalTokens), variant = TextVariant.Muted, modifier = Modifier.padding(end = 4.dp).testTag("assistant:usage"))
+        }
+        IconButton(
+            Lucide.SquarePen,
+            contentDescription = words.newConversation,
+            onClick = { instance.newConversation() },
+            enabled = idle,
+            modifier = Modifier.testTag("assistant:new"),
+        )
     }
 }
 
 @Composable
 private fun Conversation(state: AssistantState, words: AssistantWords, instance: AssistantInstance, modifier: Modifier) {
-    val tokens = AppTheme
     val list = rememberLazyListState()
     val items = state.messages + listOfNotNull(state.reply)
     val tail = state.reply?.parts?.let { parts -> parts.size * 1000 + ((parts.lastOrNull() as? Part.Text)?.text?.length ?: 0) } ?: 0
     LaunchedEffect(items.size, tail) { if (items.isNotEmpty()) list.scrollToItem(items.lastIndex, Int.MAX_VALUE / 2) }
     if (items.isEmpty()) {
         Column(
-            modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp).testTag("assistant:welcome"),
+            modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 32.dp).testTag("assistant:welcome"),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(state.title.ifBlank { words.welcome }, style = tokens.header, color = tokens.foreground)
-            state.status?.welcomeHint?.let { Text(it, style = tokens.body, color = tokens.muted) }
+            Box(Modifier.size(48.dp).clip(CircleShape).background(Kit.colors.muted), contentAlignment = Alignment.Center) {
+                Icon(Lucide.Sparkles, contentDescription = null, size = 24.dp)
+            }
+            Text(state.title.ifBlank { words.welcome }, variant = TextVariant.H3, textAlign = TextAlign.Center)
+            state.status?.welcomeHint?.let { Text(it, variant = TextVariant.Muted, textAlign = TextAlign.Center) }
+            Spacer(Modifier.size(4.dp))
             state.status?.suggestions.orEmpty().forEachIndexed { i, s ->
-                Text(
-                    s,
-                    style = tokens.label, color = tokens.foreground,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(tokens.radius)).border(1.dp, tokens.border, RoundedCornerShape(tokens.radius))
-                        .clickable(enabled = !state.busy) { instance.send(s) }.padding(horizontal = 14.dp, vertical = 10.dp).testTag("assistant:suggestion-$i"),
-                )
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .border(1.dp, Kit.colors.border, RoundedCornerShape(16.dp))
+                        .clickable(enabled = !state.busy) { instance.send(s) }
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .testTag("assistant:suggestion-$i"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(Lucide.MessageSquare, contentDescription = null, size = 16.dp, tint = Kit.colors.mutedForeground)
+                    Text(s, variant = TextVariant.Small, modifier = Modifier.weight(1f))
+                }
             }
         }
         return
@@ -150,121 +190,198 @@ private fun Conversation(state: AssistantState, words: AssistantWords, instance:
         items(items, key = { it.id }) { message ->
             Bubble(message, words, running = state.running && message === state.reply, onLink = instance::open)
         }
+        item { Spacer(Modifier.size(12.dp)) }
     }
 }
 
+/** The person's words in a grey bubble at the right; the reply as plain text across the screen, as ChatGPT draws it. */
 @Composable
 private fun Bubble(message: ChatMessage, words: AssistantWords, running: Boolean, onLink: (String) -> Unit) {
-    val tokens = AppTheme
     val mine = message.role == Role.User
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (mine) 8.dp else 6.dp),
+        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+    ) {
         Column(
-            Modifier.widthIn(max = 560.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(if (mine) tokens.primary else tokens.surface)
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+            (if (mine) Modifier.padding(start = 48.dp).widthIn(max = 560.dp).clip(RoundedCornerShape(20.dp)).background(Kit.colors.muted).padding(horizontal = 14.dp, vertical = 9.dp)
+            else Modifier.widthIn(max = 720.dp).fillMaxWidth())
                 .testTag(if (mine) "assistant:user" else "assistant:reply"),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val color = if (mine) tokens.primaryForeground else tokens.foreground
-            if (message.parts.isEmpty() && running) Text(words.thinking, style = tokens.body, color = tokens.muted, modifier = Modifier.testTag("assistant:thinking"))
+            val color = Kit.colors.foreground
+            if (message.parts.isEmpty() && running) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Spinner(size = 14.dp)
+                    Text(words.thinking, variant = TextVariant.Muted, modifier = Modifier.testTag("assistant:thinking"))
+                }
+            }
             for (part in message.parts) {
                 when (part) {
-                    is Part.Text -> if (mine) Text(part.text, style = tokens.body, color = color) else Markdown(part.text, color, onLink)
+                    is Part.Text -> if (mine) Text(part.text) else Markdown(part.text, color, onLink)
                     is Part.Reasoning -> Folded(words.reasoning, null, tag = "assistant:reasoning") {
-                        Text(part.text, style = tokens.label, color = tokens.muted)
+                        Text(part.text, variant = TextVariant.Muted)
                     }
                     is Part.Tool -> Folded(
                         "${words.tool}: ${part.name}",
                         when { !part.finished -> words.running; part.isError -> words.failed; else -> null },
                         tag = "assistant:tool-${part.name}",
+                        busy = !part.finished,
                     ) {
                         part.args?.takeIf { it !is JsonNull }?.let { Code(words.input, it) }
                         part.result?.let { Code(words.output, it) }
                     }
-                    is Part.Attachment -> Text("📎 ${part.name}", style = tokens.label, color = color)
+                    is Part.Attachment -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Lucide.Paperclip, contentDescription = null, size = 14.dp, tint = Kit.colors.mutedForeground)
+                        Text(part.name, variant = TextVariant.Small)
+                    }
                 }
             }
         }
     }
 }
 
+/** A tool call or the reasoning: one quiet line with its name, opened by a tap. */
 @Composable
-private fun Folded(title: String, badge: String?, tag: String, content: @Composable () -> Unit) {
-    val tokens = AppTheme
+private fun Folded(title: String, badge: String?, tag: String, busy: Boolean = false, content: @Composable () -> Unit) {
     var open by rememberSaveable(tag + title) { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).border(1.dp, tokens.border, RoundedCornerShape(8.dp))) {
-        Row(Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 10.dp, vertical = 6.dp).testTag(tag), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (open) "▾ " else "▸ ", style = tokens.label, color = tokens.muted)
-            Text(title, style = tokens.label.copy(fontWeight = FontWeight.Medium), color = tokens.foreground, modifier = Modifier.weight(1f))
-            badge?.let { Text(it, style = tokens.footnote, color = tokens.muted) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.clip(RoundedCornerShape(8.dp)).clickable { open = !open }.padding(vertical = 4.dp).testTag(tag),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (busy) Spinner(size = 12.dp)
+            Text(title, variant = TextVariant.Muted)
+            badge?.let { Text("· $it", variant = TextVariant.Muted) }
+            Icon(if (open) Lucide.ChevronDown else Lucide.ChevronRight, contentDescription = null, size = 14.dp, tint = Kit.colors.mutedForeground)
         }
-        if (open) Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
+        if (open) Column(
+            Modifier.fillMaxWidth().padding(top = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) { content() }
     }
 }
 
 @Composable
 private fun Code(title: String, value: JsonElement) {
-    val tokens = AppTheme
     val text = remember(value) { if (value is JsonPrimitive && value.isString) value.content else PrettyJson.encodeToString(JsonElement.serializer(), value) }
-    Text(title, style = tokens.footnote, color = tokens.muted)
+    Text(title, variant = TextVariant.Small)
     Text(
         text.take(4000),
-        style = tokens.mono, color = tokens.foreground,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(tokens.muted.copy(alpha = 0.10f))
-            .horizontalScroll(rememberScrollState()).padding(8.dp),
+        variant = TextVariant.Mono,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Kit.colors.muted)
+            .horizontalScroll(rememberScrollState()).padding(10.dp),
     )
 }
 
 private val PrettyJson = kotlinx.serialization.json.Json { prettyPrint = true }
 
+/** One rounded field with the round button inside it: send when idle, stop while a reply runs. */
 @Composable
 private fun Composer(state: AssistantState, words: AssistantWords, instance: AssistantInstance) {
+    val canSend = state.draft.isNotBlank() && !state.busy
     Row(
-        Modifier.fillMaxWidth().background(AppTheme.background).padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)
+            .clip(RoundedCornerShape(26.dp))
+            .background(Kit.colors.background)
+            .border(1.dp, Kit.colors.border, RoundedCornerShape(26.dp))
+            .padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.Bottom,
     ) {
-        // AppTextField puts the modifier on the field itself and fills the width around it: the weight is the box's.
         Box(Modifier.weight(1f)) {
-            AppTextField(
-                value = state.draft,
-                onValueChange = instance::edit,
-                placeholder = state.status?.composerPlaceholder ?: words.placeholder,
-                label = "",
-                singleLine = false,
-                minHeight = 44.dp,
-                modifier = Modifier.testTag("assistant:input"),
-            )
+            ComposerField(state, words, instance)
         }
-        if (state.running) {
-            AppButton(words.stop, { instance.stop() }, variant = ButtonVariant.Outline, size = ButtonSize.Default, modifier = Modifier.testTag("assistant:stop"))
+        val (icon, label, tag, enabled, onClick) = if (state.running) {
+            Send(Lucide.Square, words.stop, "assistant:stop", true) { instance.stop() }
         } else {
-            AppButton(words.send, { instance.send() }, enabled = state.draft.isNotBlank() && !state.busy, size = ButtonSize.Default, modifier = Modifier.testTag("assistant:send"))
+            Send(Lucide.ArrowUp, words.send, "assistant:send", canSend) { instance.send() }
+        }
+        Box(
+            Modifier.padding(4.dp).size(36.dp).clip(CircleShape)
+                .background(if (enabled) Kit.colors.primary else Kit.colors.muted)
+                .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+                .semantics { contentDescription = label }
+                .testTag(tag),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = null, size = 18.dp, tint = if (enabled) Kit.colors.onPrimary else Kit.colors.mutedForeground)
         }
     }
 }
 
+private data class Send(
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val label: String,
+    val tag: String,
+    val enabled: Boolean,
+    val onClick: () -> Unit,
+)
+
+/** The field of the composer: no frame of its own, the composer is the frame. */
+@Composable
+private fun ComposerField(state: AssistantState, words: AssistantWords, instance: AssistantInstance) {
+    val style = Kit.typography.p.copy(color = Kit.colors.foreground)
+    androidx.compose.foundation.text.BasicTextField(
+        value = state.draft,
+        onValueChange = instance::edit,
+        textStyle = style,
+        maxLines = 6,
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(Kit.colors.foreground),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp).testTag("assistant:input"),
+        decorationBox = { field ->
+            Box {
+                if (state.draft.isEmpty()) {
+                    Text(
+                        state.status?.composerPlaceholder ?: words.placeholder,
+                        style = style,
+                        color = Kit.colors.mutedForeground,
+                        maxLines = 1,
+                        // Not the field's text: what was typed is.
+                        modifier = Modifier.clearAndSetSemantics { },
+                    )
+                }
+                field()
+            }
+        },
+    )
+}
+
 @Composable
 private fun ConversationList(state: AssistantState, words: AssistantWords, instance: AssistantInstance, modifier: Modifier) {
-    val tokens = AppTheme
     if (state.conversations.isEmpty()) {
         Box(modifier) { EmptyState(words.noConversations, null, words.newConversation, { instance.newConversation() }, "assistant:no-conversations") }
         return
     }
-    LazyColumn(modifier.fillMaxWidth().testTag("assistant:list")) {
+    LazyColumn(modifier.fillMaxWidth().padding(horizontal = 8.dp).testTag("assistant:list")) {
         items(state.conversations, key = { it.id }) { c ->
             val active = c.id == state.activeId
             Row(
-                Modifier.fillMaxWidth().clickable { instance.select(c.id) }.padding(horizontal = 16.dp, vertical = 12.dp).testTag("assistant:conversation-${c.id}"),
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (active) Kit.colors.muted else androidx.compose.ui.graphics.Color.Transparent)
+                    .clickable { instance.select(c.id) }
+                    .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)
+                    .testTag("assistant:conversation-${c.id}"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text(c.title.ifBlank { words.untitled }, style = tokens.body.copy(fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal), color = tokens.foreground, maxLines = 2)
-                    c.updatedAt?.let { Text(it.take(16).replace('T', ' '), style = tokens.footnote, color = tokens.muted) }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        c.title.ifBlank { words.untitled },
+                        style = Kit.typography.p.copy(fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal),
+                        maxLines = 2,
+                    )
+                    c.updatedAt?.let { Text(it.take(16).replace('T', ' '), variant = TextVariant.Muted) }
                 }
-                if (active) Text(words.active, style = tokens.footnote, color = tokens.primary)
-                else Text(words.delete, style = tokens.footnote, color = tokens.danger, modifier = Modifier.clickable { instance.delete(c.id) }.padding(8.dp).testTag("assistant:delete-${c.id}"))
+                if (active) {
+                    Text(words.active, variant = TextVariant.Muted, modifier = Modifier.padding(end = 12.dp))
+                } else {
+                    IconButton(
+                        Lucide.Trash2,
+                        contentDescription = words.delete,
+                        onClick = { instance.delete(c.id) },
+                        modifier = Modifier.testTag("assistant:delete-${c.id}"),
+                    )
+                }
             }
         }
     }

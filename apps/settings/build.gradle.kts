@@ -33,6 +33,7 @@ kotlin {
             api(libs.superizer.core)
             implementation(libs.superizer.ui.theme)
             implementation(libs.superizer.ui)
+            implementation(libs.superizer.ui.kit)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.ui)

@@ -156,14 +156,14 @@ class RealServerShotsTest {
             shot("system-06-card-core")
             onNodeWithTag("system:field-removeText:value").performScrollTo()
             shot("system-07-card-core-refusals")
-            onNodeWithTag("system:back").performScrollTo().performClick()
+            shellBack()
             waitUntil(timeoutMillis = 30_000L) { exists("system:row-restocore") }
 
             if (exists("system:row-simple-navigation")) {
                 onNodeWithTag("system:row-simple-navigation").performClick()
                 waitUntil(timeoutMillis = 30_000L) { exists("system:field-hookName:value") }
                 shot("system-08-card-installed")
-                onNodeWithTag("system:back").performScrollTo().performClick()
+                shellBack()
                 waitForIdle()
             }
 
@@ -329,8 +329,7 @@ class RealServerShotsTest {
 
     /** «Назад»: a card scrolls it away, a list does not scroll it at all. */
     private fun ComposeUiTest.back() {
-        runCatching { onNodeWithTag("system:back").performScrollTo() }
-        onNodeWithTag("system:back").performClick()
+        shellBack()
     }
 
     /** Adds the stand as a server of the client and signs in, as `theScreensOfTheRealServer` does. */
@@ -419,7 +418,7 @@ class RealServerShotsTest {
 
                 if (hasText("Шапка")) {
                     onAllNodesWithText("Шапка").onFirst().performClick()
-                    waitUntil(timeoutMillis = 30_000L) { exists("script:back") }
+                    waitUntil(timeoutMillis = 30_000L) { exists("script:nested") }
                     shot("06-navigation-items")
 
                     // The fields of one item: its label, the page its link points at, and its icon.
@@ -462,12 +461,12 @@ class RealServerShotsTest {
                         shot("10-navigation-saved")
                     }
                     // Back out and in again: what the server kept is what the screen shows now.
-                    if (exists("script:back")) onNodeWithTag("script:back").performClick()
-                    waitUntil(timeoutMillis = 20_000L) { hasText("Шапка") && !exists("script:back") }
+                    if (exists("script:nested")) shellBack()
+                    waitUntil(timeoutMillis = 20_000L) { hasText("Шапка") && !exists("script:nested") }
                     onAllNodesWithText("Шапка").onFirst().performClick()
-                    waitUntil(timeoutMillis = 30_000L) { exists("script:back") }
+                    waitUntil(timeoutMillis = 30_000L) { exists("script:nested") }
                     shot("11-navigation-reopened")
-                    if (exists("script:back")) onNodeWithTag("script:back").performClick()
+                    if (exists("script:nested")) shellBack()
                     waitForIdle()
                 }
             }
@@ -553,7 +552,7 @@ class RealServerShotsTest {
                 onNodeWithTag("channels:link-url-0").performScrollTo()
                 waitForIdle()
                 shot("22b-channel-open-line")
-                onNodeWithTag("channels:back").performScrollTo().performClick()
+                shellBack()
                 waitUntil(timeoutMillis = 30_000L) { exists("channels:list") }
             }
 
@@ -567,7 +566,7 @@ class RealServerShotsTest {
             onNodeWithTag("channels:link-url-0").performScrollTo()
             waitForIdle()
             shot("24b-channel-setup-line")
-            onNodeWithTag("channels:back").performScrollTo().performClick()
+            shellBack()
             waitUntil(timeoutMillis = 30_000L) { exists("channels:list") }
 
             // The catalog of types: what is recommended for the country of the project, then everything.
@@ -582,7 +581,7 @@ class RealServerShotsTest {
             onNodeWithTag("channels:row-telegram-bot").performScrollTo().performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("channels:detail") }
             shot("27-channel-type-coming-soon")
-            onNodeWithTag("channels:back").performScrollTo().performClick()
+            shellBack()
             waitUntil(timeoutMillis = 30_000L) { exists("channels:list") }
             onNodeWithTag("channels:row-web-storefront").performScrollTo().performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("channels:detail") }

@@ -36,17 +36,22 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
 import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.AppTextField
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
-import cx.m42.superizer.ui.components.CheckIcon
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.superizer.kit.Icon
+import cx.m42.superizer.kit.Input
+import cx.m42.superizer.kit.Kit
+import cx.m42.superizer.kit.TextVariant
+import cx.m42.superizer.kit.Text as KitText
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Check
 
 /**
  * The form of one value, by the schema the value came with ([SchemaNode]).
@@ -108,14 +113,13 @@ private fun keyOf(value: JsonElement): String = if (value is JsonNull) "null" el
 
 @Composable
 private fun Labelled(label: String?, note: String?, tag: String, content: @Composable () -> Unit) {
-    val tokens = AppTheme
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (!label.isNullOrBlank()) {
-            Text(text = label, style = tokens.footnote, color = tokens.muted, modifier = Modifier.testTag("$tag:label"))
+            KitText(text = label, variant = TextVariant.Small, modifier = Modifier.testTag("$tag:label"))
         }
         content()
         if (!note.isNullOrBlank()) {
-            Text(text = note, style = tokens.footnote, color = tokens.muted, modifier = Modifier.testTag("$tag:note"))
+            KitText(text = note, variant = TextVariant.Muted, modifier = Modifier.testTag("$tag:note"))
         }
     }
 }
@@ -146,7 +150,7 @@ private fun TextEditor(
         return
     }
     val text = plainOf(value).orEmpty()
-    AppTextField(
+    Input(
         value = text,
         onValueChange = { typed ->
             val cut = node.maxLength?.let { typed.take(it + 1) } ?: typed
@@ -178,7 +182,7 @@ private fun NumberEditor(
         val shown = plainOf(value).orEmpty()
         if (shown.toDoubleOrNull() != typed.toDoubleOrNull()) typed = shown
     }
-    AppTextField(
+    Input(
         value = typed,
         onValueChange = { text ->
             typed = text.filter { it.isDigit() || it == '-' || it == '.' || it == ',' }.replace(',', '.')
@@ -210,7 +214,7 @@ private fun FlagEditor(
     val on = (value as? JsonPrimitive)?.booleanOrNull
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(true, false).forEach { flag ->
-            AppButton(
+            Button(
                 text = if (flag) words.yes else words.no,
                 onClick = { onChange(JsonPrimitive(flag)) },
                 enabled = enabled,
@@ -316,7 +320,8 @@ private fun TagChips(
                         color = if (isOn) tokens.primaryForeground else tokens.foreground,
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
-                            .background(if (isOn) tokens.primary else tokens.surface)
+                            .background(if (isOn) tokens.primary else Kit.colors.card)
+                            .border(1.dp, if (isOn) tokens.primary else Kit.colors.border, RoundedCornerShape(50))
                             .clickable(enabled = enabled, role = Role.Tab) { onToggle(item) }
                             .semantics { selected = isOn }
                             .padding(horizontal = 12.dp, vertical = 7.dp)
@@ -360,7 +365,7 @@ private fun SearchableList(
                 color = tokens.foreground,
                 modifier = Modifier.weight(1f).testTag("$tag:current"),
             )
-            AppButton(
+            Button(
                 text = words.choose,
                 onClick = { open = true },
                 enabled = enabled,
@@ -376,7 +381,7 @@ private fun SearchableList(
         query.isBlank() || titleOf(item, titles, words).contains(query.trim(), ignoreCase = true)
     }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        AppTextField(
+        Input(
             value = query,
             onValueChange = { query = it },
             placeholder = words.choose,
@@ -418,11 +423,11 @@ private fun SearchableList(
                         color = tokens.foreground,
                         modifier = Modifier.weight(1f),
                     )
-                    if (isOn) CheckIcon(tokens.foreground)
+                    if (isOn) Icon(Lucide.Check, contentDescription = null, tint = tokens.foreground)
                 }
             }
         }
-        AppButton(
+        Button(
             text = words.cancelChoosing,
             onClick = { open = false },
             variant = ButtonVariant.Ghost,
@@ -459,7 +464,7 @@ private fun ItemsEditor(
                             color = AppTheme.muted,
                             modifier = Modifier.weight(1f),
                         )
-                        AppButton(
+                        Button(
                             text = words.remove,
                             onClick = { onChange(JsonArray(items.filterIndexed { at, _ -> at != index })) },
                             enabled = enabled,
@@ -493,7 +498,7 @@ private fun ItemsEditor(
                             tag = "$tag-$index",
                         )
                     }
-                    AppButton(
+                    Button(
                         text = "−",
                         onClick = { onChange(JsonArray(items.filterIndexed { at, _ -> at != index })) },
                         enabled = enabled,
@@ -504,7 +509,7 @@ private fun ItemsEditor(
                 }
             }
         }
-        AppButton(
+        Button(
             text = "+ ${words.add}",
             onClick = { onChange(JsonArray(items + blankOf(node.item))) },
             enabled = enabled,
@@ -578,7 +583,7 @@ private fun KeyedEditor(
             Card(tag = "$tag-$index") {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Box(modifier = Modifier.weight(1f)) {
-                        AppTextField(
+                        Input(
                             value = key,
                             onValueChange = { typed ->
                                 // The key is part of the value: renaming it keeps the order of the rest.
@@ -588,7 +593,7 @@ private fun KeyedEditor(
                             modifier = Modifier.fillMaxWidth().testTag("$tag-$index:key"),
                         )
                     }
-                    AppButton(
+                    Button(
                         text = words.remove,
                         onClick = { onChange(JsonObject(fields - key)) },
                         enabled = enabled,
@@ -609,7 +614,7 @@ private fun KeyedEditor(
                 )
             }
         }
-        AppButton(
+        Button(
             text = "+ ${words.addKey}",
             onClick = {
                 val name = generateSequence(1) { it + 1 }.first { "${words.key} $it" !in fields.keys }
@@ -663,7 +668,7 @@ private fun RawEditorLabelled(
         if (parseJsonOrString(text) != value) text = prettyJson(value)
     }
     Labelled(label, null, tag) {
-        AppTextField(
+        Input(
             value = text,
             onValueChange = {
                 text = it
@@ -671,23 +676,23 @@ private fun RawEditorLabelled(
             },
             placeholder = "{ }",
             singleLine = false,
-            minHeight = 96.dp,
             modifier = Modifier.fillMaxWidth().testTag(tag),
+            minLines = 3,
         )
     }
 }
 
 @Composable
 private fun Card(tag: String, content: @Composable () -> Unit) {
-    val tokens = AppTheme
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(tokens.radius))
-            .background(tokens.surface)
-            .padding(10.dp)
+            .clip(Kit.shapes.lg)
+            .background(Kit.colors.card)
+            .border(1.dp, Kit.colors.border, Kit.shapes.lg)
+            .padding(12.dp)
             .testTag(tag),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         content()
     }
@@ -696,26 +701,13 @@ private fun Card(tag: String, content: @Composable () -> Unit) {
 /** A field that shows dots instead of what is typed: a secret is written, never read. */
 @Composable
 public fun SecretField(value: String, onChange: (String) -> Unit, placeholder: String, enabled: Boolean, tag: String) {
-    val tokens = AppTheme
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, tokens.border, RoundedCornerShape(8.dp))
-            .background(tokens.background)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
-    ) {
-        if (value.isEmpty()) Text(text = placeholder, style = tokens.body, color = tokens.muted)
-        BasicTextField(
-            value = value,
-            onValueChange = onChange,
-            enabled = enabled,
-            singleLine = true,
-            textStyle = tokens.body.copy(color = tokens.foreground),
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-            cursorBrush = SolidColor(tokens.foreground),
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = placeholder }.testTag(tag),
-        )
-    }
+    Input(
+        value = value,
+        onValueChange = onChange,
+        placeholder = placeholder,
+        enabled = enabled,
+        password = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        modifier = Modifier.testTag(tag),
+    )
 }

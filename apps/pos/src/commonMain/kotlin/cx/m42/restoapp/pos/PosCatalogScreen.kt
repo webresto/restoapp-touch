@@ -29,9 +29,8 @@ import cx.m42.restoapp.render.EmptyState
 import cx.m42.restoapp.render.GroupTile
 import cx.m42.restoapp.render.money
 import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
 
 /**
  * The catalog behind the «+»: the groups of the menu, then the products of one, each with the price
@@ -125,7 +124,7 @@ private fun ProductTile(context: PosContext, product: PosProduct) {
                 modifier = Modifier.padding(end = 8.dp).testTag("pos:product-${product.id}:in-order"),
             )
         }
-        AppButton(
+        Button(
             // A dish with something to choose opens the chooser; the rest go straight in.
             text = if (stopped) words.stopped else "+",
             onClick = { if (product.hasOptions) instance.openOptions(dishId = product.id) else instance.add(product.id) },

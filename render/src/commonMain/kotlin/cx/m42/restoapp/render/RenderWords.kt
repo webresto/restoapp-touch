@@ -30,6 +30,8 @@ public class RenderWords(public val lang: String) {
     public val places: String = t("Точки", "Points")
     public val confirm: String = t("Подтвердить", "Confirm")
     public val cancel: String = t("Отмена", "Cancel")
+    /** After the caption of a field one may leave empty. */
+    public val optional: String = t("необязательно", "optional")
     public val unsavedTitle: String = t("Несохранённые изменения будут потеряны", "Unsaved changes will be lost")
     public val unsavedHint: String = t("Сохранить их перед выходом?", "Save them before leaving?")
     public val saveAndLeave: String = t("Сохранить и выйти", "Save and leave")
@@ -39,6 +41,8 @@ public class RenderWords(public val lang: String) {
     /** What a drag handle is called for a screen reader. */
     public val reorder: String = t("Перетащите, чтобы поменять порядок", "Drag to reorder")
     public val unknownView: String = t("Этот экран приложение пока не умеет показывать", "This app cannot show this screen yet")
+    /** The arrow of a line that leaves the app, for a screen reader. */
+    public val opensInBrowser: String = t("Откроется в браузере", "Opens in the browser")
     public val linkGone: String = t("Этот переход сейчас недоступен", "This link cannot be followed now")
     public val linkNotOpened: String = t("Не удалось открыть ссылку", "The link could not be opened")
 

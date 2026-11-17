@@ -38,11 +38,20 @@ import cx.m42.restoapp.render.SearchBox
 import cx.m42.restoapp.render.StepperRow
 import cx.m42.restoapp.render.money
 import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.AppTextField
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
 import cx.m42.restoapp.render.SwitchControl
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import androidx.compose.foundation.layout.size
+import cx.m42.superizer.kit.Icon
+import cx.m42.superizer.kit.IconButton
+import cx.m42.superizer.kit.Input
+import cx.m42.superizer.kit.Kit
+import cx.m42.superizer.kit.TextVariant
+import cx.m42.superizer.kit.Text as KitText
+import com.composables.icons.lucide.Check
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.X
 
 /*
  * The questions of the checkout, one sheet each: how the food is handed over, who the guest is,
@@ -74,6 +83,7 @@ internal fun BoxScope.PosSheets(context: PosContext) {
         title = title,
         onDismiss = context.instance::closeSheet,
         tag = "pos:sheet-${sheet.name.lowercase()}",
+        close = words.close,
         // The chooser of a dish can be long: its button stays under the thumb instead of below
         // whatever was scrolled past.
         footer = if (sheet == PosSheet.Options) ({ OptionsButton(context) }) else null,
@@ -104,7 +114,9 @@ private fun ServiceSheet(context: PosContext, order: PosOrder) {
             title = words.serviceType(option.id),
             subtitle = option.reason,
             meta = null,
-            value = if (order.serviceType == option.id) "✓" else null,
+            value = null,
+            chevron = false,
+            trailing = { if (order.serviceType == option.id) Icon(Lucide.Check, contentDescription = null, size = 18.dp) },
             valueTone = null,
             badge = null,
             badgeTone = null,
@@ -119,11 +131,11 @@ private fun ServiceSheet(context: PosContext, order: PosOrder) {
     if (order.serviceType == PosOrder.DINE_IN) {
         Spacer(Modifier.heightIn(min = 8.dp))
         Field(words.table, table, { table = it }, "pos:table-input")
-        AppButton(
+        Button(
             text = words.save,
             onClick = { context.instance.setTable(table) },
             enabled = !context.state.busy && table.isNotBlank(),
-            size = ButtonSize.Sm,
+            size = ButtonSize.Lg,
             modifier = Modifier.padding(top = 8.dp).testTag("pos:table-save"),
         )
     }
@@ -144,18 +156,18 @@ private fun GuestSheet(context: PosContext, order: PosOrder) {
         SwitchControl(checked = create, label = words.createClient, enabled = !context.state.busy, onChange = { create = it }, tag = "pos:guest-create")
     }
     Row(modifier = Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        AppButton(
+        Button(
             text = words.save,
             onClick = { context.instance.setCustomer(name.trim(), phone.trim(), create) },
             enabled = !context.state.busy && name.isNotBlank() && phone.isNotBlank(),
-            size = ButtonSize.Sm,
+            size = ButtonSize.Lg,
             modifier = Modifier.testTag("pos:guest-save"),
         )
-        AppButton(
+        Button(
             text = words.findClient,
             onClick = { context.instance.openSheet(PosSheet.Clients) },
             variant = ButtonVariant.Ghost,
-            size = ButtonSize.Sm,
+            size = ButtonSize.Lg,
             modifier = Modifier.testTag("pos:guest-find"),
         )
     }
@@ -217,11 +229,11 @@ private fun AddressSheet(context: PosContext, order: PosOrder) {
     if (options.cities.size > 1) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 8.dp)) {
             options.cities.forEach { option ->
-                AppButton(
+                Button(
                     text = option.name,
                     onClick = { city = option.name },
                     variant = if (city == option.name) ButtonVariant.Default else ButtonVariant.Outline,
-                    size = ButtonSize.Sm,
+                    size = ButtonSize.Lg,
                     modifier = Modifier.testTag("pos:city-${option.id}"),
                 )
             }
@@ -249,11 +261,11 @@ private fun AddressSheet(context: PosContext, order: PosOrder) {
         Box(Modifier.weight(1f)) { Field(words.house, home, { home = it }, "pos:address-home") }
         Box(Modifier.weight(1f)) { Field(words.apartment, apartment, { apartment = it }, "pos:address-apartment") }
     }
-    AppButton(
+    Button(
         text = words.save,
         onClick = { context.instance.setAddress(city, street.trim(), home.trim(), apartment.trim(), null) },
         enabled = !context.state.busy && street.isNotBlank() && home.isNotBlank(),
-        size = ButtonSize.Sm,
+        size = ButtonSize.Lg,
         modifier = Modifier.padding(top = 10.dp).testTag("pos:address-save"),
     )
 }
@@ -284,11 +296,11 @@ private fun TimeSheet(context: PosContext) {
     }
     Spacer(Modifier.heightIn(min = 8.dp))
     Field("${words.maxWait}, ${words.minutes}", wait, { wait = it.filter(Char::isDigit) }, "pos:time-wait")
-    AppButton(
+    Button(
         text = words.save,
         onClick = { context.instance.setTime("maxWait", maxWaitMinutes = wait.toIntOrNull()) },
         enabled = !context.state.busy && (wait.toIntOrNull() ?: 0) > 0,
-        size = ButtonSize.Sm,
+        size = ButtonSize.Lg,
         modifier = Modifier.padding(top = 8.dp).testTag("pos:time-wait-save"),
     )
 }
@@ -302,7 +314,9 @@ private fun PaymentSheet(context: PosContext, order: PosOrder) {
             // Online payment ends in a redirect, and a terminal has nowhere to send one (slice D).
             subtitle = if (method.available) null else context.words.notOnTerminal,
             meta = null,
-            value = if (order.paymentMethodId == method.id) "✓" else null,
+            value = null,
+            chevron = false,
+            trailing = { if (order.paymentMethodId == method.id) Icon(Lucide.Check, contentDescription = null, size = 18.dp) },
             valueTone = null,
             badge = null,
             badgeTone = null,
@@ -318,19 +332,19 @@ private fun PromocodeSheet(context: PosContext, order: PosOrder) {
     var code by remember(order.id) { mutableStateOf(order.promotionCode.orEmpty()) }
     Field(words.promocode, code, { code = it }, "pos:promocode-input")
     Row(modifier = Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        AppButton(
+        Button(
             text = words.save,
             onClick = { context.instance.setPromocode(code.trim()) },
             enabled = !context.state.busy && code.isNotBlank(),
-            size = ButtonSize.Sm,
+            size = ButtonSize.Lg,
             modifier = Modifier.testTag("pos:promocode-save"),
         )
-        AppButton(
+        Button(
             text = words.clear,
             onClick = { context.instance.setPromocode(null) },
             enabled = !context.state.busy && order.promotionCode != null,
             variant = ButtonVariant.Ghost,
-            size = ButtonSize.Sm,
+            size = ButtonSize.Lg,
             modifier = Modifier.testTag("pos:promocode-clear"),
         )
     }
@@ -344,11 +358,11 @@ private fun DetailsSheet(context: PosContext, order: PosOrder) {
     Field(words.comment, comment, { comment = it }, "pos:details-comment")
     Spacer(Modifier.heightIn(min = 8.dp))
     Field(words.persons, persons, { persons = it.filter(Char::isDigit) }, "pos:details-persons")
-    AppButton(
+    Button(
         text = words.save,
         onClick = { context.instance.setDetails(comment.trim(), persons.toIntOrNull()) },
         enabled = !context.state.busy,
-        size = ButtonSize.Sm,
+        size = ButtonSize.Lg,
         modifier = Modifier.padding(top = 10.dp).testTag("pos:details-save"),
     )
 }
@@ -362,11 +376,11 @@ private fun LineCommentSheet(context: PosContext, order: PosOrder) {
     Text(text = line.name, style = AppTheme.body.copy(fontWeight = FontWeight.SemiBold), color = AppTheme.foreground)
     Spacer(Modifier.heightIn(min = 8.dp))
     Field(words.comment, comment, { comment = it }, "pos:line-comment-input")
-    AppButton(
+    Button(
         text = words.save,
         onClick = { context.instance.setLineComment(lineId, comment.trim()) },
         enabled = !context.state.busy,
-        size = ButtonSize.Sm,
+        size = ButtonSize.Lg,
         modifier = Modifier.padding(top = 10.dp).testTag("pos:line-comment-save"),
     )
 }
@@ -413,11 +427,12 @@ private fun OptionsSheet(context: PosContext) {
 @Composable
 private fun OptionsButton(context: PosContext) {
     val words = context.words
-    AppButton(
+    Button(
         text = if (context.state.chooser?.options?.lineId == null) words.addToReceipt else words.save,
         onClick = context.instance::confirmOptions,
         enabled = !context.state.busy && context.state.chooser != null,
         modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("pos:options-save"),
+        size = ButtonSize.Lg,
     )
 }
 
@@ -430,7 +445,9 @@ private fun SingleOption(context: PosContext, group: PosOptionGroup, option: Pos
         title = option.name,
         subtitle = optionNote(context, option),
         meta = null,
-        value = if (chosen > 0) "✓" else null,
+        value = null,
+        chevron = false,
+        trailing = { if (chosen > 0) Icon(Lucide.Check, contentDescription = null, size = 18.dp) },
         valueTone = null,
         badge = null,
         badgeTone = null,
@@ -479,10 +496,8 @@ private fun optionNote(context: PosContext, option: PosOption): String? {
 /** A labelled text field, as the renderer's form draws one. */
 @Composable
 private fun Field(label: String, value: String, onChange: (String) -> Unit, tag: String) {
-    val tokens = AppTheme
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(text = label, style = tokens.footnote, color = tokens.muted)
-        AppTextField(value = value, onValueChange = onChange, placeholder = label, modifier = Modifier.fillMaxWidth().testTag(tag))
+    cx.m42.superizer.kit.Field(label = label) {
+        Input(value = value, onValueChange = onChange, label = label, modifier = Modifier.testTag(tag))
     }
 }
 
@@ -495,15 +510,15 @@ private fun BoxScope.Sheet(
     title: String,
     onDismiss: () -> Unit,
     tag: String,
+    close: String,
     footer: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    val tokens = AppTheme
     AnimatedVisibility(visible = true, enter = fadeIn(), exit = fadeOut()) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(tokens.foreground.copy(alpha = 0.35f))
+                .background(Kit.colors.scrim)
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
         )
     }
@@ -511,17 +526,26 @@ private fun BoxScope.Sheet(
         modifier = Modifier
             .align(Alignment.BottomCenter)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-            .background(tokens.background)
-            .padding(16.dp)
+            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+            .background(Kit.colors.background)
+            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
             .testTag(tag),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
-            Text(text = title, style = tokens.header, color = tokens.foreground, modifier = Modifier.weight(1f))
-            AppButton(
-                text = "✕",
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .padding(top = 8.dp, bottom = 4.dp)
+                .size(width = 36.dp, height = 5.dp)
+                .clip(RoundedCornerShape(50))
+                .background(Kit.colors.border),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            KitText(text = title, variant = TextVariant.H3, modifier = Modifier.weight(1f))
+            IconButton(
+                Lucide.X,
+                contentDescription = close,
                 onClick = onDismiss,
-                variant = ButtonVariant.Ghost,
+                variant = ButtonVariant.Secondary,
                 size = ButtonSize.Sm,
                 modifier = Modifier.testTag("$tag:close"),
             )
@@ -529,6 +553,8 @@ private fun BoxScope.Sheet(
         Column(modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
             content()
         }
-        footer?.invoke()
+        footer?.let {
+            Box(Modifier.padding(top = 12.dp)) { it() }
+        }
     }
 }

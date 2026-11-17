@@ -103,6 +103,7 @@ kotlin {
             implementation(libs.superizer.core)
             implementation(libs.superizer.ui.theme)
             implementation(libs.superizer.ui)
+            implementation(libs.superizer.ui.kit)
             implementation(libs.superizer.host)
 
             implementation(libs.kotlinx.coroutines.core)

@@ -214,7 +214,7 @@ class LiveServerTest {
             assertTrue(onAllNodesWithText("Настроить").fetchSemanticsNodes().isNotEmpty(), "no line to the settings of the provider")
             // And there is no «Система» on this server, so no line leads into it, whatever the right.
             assertTrue(onAllNodesWithText("Установить провайдера").fetchSemanticsNodes().isEmpty(), "a line into an app the server does not have")
-            onNodeWithTag("channels:back").performScrollTo().performClick()
+            shellBack()
             waitUntil(timeoutMillis = 15_000L) { exists("channels:list") }
 
             // The last row of the whole list leads to the catalog of types, on what is recommended here.

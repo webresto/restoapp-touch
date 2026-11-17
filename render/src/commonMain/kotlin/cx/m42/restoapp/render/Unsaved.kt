@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -21,10 +20,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.composeunstyled.Text
-import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.ButtonVariant
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.superizer.kit.Kit
+import cx.m42.superizer.kit.Text
+import cx.m42.superizer.kit.TextVariant
 import cx.m42.superizer.ui.platform.SystemBackHandler
 
 /**
@@ -57,12 +58,11 @@ internal fun UnsavedQuestion(
     onLeave: () -> Unit,
     onStay: () -> Unit,
 ) {
-    val tokens = AppTheme
     SystemBackHandler(enabled = true, onBack = onStay)
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(tokens.foreground.copy(alpha = 0.35f))
+            .background(Kit.colors.scrim)
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onStay)
             .testTag("unsaved:question"),
         contentAlignment = Alignment.Center,
@@ -71,30 +71,33 @@ internal fun UnsavedQuestion(
             modifier = Modifier
                 .widthIn(max = 360.dp)
                 .padding(24.dp)
-                .clip(RoundedCornerShape(tokens.radius))
-                .background(tokens.background)
+                .clip(Kit.shapes.xl)
+                .background(Kit.colors.background)
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(text = words.unsavedTitle, style = tokens.header, color = tokens.foreground)
-            Text(text = words.unsavedHint, style = tokens.body, color = tokens.muted)
+            Text(text = words.unsavedTitle, variant = TextVariant.H4)
+            Text(text = words.unsavedHint, variant = TextVariant.Muted, modifier = Modifier.padding(bottom = 8.dp))
             if (canSave) {
-                AppButton(
+                Button(
                     text = words.saveAndLeave,
                     onClick = onSave,
+                    size = ButtonSize.Lg,
                     modifier = Modifier.fillMaxWidth().testTag("unsaved:save"),
                 )
             }
-            AppButton(
+            Button(
                 text = words.leaveWithoutSaving,
                 onClick = onLeave,
                 variant = ButtonVariant.Destructive,
+                size = ButtonSize.Lg,
                 modifier = Modifier.fillMaxWidth().testTag("unsaved:leave"),
             )
-            AppButton(
+            Button(
                 text = words.stay,
                 onClick = onStay,
                 variant = ButtonVariant.Ghost,
+                size = ButtonSize.Lg,
                 modifier = Modifier.fillMaxWidth().testTag("unsaved:stay"),
             )
         }

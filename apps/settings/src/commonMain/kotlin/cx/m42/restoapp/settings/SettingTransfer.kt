@@ -36,12 +36,6 @@ import cx.m42.restoapp.render.NativeActionScope
 import cx.m42.restoapp.render.Notice
 import cx.m42.restoapp.render.prettyJson
 import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
-import cx.m42.superizer.ui.components.CheckIcon
-import cx.m42.superizer.ui.components.RowDivider
-import cx.m42.superizer.ui.components.Section
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -53,6 +47,14 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.restoapp.render.Group
+import cx.m42.superizer.kit.Icon
+import cx.m42.superizer.kit.ItemSeparator
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Check
 
 /**
  * Carrying the settings of one server to another: the screen
@@ -150,7 +152,7 @@ internal fun SettingTransfer(scope: NativeActionScope) {
 
     Column(modifier = Modifier.fillMaxSize().testTag("settings:transfer")) {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            AppButton(
+            Button(
                 text = words.cancel,
                 onClick = scope.leave,
                 variant = ButtonVariant.Ghost,
@@ -170,7 +172,7 @@ internal fun SettingTransfer(scope: NativeActionScope) {
             problem?.let { Notice(it, Tones.DANGER, null, null, "settings:transfer-problem") }
             scope.failure?.let { Notice(it, Tones.DANGER, null, null, "settings:transfer-refusal") }
 
-            Section(title = words.export) {
+            Group(title = words.export) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val count = (dump?.get("count") as? JsonPrimitive)?.content?.toIntOrNull()
                     Text(
@@ -179,7 +181,7 @@ internal fun SettingTransfer(scope: NativeActionScope) {
                         color = tokens.muted,
                         modifier = Modifier.testTag("settings:transfer-count"),
                     )
-                    AppButton(
+                    Button(
                         text = words.copy,
                         onClick = {
                             dump?.let {
@@ -195,9 +197,9 @@ internal fun SettingTransfer(scope: NativeActionScope) {
                 }
             }
 
-            Section(title = words.import) {
+            Group(title = words.import) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppButton(
+                    Button(
                         text = words.paste,
                         onClick = {
                             message = null
@@ -206,7 +208,7 @@ internal fun SettingTransfer(scope: NativeActionScope) {
                             val pasted = entriesOf(clipboard.getText()?.text.orEmpty())
                             if (pasted == null) {
                                 problem = words.noJson
-                                return@AppButton
+                                return@Button
                             }
                             entries = pasted
                             working = true
@@ -234,14 +236,14 @@ internal fun SettingTransfer(scope: NativeActionScope) {
 
                     diff?.let { rows ->
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppButton(
+                            Button(
                                 text = words.selectChanged,
                                 onClick = { chosen = writable.map { it.key }.toSet() },
                                 variant = ButtonVariant.Ghost,
                                 size = ButtonSize.Sm,
                                 modifier = Modifier.testTag("settings:transfer-select-changed"),
                             )
-                            AppButton(
+                            Button(
                                 text = words.clearAll,
                                 onClick = { chosen = emptySet() },
                                 variant = ButtonVariant.Ghost,
@@ -256,7 +258,7 @@ internal fun SettingTransfer(scope: NativeActionScope) {
                             modifier = Modifier.testTag("settings:transfer-selected"),
                         )
                         rows.forEachIndexed { index, row ->
-                            if (index > 0) RowDivider()
+                            if (index > 0) ItemSeparator()
                             DiffLine(
                                 row = row,
                                 words = words,
@@ -265,7 +267,7 @@ internal fun SettingTransfer(scope: NativeActionScope) {
                                 onToggle = { chosen = if (row.key in chosen) chosen - row.key else chosen + row.key },
                             )
                         }
-                        AppButton(
+                        Button(
                             text = words.apply(chosen.size),
                             onClick = {
                                 working = true
@@ -310,7 +312,7 @@ internal fun SettingTransfer(scope: NativeActionScope) {
                                 )
                             }
                         }
-                        AppButton(
+                        Button(
                             text = words.close,
                             onClick = scope.close,
                             size = ButtonSize.Sm,
@@ -368,6 +370,6 @@ private fun DiffLine(row: DiffRow, words: SettingsWords, picked: Boolean, pickab
                 )
             }
         }
-        if (pickable && picked) CheckIcon(tokens.foreground)
+        if (pickable && picked) Icon(Lucide.Check, contentDescription = null, tint = tokens.foreground)
     }
 }

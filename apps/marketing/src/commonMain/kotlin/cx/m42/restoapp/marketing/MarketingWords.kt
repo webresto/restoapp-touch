@@ -56,7 +56,7 @@ internal class MarketingWords(lang: String) {
     val nothing = t("Пока ничего не даёт", "It gives nothing yet")
 
     val catalog = t("Каталог", "Catalog")
-    val back = t("← Назад", "← Back")
+    val back = t("Назад", "Back")
     val searchProduct = t("Поиск блюда", "Search for a product")
     val nothingFound = t("Ничего не найдено", "Nothing found")
     val loading = t("Загружаем…", "Loading…")

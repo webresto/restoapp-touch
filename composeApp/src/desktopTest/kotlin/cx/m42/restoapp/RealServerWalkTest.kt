@@ -162,7 +162,7 @@ class RealServerWalkTest {
             waitUntil(timeoutMillis = 20_000L) { balanceAtP1("d1") == 5 }
 
             // 9. Back to the list: the row has the stepper, and it works there too.
-            onNodeWithTag("dishes:back").performClick()
+            shellBack()
             waitUntil(timeoutMillis = 20_000L) { exists("dishes:list") }
             onNodeWithTag("dishes:chip-limited").performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("dishes:row-d1") && !exists("dishes:row-d2") }
@@ -322,7 +322,7 @@ class RealServerWalkTest {
             // 6. And the operator finishes it from the phone.
             onNodeWithTag("orders:orders.setState-DONE").performClick()
             waitUntil(timeoutMillis = 20_000L) { stateOf(mine) == "DONE" }
-            onNodeWithTag("orders:back").performClick()
+            shellBack()
             waitForIdle()
 
             // 7. «Без кухни»: the order that arrived without one waits there, and is given one.
@@ -337,7 +337,7 @@ class RealServerWalkTest {
             waitForIdle()
 
             // 8. It is among the orders of «Ленина, 5» now, and gone from «Без кухни».
-            onNodeWithTag("orders:back").performClick()
+            shellBack()
             waitForIdle()
             onNodeWithTag("orders:place").performClick()
             waitForIdle()
@@ -419,7 +419,7 @@ class RealServerWalkTest {
             onNodeWithTag("clients:row-$olgaId").performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("clients:detail") }
             onNodeWithText("ул. Мира, 3").assertExists()
-            onNodeWithTag("clients:back").performClick()
+            shellBack()
             waitForIdle()
 
             // 5. The POS, at the terminal's point: a new order with one dish in it.
@@ -442,7 +442,7 @@ class RealServerWalkTest {
             waitUntil(timeoutMillis = 20_000L) { exists("pos:product-d1:add") }
             onNodeWithTag("pos:product-d1:add").performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("pos:product-d1:in-order") }
-            repeat(3) { if (!exists("pos:receipt")) { onNodeWithTag("pos:catalog-back").performClick(); waitForIdle() } }
+            repeat(3) { if (!exists("pos:receipt")) { shellBack() } }
             waitUntil(timeoutMillis = 20_000L) { exists("pos:receipt") }
 
             // 6. A delivery, for the person the search finds in the guest sheet.
@@ -602,9 +602,9 @@ class RealServerWalkTest {
             waitUntil(timeoutMillis = 20_000L) { !codeIsOff("ЛЕТО10") }
 
             // 5. Back to the summary, and on to the promotions: the three words of where each stands.
-            onNodeWithTag("marketing:back").performClick()
+            shellBack()
             waitForIdle()
-            onNodeWithTag("marketing:back").performClick()
+            shellBack()
             waitUntil(timeoutMillis = 20_000L) { exists("marketing:link-marketing.promotions") }
             onNodeWithTag("marketing:link-marketing.promotions").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("marketing:row-pr-summer") }
@@ -730,7 +730,7 @@ class RealServerWalkTest {
 
             // 7. The right is what opens «Система»: a stock manager of the same server — who works
             // in the panel every day — has no tile for it at all.
-            onNodeWithTag("system:back").performClick()
+            shellBack()
             waitForIdle()
             connect(address, "stock", "home:tile-dishes")
             onNodeWithTag("home:tile-system").assertDoesNotExist()
@@ -1054,8 +1054,7 @@ class RealServerWalkTest {
 
     /** «Назад»: a card scrolls it away, a list does not scroll it at all. */
     private fun androidx.compose.ui.test.ComposeUiTest.backOneScreen() {
-        runCatching { onNodeWithTag("system:back").performScrollTo() }
-        onNodeWithTag("system:back").performClick()
+        shellBack()
     }
 
     /** Adds the stand as another server of the client and signs in, as every walk above does. */

@@ -44,6 +44,7 @@ kotlin {
             api(project(":render"))
             implementation(libs.superizer.ui.theme)
             implementation(libs.superizer.ui)
+            implementation(libs.superizer.ui.kit)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)

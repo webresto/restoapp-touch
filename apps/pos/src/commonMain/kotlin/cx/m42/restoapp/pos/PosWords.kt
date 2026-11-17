@@ -12,11 +12,13 @@ public class PosWords(public val lang: String) {
     public val noDrafts: String = t("Здесь пока ничего нет", "Nothing here yet")
     public val noDraftsHint: String = t("Нажмите «Новый заказ», чтобы начать.", "Tap «New order» to start.")
     public val newOrder: String = t("Новый заказ", "New order")
-    public val add: String = t("+ Добавить", "+ Add")
+    public val add: String = t("Добавить", "Add")
+    /** The cross of a sheet, for a screen reader. */
+    public val close: String = t("Закрыть", "Close")
     public val emptyReceipt: String = t("В заказе пока ничего нет", "Nothing in this order yet")
     public val drop: String = t("Бросить черновик", "Drop the draft")
     public val dropConfirm: String = t("Бросить этот заказ?", "Drop this order?")
-    public val back: String = t("← К заказам", "← To the orders")
+    public val back: String = t("К заказам", "To the orders")
     public val basket: String = t("Блюда", "Products")
     public val discount: String = t("Скидка", "Discount")
     public val delivery: String = t("Доставка", "Delivery")
@@ -41,7 +43,7 @@ public class PosWords(public val lang: String) {
 
     // ---- the catalog ----
     public val catalog: String = t("Каталог", "Catalog")
-    public val toReceipt: String = t("← В чек", "← To the receipt")
+    public val toReceipt: String = t("В чек", "To the receipt")
     public val searchProduct: String = t("Блюдо или код", "A product or a code")
     public val nothingFound: String = t("Ничего не нашлось", "Nothing found")
     public val stopped: String = t("Стоп", "Stopped")

@@ -37,13 +37,6 @@ import cx.m42.restoapp.render.NativeActionScope
 import cx.m42.restoapp.render.Notice
 import cx.m42.restoapp.render.money
 import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.AppTextField
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
-import cx.m42.superizer.ui.components.RowDivider
-import cx.m42.superizer.ui.components.Section
-import cx.m42.superizer.ui.components.ToggleRow
 import cx.m42.superizer.ui.platform.ScreenSteps
 import cx.m42.superizer.ui.platform.SystemBackHandler
 import kotlinx.serialization.json.JsonArray
@@ -57,6 +50,14 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.restoapp.render.Group
+import cx.m42.superizer.kit.Field
+import cx.m42.superizer.kit.Input
+import cx.m42.superizer.kit.ItemSeparator
+import cx.m42.superizer.kit.SwitchItem
 
 /**
  * The editor of a promotion — the screen `control: {type: "native", screen: "promotion-editor"}` asks for
@@ -251,7 +252,7 @@ internal fun PromotionEditor(scope: NativeActionScope) {
 
         Column(modifier = Modifier.fillMaxSize()) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                AppButton(
+                Button(
                     text = words.cancel,
                     onClick = scope.leave,
                     variant = ButtonVariant.Ghost,
@@ -266,7 +267,7 @@ internal fun PromotionEditor(scope: NativeActionScope) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 8.dp).weight(1f),
                 )
-                AppButton(
+                Button(
                     text = if (scope.busy) words.saving else words.save,
                     onClick = { save {} },
                     enabled = !scope.busy,
@@ -278,24 +279,28 @@ internal fun PromotionEditor(scope: NativeActionScope) {
             Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 refusal?.let { Notice(it, "danger", null, null, "marketing:editor-refusal") }
 
-                Section(title = words.basics) {
+                Group(title = words.basics) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppTextField(
-                            value = form.name,
-                            onValueChange = { form = form.copy(name = it.take(200)) },
-                            placeholder = words.name,
-                            modifier = Modifier.testTag("marketing:editor-name"),
-                        )
-                        AppTextField(
-                            value = form.description,
-                            onValueChange = { form = form.copy(description = it.take(1000)) },
-                            placeholder = words.description,
-                            modifier = Modifier.testTag("marketing:editor-description"),
-                        )
+                        Field(label = words.name) {
+                            Input(
+                                value = form.name,
+                                onValueChange = { form = form.copy(name = it.take(200)) },
+                                label = words.name,
+                                modifier = Modifier.testTag("marketing:editor-name"),
+                            )
+                        }
+                        Field(label = words.description) {
+                            Input(
+                                value = form.description,
+                                onValueChange = { form = form.copy(description = it.take(1000)) },
+                                label = words.description,
+                                modifier = Modifier.testTag("marketing:editor-description"),
+                            )
+                        }
                     }
                 }
 
-                Section(title = words.discount) {
+                Group(title = words.discount) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Chips(
                             values = listOf("percentage", "flat"),
@@ -304,70 +309,79 @@ internal fun PromotionEditor(scope: NativeActionScope) {
                             selected = if (form.percentage) "percentage" else "flat",
                             onSelect = { form = form.copy(percentage = it == "percentage") },
                             tag = "marketing:editor-kind",
+                            inset = 0.dp,
                         )
-                        AppTextField(
-                            value = form.amount,
-                            onValueChange = { form = form.copy(amount = digits(it)) },
-                            placeholder = words.amount,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.testTag("marketing:editor-amount"),
-                        )
+                        Field(label = words.amount) {
+                            Input(
+                                value = form.amount,
+                                onValueChange = { form = form.copy(amount = digits(it)) },
+                                label = words.amount,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.testTag("marketing:editor-amount"),
+                            )
+                        }
                     }
                 }
 
-                Section(title = words.appliesTo, hint = if (form.dishes.isEmpty() && form.groups.isEmpty()) words.wholeBasket else words.chosen) {
+                Group(title = words.appliesTo, hint = if (form.dishes.isEmpty() && form.groups.isEmpty()) words.wholeBasket else words.chosen) {
                     ListRow(
                         title = words.counted(words.dishes, form.dishes.size),
-                        subtitle = null, meta = null, value = "›", valueTone = null, badge = null, badgeTone = null,
+                        subtitle = null, meta = null, value = null, valueTone = null, badge = null, badgeTone = null,
                         tag = "marketing:editor-dishes",
                         onClick = { picking = Picking.DISHES },
                     )
-                    RowDivider()
+                    ItemSeparator()
                     ListRow(
                         title = words.counted(words.groups, form.groups.size),
-                        subtitle = null, meta = null, value = "›", valueTone = null, badge = null, badgeTone = null,
+                        subtitle = null, meta = null, value = null, valueTone = null, badge = null, badgeTone = null,
                         tag = "marketing:editor-groups",
                         onClick = { picking = Picking.GROUPS },
                     )
                 }
 
-                Section(title = words.conditions) {
+                Group(title = words.conditions) {
                     ListRow(
                         title = words.giftDish,
                         subtitle = form.giftDish?.let { words.giftWords(form.giftAmount.toIntOrNull() ?: 1, form.giftFrom) },
-                        meta = null, value = "›", valueTone = null, badge = null, badgeTone = null,
+                        meta = null, value = null, valueTone = null, badge = null, badgeTone = null,
                         tag = "marketing:editor-gift",
                         onClick = { picking = Picking.GIFT },
                     )
-                    RowDivider()
+                    ItemSeparator()
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (form.giftDish != null) {
-                            AppTextField(
-                                value = form.giftAmount,
-                                onValueChange = { form = form.copy(giftAmount = digits(it, dot = false)) },
-                                placeholder = words.giftAmount,
+                            Field(label = words.giftAmount) {
+                                Input(
+                                    value = form.giftAmount,
+                                    onValueChange = { form = form.copy(giftAmount = digits(it, dot = false)) },
+                                    label = words.giftAmount,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.testTag("marketing:editor-gift-amount"),
+                                )
+                            }
+                            Field(label = words.giftFrom) {
+                                Input(
+                                    value = form.giftFrom,
+                                    onValueChange = { form = form.copy(giftFrom = digits(it)) },
+                                    label = words.giftFrom,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.testTag("marketing:editor-gift-from"),
+                                )
+                            }
+                        }
+                        Field(label = words.minBasket) {
+                            Input(
+                                value = form.minBasketTotal,
+                                onValueChange = { form = form.copy(minBasketTotal = digits(it)) },
+                                label = words.minBasket,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.testTag("marketing:editor-gift-amount"),
-                            )
-                            AppTextField(
-                                value = form.giftFrom,
-                                onValueChange = { form = form.copy(giftFrom = digits(it)) },
-                                placeholder = words.giftFrom,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.testTag("marketing:editor-gift-from"),
+                                modifier = Modifier.testTag("marketing:editor-min-basket"),
                             )
                         }
-                        AppTextField(
-                            value = form.minBasketTotal,
-                            onValueChange = { form = form.copy(minBasketTotal = digits(it)) },
-                            placeholder = words.minBasket,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.testTag("marketing:editor-min-basket"),
-                        )
                         Text(text = words.serviceTypes, style = tokens.label, color = tokens.muted)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             for (kind in listOf("delivery", "pickup", "dine-in")) {
-                                AppButton(
+                                Button(
                                     text = words.serviceType(kind),
                                     onClick = {
                                         form = form.copy(
@@ -386,55 +400,57 @@ internal fun PromotionEditor(scope: NativeActionScope) {
                     }
                 }
 
-                Section(title = words.behaviour) {
-                    ToggleRow(
-                        label = words.works,
+                Group(title = words.behaviour) {
+                    SwitchItem(
+                        title = words.works,
                         checked = form.enable,
                         onCheckedChange = { form = form.copy(enable = it, onlyByCode = if (it) form.onlyByCode else false) },
                         modifier = Modifier.testTag("marketing:editor-enable"),
                     )
                     Text(text = words.worksHint, style = tokens.footnote, color = tokens.muted, modifier = Modifier.padding(horizontal = 16.dp))
-                    RowDivider()
-                    ToggleRow(
-                        label = words.onlyByCode,
+                    ItemSeparator()
+                    SwitchItem(
+                        title = words.onlyByCode,
                         checked = form.onlyByCode,
                         onCheckedChange = { form = form.copy(onlyByCode = it) },
                         enabled = form.enable,
                         modifier = Modifier.testTag("marketing:editor-only-by-code"),
                     )
                     Text(text = words.onlyByCodeHint, style = tokens.footnote, color = tokens.muted, modifier = Modifier.padding(horizontal = 16.dp))
-                    RowDivider()
-                    ToggleRow(
-                        label = words.joint,
+                    ItemSeparator()
+                    SwitchItem(
+                        title = words.joint,
                         checked = form.joint,
                         onCheckedChange = { form = form.copy(joint = it) },
                         modifier = Modifier.testTag("marketing:editor-joint"),
                     )
-                    RowDivider()
-                    ToggleRow(
-                        label = words.onStorefront,
+                    ItemSeparator()
+                    SwitchItem(
+                        title = words.onStorefront,
                         checked = form.onStorefront,
                         onCheckedChange = { form = form.copy(onStorefront = it) },
                         modifier = Modifier.testTag("marketing:editor-storefront"),
                     )
-                    RowDivider()
+                    ItemSeparator()
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        AppTextField(
-                            value = form.sortOrder,
-                            onValueChange = { form = form.copy(sortOrder = it.filter { char -> char.isDigit() || char == '-' }.take(5)) },
-                            placeholder = words.priority,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.testTag("marketing:editor-sort-order"),
-                        )
+                        Field(label = words.priority) {
+                            Input(
+                                value = form.sortOrder,
+                                onValueChange = { form = form.copy(sortOrder = it.filter { char -> char.isDigit() || char == '-' }.take(5)) },
+                                label = words.priority,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.testTag("marketing:editor-sort-order"),
+                            )
+                        }
                         Text(text = words.priorityHint, style = tokens.footnote, color = tokens.muted)
                     }
                 }
 
-                Section(title = words.schedule, hint = if (form.days.isEmpty()) words.aroundTheClock else null) {
+                Group(title = words.schedule, hint = if (form.days.isEmpty()) words.aroundTheClock else null) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             for ((day, title) in words.days) {
-                                AppButton(
+                                Button(
                                     text = title,
                                     onClick = { form = form.copy(days = if (day in form.days) form.days - day else form.days + day) },
                                     variant = if (day in form.days) ButtonVariant.Default else ButtonVariant.Outline,
@@ -446,27 +462,31 @@ internal fun PromotionEditor(scope: NativeActionScope) {
                         if (form.days.isNotEmpty()) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Box(Modifier.weight(1f)) {
-                                    AppTextField(
-                                        value = form.start,
-                                        onValueChange = { form = form.copy(start = it.take(5)) },
-                                        placeholder = words.from,
-                                        modifier = Modifier.testTag("marketing:editor-start"),
-                                    )
+                                    Field(label = words.from) {
+                                        Input(
+                                            value = form.start,
+                                            onValueChange = { form = form.copy(start = it.take(5)) },
+                                            label = words.from,
+                                            modifier = Modifier.testTag("marketing:editor-start"),
+                                        )
+                                    }
                                 }
                                 Box(Modifier.weight(1f)) {
-                                    AppTextField(
-                                        value = form.stop,
-                                        onValueChange = { form = form.copy(stop = it.take(5)) },
-                                        placeholder = words.till,
-                                        modifier = Modifier.testTag("marketing:editor-stop"),
-                                    )
+                                    Field(label = words.till) {
+                                        Input(
+                                            value = form.stop,
+                                            onValueChange = { form = form.copy(stop = it.take(5)) },
+                                            label = words.till,
+                                            modifier = Modifier.testTag("marketing:editor-stop"),
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                Section(title = words.total) {
+                Group(title = words.total) {
                     Text(
                         text = summaryOf(form, words, scope),
                         style = tokens.body.copy(fontWeight = FontWeight.SemiBold),

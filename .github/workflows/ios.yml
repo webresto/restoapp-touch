@@ -38,7 +38,7 @@ env:
   # 1.11.1 references UIViewLayoutRegion, an iOS 26 class, behind an availability check.
   OTHER_LDFLAGS: '$(inherited) -Wl,-U,_OBJC_CLASS_$_UIViewLayoutRegion'
   # One commit of the library for every build, Android's too (android.yml).
-  SUPERIZER_REF: 16ce162ccdb4f3b26fade05b625bce0eb9e100ba
+  SUPERIZER_REF: 24ae337c74d5adecb820df2774dacc98eb0d3f99
 
 jobs:
   ipa:

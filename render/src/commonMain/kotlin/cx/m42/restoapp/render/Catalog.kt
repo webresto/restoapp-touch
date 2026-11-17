@@ -21,11 +21,20 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.composeunstyled.Text
-import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import com.composables.icons.lucide.ChevronLeft
+import com.composables.icons.lucide.ChevronRight
+import com.composables.icons.lucide.Folder
+import com.composables.icons.lucide.Lucide
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.superizer.kit.Icon
+import cx.m42.superizer.kit.Kit
+import cx.m42.superizer.kit.Text
+import cx.m42.superizer.kit.TextVariant
+import cx.m42.superizer.ui.platform.hostDrawsBack
 
 /*
  * Walking a catalog of the menu: the way back, where we are, a search, and the groups to step into.
@@ -36,7 +45,11 @@ import cx.m42.superizer.ui.components.ButtonVariant
  * product is their own — the POS adds it to a receipt, the editor ticks it.
  */
 
-/** The shell of a catalog screen: «← назад», where we are, something of the screen's own, and a search. */
+/**
+ * The shell of a catalog screen: where we are, something of the screen's own, and a search. «‹ [back]»
+ * is drawn only where the host has no arrow of its own — the screens claim the system back, so the
+ * shell's arrow already takes this step.
+ */
 @Composable
 public fun CatalogShell(
     back: String,
@@ -49,47 +62,54 @@ public fun CatalogShell(
     trailing: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val tokens = AppTheme
     Column(modifier = Modifier.fillMaxSize().testTag(tag)) {
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            AppButton(
-                text = back,
+        if (!hostDrawsBack) {
+            Button(
                 onClick = onBack,
                 variant = ButtonVariant.Ghost,
                 size = ButtonSize.Sm,
-                modifier = Modifier.testTag("$tag-back"),
-            )
+                modifier = Modifier.padding(start = 8.dp, top = 4.dp).testTag("$tag-back"),
+            ) {
+                Icon(Lucide.ChevronLeft, contentDescription = null, size = 16.dp)
+                Text(back, variant = TextVariant.Small, maxLines = 1)
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = PageGutter + 4.dp, end = PageGutter, top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
                 text = title,
-                style = tokens.header,
-                color = tokens.foreground,
+                variant = TextVariant.H3,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 8.dp).weight(1f),
+                modifier = Modifier.weight(1f),
             )
             trailing()
         }
         SearchBox(query, searchHint, onQuery, "$tag-search")
-        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), content = content)
+        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 8.dp), content = content)
     }
 }
 
-/** A group of the menu: a tile that steps into it. */
+/** A group of the menu: a row with a folder that steps into it. */
 @Composable
 public fun GroupTile(name: String, onClick: () -> Unit, tag: String) {
-    val tokens = AppTheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(tokens.radius))
-            .background(tokens.surface)
+            .padding(horizontal = PageGutter, vertical = 4.dp)
+            .clip(Kit.shapes.lg)
+            .background(Kit.colors.card)
+            .border(1.dp, Kit.colors.border, Kit.shapes.lg)
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 14.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(text = name, style = tokens.body.copy(fontWeight = FontWeight.SemiBold), color = tokens.foreground, modifier = Modifier.weight(1f))
-        Text(text = "›", style = tokens.body, color = tokens.muted)
+        LeadingIcon(Lucide.Folder, Kit.colors.warning)
+        Text(text = name, style = Kit.typography.p.copy(fontWeight = FontWeight.Medium), modifier = Modifier.weight(1f))
+        Icon(Lucide.ChevronRight, contentDescription = null, size = 18.dp, tint = Kit.colors.mutedForeground)
     }
 }

@@ -7,13 +7,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollTo
 import com.composeunstyled.Text
 import cx.m42.restoapp.demo.DemoRole
 import cx.m42.superizer.testing.AppTestScope
 import cx.m42.superizer.testing.runAppTest
-import cx.m42.superizer.ui.components.AppButton
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -31,6 +31,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
 
 /**
  * «Маркетинг» drawn by the renderer: the summary as the home screen, and the stack of frames the links of a
@@ -198,7 +200,7 @@ class MarketingScreenTest {
             seen = scope
             Column(modifier = Modifier.testTag("editor")) {
                 Text(text = (scope.record["name"] as JsonPrimitive).content, modifier = Modifier.testTag("editor:name"))
-                AppButton(
+                Button(
                     text = "Сохранить",
                     onClick = {
                         scope.submit(
@@ -212,6 +214,7 @@ class MarketingScreenTest {
                         )
                     },
                     modifier = Modifier.testTag("editor:save"),
+                    size = ButtonSize.Lg,
                 )
             }
         }
@@ -308,7 +311,7 @@ class MarketingScreenTest {
         withLines("""[{"title":"Настроить","open":{"url":"/admin/frontend/setup?channel=c1"}}]""") {
             ui.onNodeWithText("Настроить").assertExists()
             // A line that leaves the app says so, and the screen stays where it was.
-            ui.onNodeWithText("↗").assertExists()
+            ui.onNodeWithContentDescription("Откроется в браузере", useUnmergedTree = true).assertExists()
             tap("marketing:link-url-0")
             idle()
             assertEquals(listOf("https://resto.example/admin/frontend/setup?channel=c1"), runtime.navigation.urls)

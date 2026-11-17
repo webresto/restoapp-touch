@@ -41,11 +41,19 @@ import cx.m42.restoapp.render.StepperRow
 import cx.m42.restoapp.render.money
 import cx.m42.superizer.runtime.LocalAppRuntime
 import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
 import cx.m42.superizer.ui.platform.ScreenSteps
 import cx.m42.superizer.ui.platform.SystemBackHandler
+import cx.m42.superizer.ui.platform.hostDrawsBack
+import cx.m42.restoapp.render.Group
+import cx.m42.restoapp.render.RowLine
+import cx.m42.restoapp.render.PageGutter
+import cx.m42.superizer.kit.Kit
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Plus
+import androidx.compose.foundation.border
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
 
 /*
  * The POS screen: the open orders of the point, the receipt of one of them, the catalog behind the
@@ -135,21 +143,23 @@ private fun Drafts(context: PosContext) {
     val tokens = AppTheme
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(text = words.drafts, style = tokens.header, color = tokens.foreground, modifier = Modifier.weight(1f))
-            AppButton(
+            Text(text = words.drafts, style = Kit.typography.h3, color = tokens.foreground, modifier = Modifier.weight(1f))
+            Button(
                 text = words.newOrder,
                 onClick = { instance.newOrder() },
                 enabled = !state.busy,
-                size = ButtonSize.Sm,
+                leadingIcon = Lucide.Plus,
                 modifier = Modifier.testTag("pos:new"),
             )
         }
         when {
             state.drafts.isNotEmpty() -> Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                state.drafts.forEach { order ->
+                Group {
+                state.drafts.forEachIndexed { index, order ->
+                    if (index > 0) RowLine()
                     ListRow(
                         title = "№ ${order.number}",
                         subtitle = listOfNotNull(order.customerName ?: words.noCustomer, words.serviceType(order.serviceType)).joinToString(" · "),
@@ -161,6 +171,7 @@ private fun Drafts(context: PosContext) {
                         tag = "pos:draft-${order.id}",
                         onClick = { instance.open(order.id) },
                     )
+                }
                 }
                 Spacer(Modifier.height(24.dp))
             }
@@ -182,7 +193,9 @@ private fun Receipt(context: PosContext) {
     val order = state.order ?: return
     val tokens = AppTheme
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("pos:receipt")) {
-        AppButton(
+        // The way back to the drafts — only where the host has no arrow of its own (it goes through the
+        // same `SystemBackHandler`).
+        if (!hostDrawsBack) Button(
             text = words.back,
             onClick = instance::close,
             variant = ButtonVariant.Ghost,
@@ -211,11 +224,13 @@ private fun Receipt(context: PosContext) {
             }
         }
 
-        AppButton(
+        Button(
             text = words.add,
             onClick = { instance.openCatalog() },
             enabled = !state.busy,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).testTag("pos:add"),
+            leadingIcon = Lucide.Plus,
+            size = ButtonSize.Lg,
         )
 
         // The questions of the checkout: each a line with its answer, each a sheet when tapped.
@@ -247,12 +262,13 @@ private fun Receipt(context: PosContext) {
         order.message?.takeIf { it.isNotBlank() && it != state.message?.text }?.let { Notice(it, Tones.INFO, null, null, "pos:server-note") }
 
         Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppButton(
+            Button(
                 text = words.check,
                 onClick = instance::check,
                 enabled = !state.busy && order.canCheck,
                 variant = ButtonVariant.Outline,
                 modifier = Modifier.weight(1f).testTag("pos:check"),
+                size = ButtonSize.Lg,
             )
             if (order.canPlace) {
                 ConfirmButton(
@@ -317,7 +333,7 @@ private fun LineRow(context: PosContext, line: PosLine) {
                 enabled = !state.busy,
                 tag = "pos:line-${line.lineId}:amount",
             )
-            AppButton(
+            Button(
                 text = words.comment,
                 onClick = { instance.openSheet(PosSheet.LineComment, line.lineId) },
                 enabled = !state.busy,
@@ -327,7 +343,7 @@ private fun LineRow(context: PosContext, line: PosLine) {
             )
             // Only where there is something to choose: the server says so on the line.
             if (line.hasOptions) {
-                AppButton(
+                Button(
                     text = words.options,
                     onClick = { instance.openOptions(lineId = line.lineId) },
                     enabled = !state.busy,
@@ -376,16 +392,18 @@ private fun Placed(context: PosContext) {
             color = tokens.muted,
         )
         state.message?.let { Notice(it.text, it.tone, null, null, "pos:placed-message") }
-        AppButton(
+        Button(
             text = words.newOrderAgain,
             onClick = { instance.newOrder() },
             modifier = Modifier.fillMaxWidth().testTag("pos:placed-new"),
+            size = ButtonSize.Lg,
         )
-        AppButton(
+        Button(
             text = words.toDrafts,
             onClick = instance::done,
             variant = ButtonVariant.Ghost,
             modifier = Modifier.fillMaxWidth().testTag("pos:placed-done"),
+            size = ButtonSize.Lg,
         )
     }
 }
@@ -407,12 +425,12 @@ private fun timeOf(context: PosContext, order: PosOrder): String = when {
 /** A white block on the grey page — the renderer's card without its heading. */
 @Composable
 internal fun PosCard(content: @Composable () -> Unit) {
-    val tokens = AppTheme
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(tokens.radius))
-            .background(tokens.surface),
+            .padding(horizontal = PageGutter, vertical = 6.dp)
+            .clip(Kit.shapes.lg)
+            .background(Kit.colors.card)
+            .border(1.dp, Kit.colors.border, Kit.shapes.lg),
     ) { content() }
 }

@@ -137,7 +137,7 @@ class ScreenshotsTest {
         waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("pos:receipt").assertExists() }.isSuccess }
         shot("14-pos-receipt")
 
-        tap("pos:back")
+        shellBack()
         waitUntil(timeoutMillis = 5_000L) { onAllNodes(tagStartsWith("pos:draft-")).fetchSemanticsNodes().isNotEmpty() }
         shot("15-pos-drafts")
 
@@ -193,9 +193,9 @@ class ScreenshotsTest {
         shot("23-marketing-applications")
 
         // Back down the stack to the summary: the applications, the code, the codes.
-        tap("marketing:back")
-        tap("marketing:back")
-        tap("marketing:back")
+        shellBack()
+        shellBack()
+        shellBack()
         reach("marketing:link-marketing.promotions")
         waitUntil(timeoutMillis = 5_000L) { onAllNodes(tagStartsWith("marketing:row-")).fetchSemanticsNodes().isNotEmpty() }
         shot("24-marketing-promotions")
@@ -214,7 +214,7 @@ class ScreenshotsTest {
         shot("27-marketing-editor-catalog")
 
         // And the same section for somebody who may not read an order: no money, no applications.
-        tap("marketing:picker-back")
+        shellBack()
         tap("marketing:editor-cancel")
         host.setDemoRole(cx.m42.restoapp.demo.DemoRole.Marketer)
         waitUntil(timeoutMillis = 5_000L) { host.active.value.superizer.registry.get(cx.m42.superizer.app.AppId("clients")) == null }

@@ -35,10 +35,6 @@ import cx.m42.restoapp.render.prettyJson
 import cx.m42.restoapp.render.problemOf
 import cx.m42.restoapp.render.schemaNodeOf
 import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
-import cx.m42.superizer.ui.components.Section
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -47,6 +43,10 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.restoapp.render.Group
 
 /**
  * The editor of one setting's value — the screen `control: {type: "native", screen: "setting-editor"}`
@@ -159,7 +159,7 @@ internal fun SettingEditor(scope: NativeActionScope) {
 
     Column(modifier = Modifier.fillMaxSize().testTag("settings:editor")) {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            AppButton(
+            Button(
                 text = words.cancel,
                 onClick = scope.leave,
                 variant = ButtonVariant.Ghost,
@@ -174,7 +174,7 @@ internal fun SettingEditor(scope: NativeActionScope) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 8.dp).weight(1f),
             )
-            AppButton(
+            Button(
                 text = if (scope.busy) words.saving else words.save,
                 onClick = { save {} },
                 enabled = canSave,
@@ -202,7 +202,7 @@ internal fun SettingEditor(scope: NativeActionScope) {
                 Notice(words.restartPending, Tones.WARNING, null, null, "settings:editor-restart")
             }
 
-            Section(title = record.textOrNull("name") ?: words.value) {
+            Group(title = record.textOrNull("name") ?: words.value) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     SchemaEditor(
                         node = node,
@@ -233,7 +233,7 @@ internal fun SettingEditor(scope: NativeActionScope) {
                                 color = tokens.muted,
                                 modifier = Modifier.weight(1f).testTag("settings:editor-default-value"),
                             )
-                            AppButton(
+                            Button(
                                 text = words.toDefault,
                                 onClick = {
                                     // Locally, as the web does it: the write still goes through «Сохранить».
@@ -275,7 +275,7 @@ internal fun SettingEditor(scope: NativeActionScope) {
             }
 
             record.textOrNull("description")?.let { description ->
-                Section(title = words.about) {
+                Group(title = words.about) {
                     Text(
                         text = description,
                         style = tokens.label,

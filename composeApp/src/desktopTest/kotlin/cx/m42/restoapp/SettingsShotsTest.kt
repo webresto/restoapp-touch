@@ -85,8 +85,8 @@ class SettingsShotsTest {
             onNodeWithTag("settings:transfer-cancel").performClick()
             waitForIdle()
         }
-        while (exists("settings:back")) {
-            onNodeWithTag("settings:back").performClick()
+        while (exists("settings:nested")) {
+            shellBack()
             waitForIdle()
         }
         waitUntil(timeoutMillis = 20_000L) { exists("settings:list") }
@@ -99,7 +99,7 @@ class SettingsShotsTest {
         onNodeWithTag("settings:search").performTextInput(key)
         waitUntil(timeoutMillis = 20_000L) { exists("settings:row-$key") }
         onNodeWithTag("settings:row-$key").performClick()
-        waitUntil(timeoutMillis = 20_000L) { exists("settings:back") && hasText(key) }
+        waitUntil(timeoutMillis = 20_000L) { exists("settings:nested") && hasText(key) }
     }
 
     /** The card, then the editor of the value — the screen the client draws itself. */
@@ -162,7 +162,7 @@ class SettingsShotsTest {
             waitUntil(timeoutMillis = 20_000L) { exists("settings:row-TZ") }
             shot("03-list-from-the-environment")
             onNodeWithTag("settings:row-TZ").performClick()
-            waitUntil(timeoutMillis = 20_000L) { exists("settings:back") }
+            waitUntil(timeoutMillis = 20_000L) { exists("settings:nested") }
             // Pinned by the environment: the card says so, and there is no «Изменить значение» at all.
             shot("04-card-pinned-by-the-environment")
             assertTrue(!exists("settings:settings.update"), "a setting the environment pins has no action")

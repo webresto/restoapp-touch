@@ -30,7 +30,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.composeunstyled.Text
+import cx.m42.superizer.kit.Text
 import cx.m42.restoapp.protocol.Controls
 import cx.m42.restoapp.protocol.DeclaredApp
 import cx.m42.restoapp.protocol.DeclaredMethod
@@ -58,14 +58,21 @@ import cx.m42.restoapp.protocol.property
 import cx.m42.restoapp.protocol.titles
 import cx.m42.superizer.runtime.LocalAppRuntime
 import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.AppTextField
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
-import cx.m42.superizer.ui.components.RowDivider
-import cx.m42.superizer.ui.components.Section
-import cx.m42.superizer.ui.components.ToggleRow
+import com.composables.icons.lucide.ChevronLeft
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Minus
+import com.composables.icons.lucide.Plus
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.superizer.kit.IconButton
+import cx.m42.superizer.kit.Input
+import cx.m42.superizer.kit.Kit
+import cx.m42.superizer.kit.Spinner
+import cx.m42.superizer.kit.SwitchItem
+import cx.m42.superizer.kit.TextVariant
 import cx.m42.superizer.ui.platform.ScreenSteps
+import cx.m42.superizer.ui.platform.hostDrawsBack
 import cx.m42.superizer.ui.platform.SystemBackHandler
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -138,7 +145,8 @@ internal fun ServerAppScreen(instance: ServerAppInstance) {
                         NativeActionScreen(instance, context, native.second, native.first)
                     }
                     frame == null -> EmptyState(words.unknownView, null, null, null, "${declared.id}:unknown")
-                    frames.size > 1 -> {
+                    // `:nested` — a frame standing on another one, which the way back returns from.
+                    frames.size > 1 -> Box(Modifier.fillMaxSize().testTag("${declared.id}:nested")) {
                         SystemBackHandler(enabled = true) { instance.leave(instance::back) }
                         when (view) {
                             Views.LIST -> ListScreen(instance, context, frame, bottom = false)
@@ -166,16 +174,23 @@ internal fun ServerAppScreen(instance: ServerAppInstance) {
     }
 }
 
-/** «← Назад» of a frame that stands on another one: the shell does not draw it, the stack does. */
+/**
+ * «‹ Назад» of a frame that stands on another one — only where nothing else offers the way back. Inside
+ * the shell its arrow does (it goes through the same `SystemBackHandler`), and a second «Назад» on the
+ * screen would be one too many.
+ */
 @Composable
 private fun BackLine(instance: ServerAppInstance, context: RenderContext) {
-    AppButton(
-        text = "← " + context.words.back,
+    if (hostDrawsBack) return
+    Button(
         onClick = { instance.leave(instance::back) },
         variant = ButtonVariant.Ghost,
         size = ButtonSize.Sm,
-        modifier = Modifier.padding(8.dp).testTag("${context.tag}:back"),
-    )
+        modifier = Modifier.padding(start = 8.dp, top = 4.dp).testTag("${context.tag}:back"),
+    ) {
+        cx.m42.superizer.kit.Icon(Lucide.ChevronLeft, contentDescription = null, size = 16.dp)
+        Text(context.words.back, variant = TextVariant.Small)
+    }
 }
 
 /** The screen of one action the client draws itself, and what it is given (`NativeActions`). */
@@ -292,7 +307,6 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, fram
     val busy by instance.busy.collectAsState()
     val ui = method.ui!!
     val words = context.words
-    val tokens = AppTheme
     val tag = context.tag
 
     // An action on the list itself — `ui.on: "list"`, placement `list`: «+ Новый клиент».
@@ -312,18 +326,18 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, fram
         TopNotices(instance, context)
         listAction?.let { action ->
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 10.dp),
                 horizontalArrangement = Arrangement.End,
             ) {
-                AppButton(
-                    text = if (adding) words.cancel else "+ ${action.title}",
+                Button(
+                    text = if (adding) words.cancel else action.title,
                     onClick = {
                         if (nativeList != null) instance.openNative(JsonObject(emptyMap()), RecordAction(action.name), action)
                         else if (adding) instance.leave { adding = false }
                         else adding = true
                     },
                     variant = if (adding) ButtonVariant.Ghost else ButtonVariant.Default,
-                    size = ButtonSize.Sm,
+                    leadingIcon = if (adding) null else Lucide.Plus,
                     modifier = Modifier.testTag("$tag:add"),
                 )
             }
@@ -348,52 +362,56 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, fram
         }
         ui.search?.let { SearchBox(state.query, words.search, instance::search, "$tag:search") }
         FrameChips(instance, context, method, state.counts)
-        Column(modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).testTag("$tag:list")) {
+        Column(modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(top = 4.dp).testTag("$tag:list")) {
             when {
-                !state.loaded && state.loading -> Text(
-                    text = words.loading,
-                    style = tokens.label,
-                    color = tokens.muted,
-                    modifier = Modifier.padding(20.dp).testTag("$tag:loading"),
-                )
+                !state.loaded && state.loading -> Row(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp).testTag("$tag:loading"),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Spinner(size = 18.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(words.loading, variant = TextVariant.Muted)
+                }
                 state.loaded && state.items.isEmpty() -> EmptyState(
                     text = if (state.query.isNotBlank()) words.nothingFound else ui.empty ?: words.nothingFound,
                     hint = null, action = null, onAction = null, tag = "$tag:empty",
                 )
             }
-            var group: String? = null
-            state.items.forEachIndexed { index, record ->
+            // The rows in white blocks on the grey page — one block per group when the list is grouped,
+            // its name above it, as a phone's lists are.
+            val item = ui.item ?: ItemUi()
+            val groups = state.items.fold(mutableListOf<Pair<String?, MutableList<JsonObject>>>()) { acc, record ->
                 val groupTitle = ui.groupBy?.let { plain(record[it]) }
-                if (groupTitle != null && groupTitle != group) {
-                    group = groupTitle
-                    Text(
-                        text = groupTitle,
-                        style = tokens.label.copy(fontWeight = FontWeight.SemiBold),
-                        color = tokens.muted,
-                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 4.dp),
-                    )
-                } else if (index > 0) {
-                    RowDivider()
+                if (acc.isEmpty() || acc.last().first != groupTitle) acc += groupTitle to mutableListOf(record)
+                else acc.last().second += record
+                acc
+            }
+            groups.forEach { (groupTitle, records) ->
+                Group(title = groupTitle) {
+                    records.forEachIndexed { index, record ->
+                        if (index > 0) RowLine()
+                        RecordRow(instance, context, method, item, record, busy)
+                    }
                 }
-                RecordRow(instance, context, method, ui.item ?: ItemUi(), record, busy)
             }
             if (state.nextCursor != null) {
-                AppButton(
+                Button(
                     text = if (state.loadingMore) words.loading else words.more,
                     onClick = instance::more,
                     enabled = !state.loadingMore,
-                    variant = ButtonVariant.Ghost,
-                    size = ButtonSize.Default,
-                    modifier = Modifier.fillMaxWidth().padding(12.dp).testTag("$tag:more"),
+                    loading = state.loadingMore,
+                    variant = ButtonVariant.Outline,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("$tag:more"),
                 )
             }
             val total = state.total
             if (total != null && total > state.items.size) {
                 Text(
                     text = words.shownOf(state.items.size, total),
-                    style = tokens.footnote,
-                    color = tokens.muted,
-                    modifier = Modifier.padding(horizontal = 20.dp).testTag("$tag:shown"),
+                    variant = TextVariant.Muted,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter, vertical = 8.dp).testTag("$tag:shown"),
                 )
             }
             Spacer(Modifier.height(24.dp))
@@ -509,7 +527,7 @@ private fun DetailScreen(instance: ServerAppInstance, context: RenderContext, fr
         BackLine(instance, context)
         TopNotices(instance, context)
         if (record == null) {
-            Text(text = context.words.loading, style = AppTheme.label, color = AppTheme.muted, modifier = Modifier.padding(20.dp))
+            Text(text = context.words.loading, variant = TextVariant.Muted, modifier = Modifier.padding(20.dp))
             return@Column
         }
         // `frame.loading`: the card is drawn from the row of the list while the full record is being
@@ -542,52 +560,57 @@ private fun RecordCard(
     /** False while this record is still being re-read: an action that reads the record waits for it. */
     settled: Boolean = true,
 ) {
-    val tokens = AppTheme
     val busy by instance.busy.collectAsState()
     val id = record.id().orEmpty()
     val tag = context.tag
 
-    Text(
-        text = item.title?.let { plain(record[it]) } ?: id,
-        style = tokens.header,
-        color = tokens.foreground,
-        modifier = Modifier.padding(horizontal = 20.dp).testTag("$tag:title"),
-    )
-    Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        context.show(record, model, item.subtitle)?.let {
-            Text(text = it.text, style = tokens.label, color = tokens.muted)
-            Spacer(Modifier.width(8.dp))
-        }
-        context.show(record, model, item.badge)?.let { Badge(it.text, it.tone, Modifier.testTag("$tag:badge")) }
-    }
-    context.show(record, model, item.value)?.let {
+    // The head: what the record is, its state, and the one number it is about — the way an issue
+    // opens on GitHub, before any of its fields.
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(start = PageGutter + 4.dp, end = PageGutter, top = 12.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         Text(
-            text = it.text,
-            style = tokens.subtitle.copy(fontWeight = FontWeight.SemiBold),
-            color = tokens.toneColor(it.tone) ?: tokens.foreground,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp).testTag("$tag:value"),
+            text = item.title?.let { plain(record[it]) } ?: id,
+            variant = TextVariant.H2,
+            modifier = Modifier.testTag("$tag:title"),
         )
+        val subtitle = context.show(record, model, item.subtitle)
+        val badge = context.show(record, model, item.badge)
+        if (subtitle != null || badge != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                badge?.let { Badge(it.text, it.tone, Modifier.testTag("$tag:badge")) }
+                subtitle?.let { Text(text = it.text, variant = TextVariant.Muted, modifier = Modifier.weight(1f, fill = false)) }
+            }
+        }
+        context.show(record, model, item.value)?.let {
+            Text(
+                text = it.text,
+                variant = TextVariant.H3,
+                color = toneOf(it.tone) ?: Kit.colors.foreground,
+                modifier = Modifier.padding(top = 4.dp).testTag("$tag:value"),
+            )
+        }
     }
 
     context.actions(record, "detail").forEach { (action, method) ->
         val waiting = "$id:${method.name}" in busy
         when (method.ui?.control?.type) {
             Controls.NATIVE -> if (NativeActions.of(method.ui?.control?.screen) != null) {
-                Card {
-                    AppButton(
-                        text = method.title,
-                        onClick = { instance.openNative(record, action, method) },
-                        enabled = !waiting && settled,
-                        size = ButtonSize.Default,
-                        modifier = Modifier.fillMaxWidth().padding(12.dp).testTag("$tag:${method.name}"),
-                    )
-                }
+                Button(
+                    text = method.title,
+                    onClick = { instance.openNative(record, action, method) },
+                    enabled = !waiting && settled,
+                    loading = waiting,
+                    size = ButtonSize.Lg,
+                    modifier = Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 20.dp).testTag("$tag:${method.name}"),
+                )
             }
             Controls.STEPPER -> StepperCard(instance, context, model, record, action, method, waiting)
-            Controls.TOGGLE -> Card {
+            Controls.TOGGLE -> Group {
                 val control = method.ui?.control
-                ToggleRow(
-                    label = method.title,
+                SwitchItem(
+                    title = method.title,
                     checked = (record[control?.bind ?: ""] as? JsonPrimitive)?.booleanOrNull ?: false,
                     onCheckedChange = { on -> instance.act(record, action, method, JsonPrimitive(on)) },
                     enabled = !waiting,
@@ -610,22 +633,22 @@ private fun RecordCard(
     // (`null`) still shows «—» — that is a value nobody has set, which is worth seeing.
     val shownFields = context.app.fields(model).filter { it.name != item.title && record.containsKey(it.name) }
     shownFields.groupBy { it.section }.forEach { (section, fields) ->
-        val lines: @Composable () -> Unit = {
+        val lines: @Composable ColumnScope.() -> Unit = {
             fields.forEachIndexed { index, field ->
-                if (index > 0) RowDivider()
+                if (index > 0) RowLine()
                 val shown = showValue(record[field.name], field, context.facts, context.words, context.now)
                 FieldLine(field.title, shown.text, shown.tone, "$tag:field-${field.name}")
             }
         }
-        if (section == null) Card(content = lines) else Section(title = section, content = lines)
+        Group(title = section, content = lines)
     }
 
     // Where the card leads: the lines the server built, each of them a link it checked the rights for.
     val links = record.links()
     if (links.isNotEmpty()) {
-        Card {
+        Group {
             links.forEachIndexed { index, link ->
-                if (index > 0) RowDivider()
+                if (index > 0) RowLine()
                 LinkRow(instance, context, link, index)
             }
         }
@@ -636,31 +659,15 @@ private fun RecordCard(
 /** One line of `_links`: its words, what it says about itself, and a «›» to say it opens. */
 @Composable
 private fun LinkRow(instance: ServerAppInstance, context: RenderContext, link: RecordLink, index: Int) {
-    ListRow(
+    // A line that leaves the app says so: «↗» for the browser of the system, «›» for one more screen.
+    LinkLine(
         title = link.title,
         subtitle = link.meta,
-        meta = null,
-        // A line that leaves the app says so: «↗» for the browser of the system, «›» for one more screen.
-        value = if (link.open.url != null) "↗" else "›",
-        valueTone = null,
-        badge = null,
-        badgeTone = null,
-        tag = "${context.tag}:link-${link.open.method ?: "url-$index"}",
+        external = link.open.url != null,
         onClick = { instance.openLink(link.open, link.title) },
+        tag = "${context.tag}:link-${link.open.method ?: "url-$index"}",
+        externalHint = context.words.opensInBrowser,
     )
-}
-
-/** A white block on the grey page, untitled: what [Section] is without its heading. */
-@Composable
-private fun Card(content: @Composable () -> Unit) {
-    val tokens = AppTheme
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, bottom = 20.dp)
-            .clip(RoundedCornerShape(tokens.radius))
-            .background(tokens.background),
-    ) { content() }
 }
 
 /** The card form of a stepper: −, the number, +; a number typed in; and the specials by name. */
@@ -687,54 +694,59 @@ private fun StepperCard(
     var typed by remember(record.id(), current) { mutableStateOf(current?.takeIf { it in range }?.toString().orEmpty()) }
     fun send(value: Int) = instance.act(record, action, method, JsonPrimitive(value))
 
-    Section(title = method.title, hint = boundField?.let { "${it.title}: ${shown.text}" }) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Group(title = method.title, hint = boundField?.let { "${it.title}: ${shown.text}" }) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppButton(
-                    text = "−",
+                IconButton(
+                    Lucide.Minus,
+                    contentDescription = "−",
                     onClick = { current?.let { send(it - 1) } },
                     enabled = !waiting && current != null && (current - 1) in range,
                     variant = ButtonVariant.Outline,
-                    size = ButtonSize.Default,
                     modifier = Modifier.testTag("$tag:minus"),
                 )
                 Box(Modifier.weight(1f)) {
-                    AppTextField(
+                    Input(
                         value = typed,
                         onValueChange = { text -> typed = text.filter { it.isDigit() }.take(9) },
                         placeholder = shown.text,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        textStyle = Kit.typography.p.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center),
                         modifier = Modifier.testTag("$tag:field"),
                     )
                 }
-                AppButton(
-                    text = "+",
+                IconButton(
+                    Lucide.Plus,
+                    contentDescription = "+",
                     onClick = { current?.let { send(it + 1) } },
                     enabled = !waiting && current != null && (current + 1) in range,
                     variant = ButtonVariant.Outline,
-                    size = ButtonSize.Default,
                     modifier = Modifier.testTag("$tag:plus"),
                 )
             }
             val number = typed.toIntOrNull()
-            AppButton(
+            Button(
                 text = context.words.set,
                 onClick = { number?.let(::send) },
                 enabled = !waiting && number != null && number in min..max && number != current,
-                size = ButtonSize.Default,
+                loading = waiting,
                 modifier = Modifier.fillMaxWidth().testTag("$tag:set"),
             )
             val specials = control.specials.mapNotNull { special -> special.value.intOrNull?.takeIf { it in min..max }?.let { it to special } }
             if (specials.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     specials.forEach { (value, special) ->
-                        AppButton(
+                        // A named value is a shortcut, not the main action: outlined, a dangerous one in red words.
+                        ConfirmButton(
                             text = special.title,
-                            onClick = { send(value) },
+                            tone = special.tone,
+                            confirm = null,
                             enabled = !waiting && value != current,
-                            variant = if (special.tone == Tones.DANGER) ButtonVariant.Destructive else ButtonVariant.Outline,
-                            size = ButtonSize.Default,
-                            modifier = Modifier.weight(1f).testTag("$tag:special-$value"),
+                            words = context.words,
+                            onClick = { send(value) },
+                            tag = "$tag:special-$value",
+                            modifier = Modifier.weight(1f),
+                            variant = ButtonVariant.Outline,
                         )
                     }
                 }
@@ -757,14 +769,12 @@ private fun RecordFormCard(
     val tag = "${context.tag}:${method.name}"
     var open by remember(id, method.name) { mutableStateOf(false) }
     if (!open) {
-        Card {
-            AppButton(
-                text = method.title,
-                onClick = { open = true },
-                enabled = !waiting,
-                variant = ButtonVariant.Ghost,
-                size = ButtonSize.Default,
-                modifier = Modifier.fillMaxWidth().padding(12.dp).testTag(tag),
+        Group {
+            ListRow(
+                title = method.title,
+                subtitle = null, meta = null, value = null, valueTone = null, badge = null, badgeTone = null,
+                tag = tag,
+                onClick = if (waiting) null else ({ open = true }),
             )
         }
         return
@@ -812,9 +822,15 @@ private fun ButtonsCard(
     if (values.isEmpty()) return
     val titles = schema.titles()
     val tag = "${context.tag}:${method.name}"
-    Section(title = method.title) {
+    // One main step, the rest quieter, the dangerous one last and apart: four equal buttons make a
+    // person read all four; this makes the usual next step the obvious one.
+    // The server lists the values in the order of the flow, so the first that is not a refusal is the
+    // usual next step — «Готовить» for a new order, not «Выполнен».
+    val main = values.firstOrNull { control.tones[it] != Tones.DANGER }
+    val ordered = values.sortedBy { if (control.tones[it] == Tones.DANGER) 1 else 0 }
+    Group(title = method.title) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            values.forEach { value ->
+            ordered.forEach { value ->
                 val tone = control.tones[value]
                 ConfirmButton(
                     text = titles[value] ?: value,
@@ -824,7 +840,12 @@ private fun ButtonsCard(
                     words = context.words,
                     onClick = { instance.act(record, action, method, JsonPrimitive(value)) },
                     tag = "$tag-$value",
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(top = if (tone == Tones.DANGER && value != ordered.first()) 6.dp else 0.dp),
+                    variant = when {
+                        tone == Tones.DANGER -> ButtonVariant.Ghost
+                        value == main -> ButtonVariant.Default
+                        else -> ButtonVariant.Outline
+                    },
                 )
             }
         }

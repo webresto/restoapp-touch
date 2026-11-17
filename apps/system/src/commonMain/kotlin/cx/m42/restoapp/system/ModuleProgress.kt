@@ -28,15 +28,15 @@ import cx.m42.restoapp.render.NativeActionScope
 import cx.m42.restoapp.render.Notice
 import cx.m42.restoapp.render.RenderWords
 import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
 
 /** How often the job is asked about (`system.plan.md`, slice C). */
 private const val POLL_MS = 2000L
@@ -117,7 +117,7 @@ internal fun ModuleProgress(scope: NativeActionScope, pollMs: Long = POLL_MS) {
     val state = job?.text("state")
     Column(modifier = Modifier.fillMaxSize().testTag("module-progress")) {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-            AppButton(
+            Button(
                 text = if (current is Phase.Watching && state != "done" && state != "failed") words.collapse else words.close,
                 onClick = scope.close,
                 variant = ButtonVariant.Ghost,
@@ -140,14 +140,14 @@ internal fun ModuleProgress(scope: NativeActionScope, pollMs: Long = POLL_MS) {
                 ) {
                     Text(text = question.orEmpty(), style = tokens.body, color = tokens.foreground)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppButton(
+                        Button(
                             text = scope.method.title,
                             onClick = { phase = Phase.Starting },
                             variant = ButtonVariant.Destructive,
                             size = ButtonSize.Sm,
                             modifier = Modifier.testTag("module-progress:yes"),
                         )
-                        AppButton(
+                        Button(
                             text = words.cancel,
                             onClick = scope.close,
                             variant = ButtonVariant.Ghost,
@@ -191,13 +191,13 @@ internal fun ModuleProgress(scope: NativeActionScope, pollMs: Long = POLL_MS) {
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                                 )
                             }
-                            AppButton(
+                            Button(
                                 text = if (scope.busy) words.loading else words.finish,
                                 onClick = {
                                     scope.submit(jsonObjectOf("appId" to JsonPrimitive(appId), "job" to JsonPrimitive(current.jobId)))
                                 },
                                 enabled = !scope.busy,
-                                size = ButtonSize.Default,
+                                size = ButtonSize.Lg,
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).testTag("module-progress:finish"),
                             )
                         }

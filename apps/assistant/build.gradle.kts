@@ -32,6 +32,7 @@ kotlin {
             api(libs.superizer.core)
             implementation(libs.superizer.ui.theme)
             implementation(libs.superizer.ui)
+            implementation(libs.superizer.ui.kit)
             // defaultHttpClient(): OkHttp, CIO or Darwin — the engine the host already ships.
             implementation(libs.superizer.host)
             implementation(libs.ktor.client.core)

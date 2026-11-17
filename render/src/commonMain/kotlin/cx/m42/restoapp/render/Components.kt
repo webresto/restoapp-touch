@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -13,15 +14,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -36,7 +36,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -46,25 +48,51 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.composeunstyled.Text
+import com.composables.icons.lucide.ArrowUpRight
+import com.composables.icons.lucide.Check
+import com.composables.icons.lucide.ChevronRight
+import com.composables.icons.lucide.ChevronsUpDown
+import com.composables.icons.lucide.CircleAlert
+import com.composables.icons.lucide.CircleCheck
+import com.composables.icons.lucide.Inbox
+import com.composables.icons.lucide.Info
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.MapPin
+import com.composables.icons.lucide.Minus
+import com.composables.icons.lucide.Plus
+import com.composables.icons.lucide.Search
+import com.composables.icons.lucide.TriangleAlert
 import cx.m42.restoapp.protocol.Tones
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.superizer.kit.Field
+import cx.m42.superizer.kit.Icon
+import cx.m42.superizer.kit.IconButton
+import cx.m42.superizer.kit.Input
+import cx.m42.superizer.kit.ItemSeparator
+import cx.m42.superizer.kit.Kit
+import cx.m42.superizer.kit.Switch
+import cx.m42.superizer.kit.Text
+import cx.m42.superizer.kit.TextVariant
+import cx.m42.superizer.theme.Tokens
+import cx.m42.superizer.ui.platform.SystemBackHandler
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
-import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.theme.Tokens
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.AppTextField
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
-import cx.m42.superizer.ui.components.CheckIcon
-import cx.m42.superizer.ui.components.Switch
-import cx.m42.superizer.ui.platform.SystemBackHandler
 
 /*
  * The renderer's building blocks (plan section 4, "Задел под JS-приложения"): each takes plain
  * values and callbacks — strings, numbers, tones by name — and no type of the protocol, so the
  * components of script apps (script-apps.plan.md) are these, not a second set.
+ *
+ * Drawn with Superizer's ui-kit. The look is a phone's, not a web page's: grouped white blocks on the
+ * grey page, a row is the unit of every list, the state of a record is a coloured label and a dot,
+ * one main action per screen, and a field always says what it is above it — a placeholder that goes
+ * away as soon as one types is not a caption.
  */
+
+/** The page's gutter: what every block keeps from the screen's edges. */
+public val PageGutter: androidx.compose.ui.unit.Dp = 16.dp
 
 /** A tone of the contract as a colour of the theme; null — the ordinary text colour. */
 internal fun Tokens.toneColor(tone: String?): Color? = when (tone) {
@@ -75,26 +103,95 @@ internal fun Tokens.toneColor(tone: String?): Color? = when (tone) {
     else -> null
 }
 
-/** A small rounded label in the tone's colour: an order's state. */
+/** The same, from the kit's palette — what the components here draw with. */
+@Composable
+internal fun toneOf(tone: String?): Color? = when (tone) {
+    Tones.DANGER -> Kit.colors.destructive
+    Tones.WARNING -> Kit.colors.warning
+    Tones.SUCCESS -> Kit.colors.success
+    Tones.INFO -> Kit.colors.info
+    else -> null
+}
+
+/**
+ * A titled block of rows on the grey page: the unit of every card, every settings screen and every
+ * summary. The title is small and quiet — the rows are what is read; [action] is a link at its end
+ * («Все»).
+ */
+@Composable
+public fun Group(
+    title: String? = null,
+    modifier: Modifier = Modifier,
+    hint: String? = null,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth().padding(horizontal = PageGutter).padding(bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (title != null || action != null) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = title.orEmpty(),
+                    style = Kit.typography.small.copy(fontWeight = FontWeight.SemiBold),
+                    color = Kit.colors.mutedForeground,
+                    modifier = Modifier.weight(1f),
+                )
+                if (action != null && onAction != null) {
+                    Text(
+                        text = action,
+                        style = Kit.typography.small,
+                        color = Kit.colors.info,
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button, onClick = onAction).padding(4.dp),
+                    )
+                }
+            }
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(Kit.shapes.lg)
+                .background(Kit.colors.card)
+                .border(1.dp, Kit.colors.border, Kit.shapes.lg),
+            content = content,
+        )
+        hint?.let {
+            Text(it, variant = TextVariant.Muted, modifier = Modifier.padding(horizontal = 4.dp))
+        }
+    }
+}
+
+/** The line between two rows of a [Group]. */
+@Composable
+public fun RowLine() {
+    ItemSeparator()
+}
+
+/**
+ * A small label in the tone's colour, with a dot in front: an order's state. One text node — the dot is
+ * drawn behind it — so the label's text is what a test or a screen reader finds on it.
+ */
 @Composable
 public fun Badge(text: String, tone: String?, modifier: Modifier = Modifier) {
-    val tokens = AppTheme
-    val color = tokens.toneColor(tone) ?: tokens.muted
+    val color = toneOf(tone) ?: Kit.colors.mutedForeground
     Text(
         text = text,
-        style = tokens.footnote.copy(fontWeight = FontWeight.SemiBold),
+        style = Kit.typography.small.copy(fontWeight = FontWeight.SemiBold, fontSize = Kit.typography.small.fontSize * 0.86f),
         color = color,
         maxLines = 1,
         modifier = modifier
-            .clip(RoundedCornerShape(50))
+            .clip(CircleShape)
             .background(color.copy(alpha = 0.12f))
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+            .drawBehind { drawCircle(color, radius = 3.dp.toPx(), center = androidx.compose.ui.geometry.Offset(11.dp.toPx(), size.height / 2)) }
+            .padding(start = 19.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
     )
 }
 
 /**
  * One record in a list: title and subtitle on the left, a value (or the row's controls) on the
- * right. [onClick] null — the row does not open.
+ * right. [onClick] null — the row does not open; with it, a chevron says it does.
  */
 @Composable
 public fun ListRow(
@@ -107,56 +204,58 @@ public fun ListRow(
     badgeTone: String?,
     tag: String,
     onClick: (() -> Unit)?,
+    /** False for a row that is a choice, not a way in: it picks, it does not open anything. */
+    chevron: Boolean = true,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
-    val tokens = AppTheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 52.dp)
             .let { if (onClick != null) it.clickable(role = Role.Button, onClick = onClick) else it }
-            .padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)
+            .padding(start = 16.dp, end = if (onClick != null && chevron) 10.dp else 16.dp, top = 10.dp, bottom = 10.dp)
             .testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = title,
-                    style = tokens.body,
-                    color = tokens.foreground,
+                    style = Kit.typography.p.copy(fontWeight = FontWeight.Medium),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 if (badge != null) {
-                    Spacer(Modifier.width(8.dp))
                     // Tagged like the badge of a card: the state of a record is what a list is read
                     // for, so a test has to be able to point at it.
-                    Badge(badge, badgeTone, Modifier.testTag("$tag:badge"))
+                    Badge(badge, badgeTone, Modifier.padding(start = 8.dp).testTag("$tag:badge"))
                 }
             }
             val second = listOfNotNull(subtitle, meta).filter { it.isNotBlank() }.joinToString(" · ")
             if (second.isNotEmpty()) {
-                Text(text = second, style = tokens.label, color = tokens.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(second, variant = TextVariant.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         if (value != null) {
-            ValueText(value, valueTone, Modifier.padding(start = 8.dp).testTag("$tag:value"))
+            ValueText(value, valueTone, Modifier.padding(start = 12.dp).testTag("$tag:value"))
         }
         trailing()
+        if (onClick != null && chevron) {
+            Icon(Lucide.ChevronRight, contentDescription = null, size = 18.dp, tint = Kit.colors.mutedForeground, modifier = Modifier.padding(start = 4.dp))
+        }
     }
 }
 
 @Composable
 internal fun ValueText(text: String, tone: String?, modifier: Modifier = Modifier) {
-    val tokens = AppTheme
     Text(
         text = text,
-        style = tokens.label.copy(fontWeight = FontWeight.Medium),
-        color = tokens.toneColor(tone) ?: tokens.foreground,
+        style = Kit.typography.p.copy(fontWeight = FontWeight.Medium),
+        color = toneOf(tone) ?: Kit.colors.foreground,
         textAlign = TextAlign.End,
         maxLines = 1,
-        modifier = modifier.widthIn(min = 48.dp),
+        modifier = modifier.widthIn(min = 40.dp),
     )
 }
 
@@ -170,21 +269,27 @@ public fun StepperRow(
     enabled: Boolean,
     tag: String,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 8.dp)) {
-        AppButton(
-            text = "−",
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(start = 8.dp)
+            .clip(Kit.shapes.full)
+            .border(1.dp, Kit.colors.border, Kit.shapes.full),
+    ) {
+        IconButton(
+            Lucide.Minus,
+            contentDescription = "−",
             onClick = { onMinus?.invoke() },
             enabled = enabled && onMinus != null,
-            variant = ButtonVariant.Outline,
             size = ButtonSize.Sm,
             modifier = Modifier.testTag("$tag:minus"),
         )
-        ValueText(display, tone, Modifier.widthIn(min = 64.dp).padding(horizontal = 6.dp).testTag("$tag:value"))
-        AppButton(
-            text = "+",
+        ValueText(display, tone, Modifier.widthIn(min = 44.dp).testTag("$tag:value"))
+        IconButton(
+            Lucide.Plus,
+            contentDescription = "+",
             onClick = { onPlus?.invoke() },
             enabled = enabled && onPlus != null,
-            variant = ButtonVariant.Outline,
             size = ButtonSize.Sm,
             modifier = Modifier.testTag("$tag:plus"),
         )
@@ -203,7 +308,7 @@ public fun SwitchControl(checked: Boolean, label: String, enabled: Boolean, onCh
             .testTag(tag)
             .semantics { this.selected = checked },
     ) {
-        Switch(checked = checked, label = label)
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled, contentDescription = label)
     }
 }
 
@@ -216,35 +321,39 @@ public fun Chips(
     selected: String?,
     onSelect: (String) -> Unit,
     tag: String,
+    /** What the row keeps from the edges: the page's gutter on a screen, nothing inside a card. */
+    inset: androidx.compose.ui.unit.Dp = PageGutter,
 ) {
-    val tokens = AppTheme
+    val c = Kit.colors
     Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = inset, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         values.forEach { value ->
             val isSelected = value == selected
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(if (isSelected) tokens.primary else tokens.surface)
+                    .heightIn(min = 36.dp)
+                    .clip(CircleShape)
+                    .background(if (isSelected) c.primary else c.card)
+                    .border(1.dp, if (isSelected) c.primary else c.border, CircleShape)
                     .clickable(role = Role.Tab) { onSelect(value) }
                     .semantics { this.selected = isSelected }
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
                     .testTag("$tag-$value"),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
                     text = titles[value] ?: value,
-                    style = tokens.label.copy(fontWeight = FontWeight.Medium),
-                    color = if (isSelected) tokens.primaryForeground else tokens.foreground,
+                    variant = TextVariant.Small,
+                    color = if (isSelected) c.onPrimary else c.foreground,
                 )
                 counts[value]?.let { count ->
-                    Spacer(Modifier.width(6.dp))
                     Text(
                         text = count.toString(),
-                        style = tokens.label,
-                        color = if (isSelected) tokens.primaryForeground.copy(alpha = 0.7f) else tokens.muted,
+                        variant = TextVariant.Small,
+                        color = if (isSelected) c.onPrimary.copy(alpha = 0.7f) else c.mutedForeground,
                     )
                 }
             }
@@ -252,35 +361,49 @@ public fun Chips(
     }
 }
 
+/** The search over a list: a field with the magnifier in it, across the top. */
 @Composable
 public fun SearchBox(value: String, placeholder: String, onChange: (String) -> Unit, tag: String) {
-    // AppTextField puts the modifier on the field inside its frame, so the margin goes on a box.
-    Box(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp)) {
-        AppTextField(value = value, onValueChange = onChange, placeholder = placeholder, modifier = Modifier.testTag(tag))
+    Box(Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 8.dp)) {
+        Input(
+            value = value,
+            onValueChange = onChange,
+            placeholder = placeholder,
+            leadingIcon = Lucide.Search,
+            modifier = Modifier.testTag(tag),
+        )
     }
 }
 
 /**
  * A line across the top of the screen: the connection, a notice, an error, with one action. [tone]
- * colours it; null is neutral.
+ * colours it and picks its icon; null is neutral.
  */
 @Composable
 public fun Notice(text: String, tone: String?, action: String?, onAction: (() -> Unit)?, tag: String) {
-    val tokens = AppTheme
-    val color = tokens.toneColor(tone) ?: tokens.muted
+    val color = toneOf(tone) ?: Kit.colors.mutedForeground
+    val icon = when (tone) {
+        Tones.DANGER -> Lucide.CircleAlert
+        Tones.WARNING -> Lucide.TriangleAlert
+        Tones.SUCCESS -> Lucide.CircleCheck
+        else -> Lucide.Info
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(tokens.radius))
-            .background(color.copy(alpha = 0.10f))
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .padding(horizontal = PageGutter, vertical = 6.dp)
+            .clip(Kit.shapes.lg)
+            .background(color.copy(alpha = 0.08f))
+            .border(1.dp, color.copy(alpha = 0.25f), Kit.shapes.lg)
+            .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp)
             .testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(text = text, style = tokens.label, color = tokens.foreground, modifier = Modifier.weight(1f))
+        Icon(icon, contentDescription = null, size = 18.dp, tint = color)
+        Text(text = text, variant = TextVariant.Small, modifier = Modifier.weight(1f).padding(vertical = 4.dp))
         if (action != null && onAction != null) {
-            AppButton(
+            Button(
                 text = action,
                 onClick = onAction,
                 variant = ButtonVariant.Ghost,
@@ -289,6 +412,13 @@ public fun Notice(text: String, tone: String?, action: String?, onAction: (() ->
             )
         }
     }
+}
+
+/** A tone as a button's variant: danger is red, success and info are the main action, the rest outlined. */
+public fun buttonVariantOf(tone: String?): ButtonVariant = when (tone) {
+    Tones.DANGER -> ButtonVariant.Destructive
+    Tones.SUCCESS, Tones.INFO -> ButtonVariant.Default
+    else -> ButtonVariant.Outline
 }
 
 /**
@@ -305,79 +435,94 @@ public fun ConfirmButton(
     onClick: () -> Unit,
     tag: String,
     modifier: Modifier = Modifier,
+    variant: ButtonVariant = buttonVariantOf(tone),
 ) {
     var asking by remember(text, confirm) { mutableStateOf(false) }
-    val variant = when (tone) {
-        Tones.DANGER -> ButtonVariant.Destructive
-        Tones.SUCCESS, Tones.INFO -> ButtonVariant.Default
-        else -> ButtonVariant.Outline
-    }
     if (!asking) {
-        AppButton(
-            text = text,
+        Button(
             onClick = { if (confirm != null) asking = true else onClick() },
             enabled = enabled,
             variant = variant,
-            size = ButtonSize.Default,
+            size = ButtonSize.Lg,
             modifier = modifier.testTag(tag),
-        )
+        ) {
+            // A quiet button of a dangerous value still says it is one: red words, no red block.
+            Text(
+                text = text,
+                style = Kit.typography.p.copy(fontWeight = FontWeight.Medium),
+                color = if (tone == Tones.DANGER && variant != ButtonVariant.Destructive) Kit.colors.destructive else androidx.compose.ui.graphics.Color.Unspecified,
+                maxLines = 1,
+            )
+        }
         return
     }
-    val tokens = AppTheme
+    val danger = toneOf(Tones.DANGER) ?: Kit.colors.destructive
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(tokens.radius))
-            .background(tokens.background)
+            .clip(Kit.shapes.lg)
+            .background(danger.copy(alpha = 0.06f))
+            .border(1.dp, danger.copy(alpha = 0.3f), Kit.shapes.lg)
             .padding(12.dp)
             .testTag("$tag:confirm"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(text = confirm.orEmpty(), style = tokens.body, color = tokens.foreground)
+        Text(text = confirm.orEmpty())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppButton(
+            Button(
                 text = text,
                 onClick = {
                     asking = false
                     onClick()
                 },
                 enabled = enabled,
-                variant = variant,
-                size = ButtonSize.Sm,
-                modifier = Modifier.testTag("$tag:yes"),
+                variant = if (tone == Tones.DANGER) ButtonVariant.Destructive else ButtonVariant.Default,
+                modifier = Modifier.weight(1f).testTag("$tag:yes"),
             )
-            AppButton(
+            Button(
                 text = words.cancel,
                 onClick = { asking = false },
-                variant = ButtonVariant.Ghost,
-                size = ButtonSize.Sm,
-                modifier = Modifier.testTag("$tag:no"),
+                variant = ButtonVariant.Outline,
+                modifier = Modifier.weight(1f).testTag("$tag:no"),
             )
         }
     }
 }
 
-/** "Ленина, 5 ▾" at the top of an app by points: where you are, and a tap to go elsewhere. */
+/** "Ленина, 5 ⇅" at the top of an app by points: where you are, and a tap to go elsewhere. */
 @Composable
 public fun PlaceLine(title: String, address: String?, onClick: () -> Unit, tag: String) {
-    val tokens = AppTheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, top = 10.dp)
-            .clip(RoundedCornerShape(tokens.radius))
-            .background(tokens.surface)
+            .padding(start = PageGutter, end = PageGutter, top = 10.dp, bottom = 2.dp)
+            .clip(Kit.shapes.lg)
+            .background(Kit.colors.card)
+            .border(1.dp, Kit.colors.border, Kit.shapes.lg)
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
             .testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        LeadingIcon(Lucide.MapPin, Kit.colors.info)
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = tokens.body.copy(fontWeight = FontWeight.SemiBold), color = tokens.foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text = title, style = Kit.typography.p.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!address.isNullOrBlank() && address != title) {
-                Text(text = address, style = tokens.footnote, color = tokens.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(text = address, variant = TextVariant.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        Text(text = "▾", style = tokens.body, color = tokens.muted)
+        Icon(Lucide.ChevronsUpDown, contentDescription = null, size = 18.dp, tint = Kit.colors.mutedForeground)
+    }
+}
+
+/** An icon on a tinted rounded square: what leads a row that stands for a place, a section, an app. */
+@Composable
+public fun LeadingIcon(icon: ImageVector, tint: Color, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(tint.copy(alpha = 0.12f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, size = 18.dp, tint = tint)
     }
 }
 
@@ -398,12 +543,56 @@ public fun BoxScope.ChoiceSheet(
     onPick: (String) -> Unit,
     tag: String,
 ) {
-    val tokens = AppTheme
+    BottomSheet(visible = visible, title = title, onDismiss = onDismiss, tag = tag) {
+        choices.forEach { choice ->
+            val isSelected = choice.id == selected
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp)
+                    .clip(Kit.shapes.lg)
+                    .clickable(role = Role.Button) { onPick(choice.id) }
+                    .background(if (isSelected) Kit.colors.accent else Color.Transparent)
+                    .semantics {
+                        this.selected = isSelected
+                        contentDescription = choice.title
+                    }
+                    .padding(horizontal = 12.dp, vertical = 12.dp)
+                    .testTag("$tag:item-${choice.id}"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = choice.title,
+                        style = if (isSelected) Kit.typography.p.copy(fontWeight = FontWeight.SemiBold) else Kit.typography.p,
+                    )
+                    choice.subtitle?.takeIf { it.isNotBlank() && it != choice.title }?.let {
+                        Text(text = it, variant = TextVariant.Muted)
+                    }
+                }
+                if (isSelected) Icon(Lucide.Check, contentDescription = null, size = 18.dp)
+            }
+        }
+    }
+}
+
+/**
+ * A sheet from the bottom over a scrim: a handle, a [title], and [content] that scrolls when it is
+ * long. Back and a tap on the scrim close it.
+ */
+@Composable
+public fun BoxScope.BottomSheet(
+    visible: Boolean,
+    title: String?,
+    onDismiss: () -> Unit,
+    tag: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(tokens.foreground.copy(alpha = 0.35f))
+                .background(Kit.colors.scrim)
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
         )
     }
@@ -416,89 +605,100 @@ public fun BoxScope.ChoiceSheet(
         SystemBackHandler(enabled = visible, onBack = onDismiss)
         Column(
             modifier = Modifier
-                .widthIn(max = 480.dp)
+                .widthIn(max = 520.dp)
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                .background(tokens.background)
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .background(Kit.colors.background)
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {})
-                .padding(bottom = 12.dp)
+                .padding(bottom = 16.dp)
                 .testTag(tag),
         ) {
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
                     .padding(top = 8.dp, bottom = 4.dp)
-                    .size(width = 36.dp, height = 4.dp)
+                    .size(width = 36.dp, height = 5.dp)
                     .clip(CircleShape)
-                    .background(tokens.border),
+                    .background(Kit.colors.border),
             )
-            Text(text = title, style = tokens.header, color = tokens.foreground, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
-            Column(modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                choices.forEach { choice ->
-                    val isSelected = choice.id == selected
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp)
-                            .clip(RoundedCornerShape(tokens.radius))
-                            .clickable(role = Role.Button) { onPick(choice.id) }
-                            .semantics {
-                                this.selected = isSelected
-                                contentDescription = choice.title
-                            }
-                            .padding(horizontal = 12.dp, vertical = 12.dp)
-                            .testTag("$tag:item-${choice.id}"),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = choice.title,
-                                style = if (isSelected) tokens.body.copy(fontWeight = FontWeight.SemiBold) else tokens.body,
-                                color = tokens.foreground,
-                            )
-                            choice.subtitle?.takeIf { it.isNotBlank() && it != choice.title }?.let {
-                                Text(text = it, style = tokens.label, color = tokens.muted)
-                            }
-                        }
-                        if (isSelected) CheckIcon(tokens.foreground)
-                    }
-                }
+            if (title != null) {
+                Text(text = title, variant = TextVariant.H3, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
             }
+            Column(modifier = Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), content = content)
         }
     }
 }
 
-/** A block of label–value lines, the card's unit: a section of fields. */
+/** One label–value line of a card: the label quiet on the left, the value on the right. */
 @Composable
 public fun FieldLine(label: String, value: String, tone: String?, tag: String) {
-    val tokens = AppTheme
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp).testTag(tag),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 16.dp, vertical = 11.dp).testTag(tag),
         verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(text = label, style = tokens.label, color = tokens.muted, modifier = Modifier.weight(0.42f).padding(end = 12.dp))
+        Text(text = label, color = Kit.colors.mutedForeground, modifier = Modifier.weight(0.45f))
         Text(
             text = value,
-            style = tokens.body,
-            color = tokens.toneColor(tone) ?: tokens.foreground,
-            modifier = Modifier.weight(0.58f).testTag("$tag:value"),
+            color = toneOf(tone) ?: Kit.colors.foreground,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(0.55f).testTag("$tag:value"),
         )
     }
 }
 
-/** The middle of the screen when there is nothing else to show: a line, and maybe a button. */
+/** A row that leads somewhere: its words, a line about it, and where it goes — one more screen, or out of the app. */
+@Composable
+public fun LinkLine(
+    title: String,
+    subtitle: String?,
+    external: Boolean,
+    onClick: () -> Unit,
+    tag: String,
+    /** What a screen reader hears for the arrow of a line that leaves the app. */
+    externalHint: String? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(start = 16.dp, end = 10.dp, top = 10.dp, bottom = 10.dp)
+            .testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title)
+            subtitle?.takeIf { it.isNotBlank() }?.let { Text(it, variant = TextVariant.Muted) }
+        }
+        Icon(
+            if (external) Lucide.ArrowUpRight else Lucide.ChevronRight,
+            contentDescription = if (external) externalHint else null,
+            size = 18.dp,
+            tint = Kit.colors.mutedForeground,
+            modifier = Modifier.testTag("$tag:value"),
+        )
+    }
+}
+
+/** The middle of the screen when there is nothing else to show: an icon, a line, and maybe a button. */
 @Composable
 public fun EmptyState(text: String, hint: String?, action: String?, onAction: (() -> Unit)?, tag: String) {
-    val tokens = AppTheme
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 32.dp).testTag(tag),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 40.dp).testTag(tag),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(text = text, style = tokens.body.copy(fontWeight = FontWeight.Medium), color = tokens.foreground, textAlign = TextAlign.Center)
-        hint?.let { Text(text = it, style = tokens.label, color = tokens.muted, textAlign = TextAlign.Center) }
+        Box(
+            Modifier.size(56.dp).clip(CircleShape).background(Kit.colors.muted),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Lucide.Inbox, contentDescription = null, size = 26.dp, tint = Kit.colors.mutedForeground)
+        }
+        Text(text = text, style = Kit.typography.p.copy(fontWeight = FontWeight.SemiBold), textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+        hint?.let { Text(text = it, variant = TextVariant.Muted, textAlign = TextAlign.Center) }
         if (action != null && onAction != null) {
-            AppButton(text = action, onClick = onAction, variant = ButtonVariant.Outline, size = ButtonSize.Default, modifier = Modifier.testTag("$tag:action"))
+            Button(text = action, onClick = onAction, variant = ButtonVariant.Outline, modifier = Modifier.padding(top = 8.dp).testTag("$tag:action"))
         }
     }
 }
@@ -538,7 +738,6 @@ public fun FormCard(
     tag: String,
     hold: (UnsavedWork?) -> Unit = {},
 ) {
-    val tokens = AppTheme
     val values = remember(tag, fields) {
         mutableStateMapOf<String, String>().apply {
             fields.forEach { field -> if (field.type != "boolean") field.initial?.let { put(field.name, it) } }
@@ -582,25 +781,29 @@ public fun FormCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(tokens.radius))
-            .background(tokens.surface)
-            .padding(12.dp)
+            .padding(horizontal = PageGutter, vertical = 6.dp)
+            .clip(Kit.shapes.lg)
+            .background(Kit.colors.card)
+            .border(1.dp, Kit.colors.border, Kit.shapes.lg)
+            .padding(16.dp)
             .testTag(tag),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(text = title, style = tokens.body.copy(fontWeight = FontWeight.SemiBold), color = tokens.foreground)
+        Text(text = title, variant = TextVariant.H4)
         fields.forEach { field ->
+            val caption = if (field.required) field.title else "${field.title} · ${words.optional}"
             when {
-                field.type == "boolean" -> SwitchControl(
-                    checked = flags[field.name] == true,
-                    label = field.title,
-                    enabled = !busy,
-                    onChange = { flags[field.name] = it },
-                    tag = "$tag:${field.name}",
-                )
-                field.values.isNotEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(text = field.title, style = tokens.footnote, color = tokens.muted)
+                field.type == "boolean" -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(field.title, modifier = Modifier.weight(1f))
+                    SwitchControl(
+                        checked = flags[field.name] == true,
+                        label = field.title,
+                        enabled = !busy,
+                        onChange = { flags[field.name] = it },
+                        tag = "$tag:${field.name}",
+                    )
+                }
+                field.values.isNotEmpty() -> Field(label = caption) {
                     Chips(
                         values = field.values,
                         titles = field.titles,
@@ -608,37 +811,49 @@ public fun FormCard(
                         selected = values[field.name],
                         onSelect = { values[field.name] = it },
                         tag = "$tag:${field.name}",
+                        inset = 0.dp,
                     )
                 }
-                else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(text = field.title, style = tokens.footnote, color = tokens.muted)
-                    AppTextField(
+                else -> Field(label = caption) {
+                    Input(
                         value = values[field.name].orEmpty(),
                         onValueChange = { values[field.name] = it },
-                        placeholder = field.title,
-                        modifier = Modifier.fillMaxWidth().testTag("$tag:${field.name}"),
+                        label = field.title,
+                        keyboardOptions = keyboardFor(field),
+                        modifier = Modifier.testTag("$tag:${field.name}"),
                     )
                 }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppButton(
-                text = submit,
-                onClick = { send {} },
-                enabled = !busy && filled,
-                size = ButtonSize.Sm,
-                modifier = Modifier.testTag("$tag:submit"),
-            )
             onCancel?.let {
-                AppButton(
+                Button(
                     text = words.cancel,
                     onClick = it,
                     enabled = !busy,
-                    variant = ButtonVariant.Ghost,
-                    size = ButtonSize.Sm,
-                    modifier = Modifier.testTag("$tag:cancel"),
+                    variant = ButtonVariant.Outline,
+                    modifier = Modifier.weight(1f).testTag("$tag:cancel"),
                 )
             }
+            Button(
+                text = submit,
+                onClick = { send {} },
+                enabled = !busy && filled,
+                loading = busy,
+                modifier = Modifier.weight(1f).testTag("$tag:submit"),
+            )
         }
     }
+}
+
+/** The keyboard a field wants: digits for a number, the phone pad for a phone, mail for an e-mail. */
+internal fun keyboardFor(field: FormField): androidx.compose.foundation.text.KeyboardOptions {
+    val type = when {
+        field.type == "integer" -> androidx.compose.ui.text.input.KeyboardType.Number
+        field.type == "number" || field.format == "money" -> androidx.compose.ui.text.input.KeyboardType.Decimal
+        field.format == "phone" -> androidx.compose.ui.text.input.KeyboardType.Phone
+        field.format == "email" -> androidx.compose.ui.text.input.KeyboardType.Email
+        else -> androidx.compose.ui.text.input.KeyboardType.Text
+    }
+    return androidx.compose.foundation.text.KeyboardOptions(keyboardType = type)
 }

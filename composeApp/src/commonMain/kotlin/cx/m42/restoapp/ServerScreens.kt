@@ -52,16 +52,29 @@ import cx.m42.superizer.HostScreen
 import cx.m42.superizer.HostSection
 import cx.m42.superizer.Superizer
 import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.components.AppButton
-import cx.m42.superizer.ui.components.AppTextField
-import cx.m42.superizer.ui.components.ButtonSize
-import cx.m42.superizer.ui.components.ButtonVariant
-import cx.m42.superizer.ui.components.CheckIcon
-import cx.m42.superizer.ui.components.Monogram
-import cx.m42.superizer.ui.components.RowDivider
-import cx.m42.superizer.ui.components.Section
+import cx.m42.superizer.kit.Avatar
+import cx.m42.superizer.kit.AvatarShape
+import cx.m42.superizer.kit.Kit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.restoapp.render.Group
+import cx.m42.superizer.kit.Icon
+import cx.m42.superizer.kit.Input
+import cx.m42.superizer.kit.ItemSeparator
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Check
+import com.composables.icons.lucide.Cloud
+import com.composables.icons.lucide.FlaskConical
+import com.composables.icons.lucide.Server
+import com.composables.icons.lucide.CircleCheck
+import cx.m42.superizer.kit.Field
+import cx.m42.superizer.kit.TextVariant
+import cx.m42.superizer.kit.Text as KitText
+import cx.m42.restoapp.render.LeadingIcon
+import cx.m42.restoapp.render.PageGutter
 
 /** The host's own words, in the two languages it speaks. */
 private fun String.ru(langTag: String, en: String): String = if (langTag.startsWith("ru")) this else en
@@ -138,13 +151,14 @@ internal class AddServerScreen(private val host: RestoAppHost, private val cloud
             if (cloudAccount) LaunchedEffect(Unit) { openCloud() }
 
             if (cloudAccount) {
-                Option(title = words.cloud, body = words.cloudHint, tag = "servers:add-cloud", selected = true, onClick = { if (found == null) openCloud() })
+                Option(title = words.cloud, body = words.cloudHint, icon = Lucide.Cloud, tag = "servers:add-cloud", selected = true, onClick = { if (found == null) openCloud() })
             } else {
-                Option(title = words.demoServer, body = words.demoServerHint, tag = "servers:add-demo", onClick = { host.addDemo() })
+                Option(title = words.demoServer, body = words.demoServerHint, icon = Lucide.FlaskConical, tag = "servers:add-demo", onClick = { host.addDemo() })
             }
             if (!cloudAccount) Option(
                 title = words.ownServer,
                 body = words.ownServerHint,
+                icon = Lucide.Server,
                 tag = "servers:add-custom",
                 selected = custom,
                 onClick = {
@@ -169,9 +183,9 @@ internal class AddServerScreen(private val host: RestoAppHost, private val cloud
 
             if (custom || (cloud && found != null)) {
                 Spacer(Modifier.height(12.dp))
-                if (custom) Section(title = words.address) {
+                if (custom) Group(title = words.address) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppTextField(
+                        Input(
                             value = address,
                             onValueChange = {
                                 address = it
@@ -193,7 +207,7 @@ internal class AddServerScreen(private val host: RestoAppHost, private val cloud
                     }
                 }
                 if (found == null) {
-                    if (custom) AppButton(
+                    if (custom) Button(
                         text = if (working != null) words.checking else words.next,
                         onClick = {
                             working = words.checking
@@ -213,21 +227,22 @@ internal class AddServerScreen(private val host: RestoAppHost, private val cloud
                             }
                         },
                         enabled = working == null && address.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:check"),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("servers:check"),
+                        size = ButtonSize.Lg,
                     )
                 } else if (cloud && signUp) {
-                    Section(title = words.signUp, hint = words.signUpHint) {
+                    Group(title = words.signUp, hint = words.signUpHint) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppTextField(value = login, onValueChange = { login = it }, placeholder = words.login, modifier = Modifier.fillMaxWidth().testTag("servers:signup-login"))
-                            AppTextField(value = fullName, onValueChange = { fullName = it }, placeholder = words.fullName, modifier = Modifier.fillMaxWidth().testTag("servers:signup-name"))
-                            AppTextField(value = email, onValueChange = { email = it }, placeholder = words.email, modifier = Modifier.fillMaxWidth().testTag("servers:signup-email"))
+                            Field(label = words.login) { Input(value = login, onValueChange = { login = it }, label = words.login, modifier = Modifier.testTag("servers:signup-login")) }
+                            Field(label = words.fullName) { Input(value = fullName, onValueChange = { fullName = it }, label = words.fullName, modifier = Modifier.testTag("servers:signup-name")) }
+                            Field(label = words.email) { Input(value = email, onValueChange = { email = it }, label = words.email, modifier = Modifier.testTag("servers:signup-email")) }
                             PasswordField(password, { password = it }, words.passwordRule, "servers:signup-password")
                         }
                     }
-                    AppButton(
+                    Button(
                         text = working ?: words.signUpButton,
                         onClick = {
-                            val base = found?.first ?: return@AppButton
+                            val base = found?.first ?: return@Button
                             val about = found?.second?.name ?: hostOf(base)
                             working = words.signingUp
                             problem = null
@@ -244,26 +259,28 @@ internal class AddServerScreen(private val host: RestoAppHost, private val cloud
                             }
                         },
                         enabled = working == null && login.isNotBlank() && fullName.isNotBlank() && password.length >= 8,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:signup"),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("servers:signup"),
+                        size = ButtonSize.Lg,
                     )
-                    AppButton(
+                    Button(
                         text = words.haveAccount,
                         onClick = { signUp = false; problem = null },
                         variant = ButtonVariant.Ghost,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:to-signin"),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("servers:to-signin"),
+                        size = ButtonSize.Lg,
                     )
                 } else {
-                    Section(title = words.signIn, hint = if (cloud) words.cloudSignIn else null) {
+                    Group(title = words.signIn, hint = if (cloud) words.cloudSignIn else null) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppTextField(value = login, onValueChange = { login = it }, placeholder = words.login, modifier = Modifier.fillMaxWidth().testTag("servers:login"))
+                            Field(label = words.login) { Input(value = login, onValueChange = { login = it }, label = words.login, modifier = Modifier.testTag("servers:login")) }
                             PasswordField(password, { password = it }, words.password, "servers:password")
-                            AppTextField(value = name, onValueChange = { name = it }, placeholder = words.name, label = words.name, modifier = Modifier.fillMaxWidth().testTag("servers:name"))
+                            Field(label = words.name) { Input(value = name, onValueChange = { name = it }, label = words.name, modifier = Modifier.testTag("servers:name")) }
                         }
                     }
-                    AppButton(
+                    Button(
                         text = working ?: words.signIn,
                         onClick = {
-                            val base = found?.first ?: return@AppButton
+                            val base = found?.first ?: return@Button
                             working = words.signingIn
                             problem = null
                             scope.launch {
@@ -288,14 +305,16 @@ internal class AddServerScreen(private val host: RestoAppHost, private val cloud
                             }
                         },
                         enabled = working == null && login.isNotBlank() && password.isNotEmpty(),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:connect"),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("servers:connect"),
+                        size = ButtonSize.Lg,
                     )
                     if (cloud && found?.second?.registration == true) {
-                        AppButton(
+                        Button(
                             text = words.noAccount,
                             onClick = { signUp = true; problem = null },
                             variant = ButtonVariant.Ghost,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:to-signup"),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("servers:to-signup"),
+                            size = ButtonSize.Lg,
                         )
                     }
                 }
@@ -308,38 +327,21 @@ internal class AddServerScreen(private val host: RestoAppHost, private val cloud
 /** A password field: the keyboard neither suggests over it nor learns it, and it shows dots. */
 @Composable
 internal fun PasswordField(value: String, onChange: (String) -> Unit, placeholder: String, tag: String) {
-    val tokens = AppTheme
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, tokens.border, RoundedCornerShape(8.dp))
-            .background(tokens.background)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
-    ) {
-        if (value.isEmpty()) Text(text = placeholder, style = tokens.body, color = tokens.muted)
-        BasicTextField(
+    Field(label = placeholder) {
+        Input(
             value = value,
             onValueChange = onChange,
-            singleLine = true,
-            textStyle = tokens.body.copy(color = tokens.foreground),
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-            cursorBrush = SolidColor(tokens.foreground),
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = placeholder }.testTag(tag),
+            label = placeholder,
+            password = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.testTag(tag),
         )
     }
 }
 
 @Composable
 private fun Problem(text: String) {
-    val tokens = AppTheme
-    Text(
-        text = text,
-        style = tokens.label,
-        color = tokens.danger,
-        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp).testTag("servers:problem"),
-    )
+    Notice(text, Tones.DANGER, null, null, "servers:problem")
 }
 
 /**
@@ -370,13 +372,13 @@ internal class LoginScreen(private val host: RestoAppHost) : HostScreen {
         Column(
             modifier = Modifier.fillMaxSize().background(tokens.pageBackground).verticalScroll(rememberScrollState()).padding(vertical = 12.dp),
         ) {
-            Section(title = connection.profile.name, hint = hostOf(connection.profile.address)) {
+            Group(title = connection.profile.name, hint = hostOf(connection.profile.address)) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppTextField(value = login, onValueChange = { login = it }, placeholder = words.login, modifier = Modifier.fillMaxWidth().testTag("login:login"))
+                    Field(label = words.login) { Input(value = login, onValueChange = { login = it }, label = words.login, modifier = Modifier.testTag("login:login")) }
                     PasswordField(password, { password = it }, words.password, "login:password")
                 }
             }
-            AppButton(
+            Button(
                 text = working ?: words.signIn,
                 onClick = {
                     working = words.signingIn
@@ -395,7 +397,8 @@ internal class LoginScreen(private val host: RestoAppHost) : HostScreen {
                     }
                 },
                 enabled = working == null && login.isNotBlank() && password.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("login:submit"),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("login:submit"),
+                size = ButtonSize.Lg,
             )
             problem?.let { Problem(it) }
         }
@@ -418,9 +421,9 @@ internal class DemoScreen(private val host: RestoAppHost) : HostScreen {
         val role by demo.role.collectAsState()
 
         Column(modifier = Modifier.fillMaxSize().background(tokens.pageBackground).verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
-            Section(title = words.role, hint = words.demoData) {
+            Group(title = words.role, hint = words.demoData) {
                 DemoRole.entries.forEachIndexed { index, each ->
-                    if (index > 0) RowDivider()
+                    if (index > 0) ItemSeparator()
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -431,17 +434,18 @@ internal class DemoScreen(private val host: RestoAppHost) : HostScreen {
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(text = words.roleTitle(each), style = tokens.body, color = tokens.foreground, modifier = Modifier.weight(1f))
-                            if (each == role) CheckIcon(tokens.foreground)
+                            if (each == role) Icon(Lucide.Check, contentDescription = null, tint = tokens.foreground)
                         }
                         Text(text = words.roleHint(each), style = tokens.label, color = tokens.muted)
                     }
                 }
             }
-            AppButton(
+            Button(
                 text = words.resetDemo,
                 onClick = { host.resetDemo() },
                 variant = ButtonVariant.Outline,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("demo:reset"),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("demo:reset"),
+                size = ButtonSize.Lg,
             )
         }
     }
@@ -487,21 +491,34 @@ internal class SessionBanner(private val host: RestoAppHost) : HomeBanner {
 }
 
 @Composable
-private fun Option(title: String, body: String, tag: String, selected: Boolean = false, onClick: () -> Unit) {
-    val tokens = AppTheme
-    Column(
+private fun Option(
+    title: String,
+    body: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tag: String,
+    selected: Boolean = false,
+    onClick: () -> Unit,
+) {
+    // A card to choose: the chosen one is outlined in the main colour and ticked, the way a plan is
+    // chosen on a phone; the others wait with a quiet border.
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(tokens.radius))
-            .background(if (selected) tokens.surface else tokens.background)
+            .padding(horizontal = PageGutter, vertical = 5.dp)
+            .clip(Kit.shapes.lg)
+            .background(Kit.colors.card)
+            .border(if (selected) 2.dp else 1.dp, if (selected) Kit.colors.primary else Kit.colors.border, Kit.shapes.lg)
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(16.dp)
+            .padding(14.dp)
             .testTag(tag),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(text = title, style = tokens.body.copy(fontWeight = FontWeight.SemiBold), color = tokens.foreground)
-        Spacer(Modifier.height(4.dp))
-        Text(text = body, style = tokens.label, color = tokens.muted)
+        LeadingIcon(icon, Kit.colors.info)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            KitText(text = title, style = Kit.typography.p.copy(fontWeight = FontWeight.SemiBold))
+            KitText(text = body, variant = TextVariant.Muted)
+        }
+        if (selected) Icon(Lucide.CircleCheck, contentDescription = null, size = 20.dp, tint = Kit.colors.primary)
     }
 }
 
@@ -528,18 +545,15 @@ internal class ManageServersScreen(private val host: RestoAppHost) : HostScreen 
                 .verticalScroll(rememberScrollState())
                 .padding(vertical = 12.dp),
         ) {
-            Section(
-                title = "Серверы".ru(lang, "Servers"),
-                hint = "Порядок — тот же, что в переключателе и для Ctrl+1…9".ru(lang, "The order is the switcher's, and Ctrl+1…9's"),
-            ) {
+            Group(title = "Серверы".ru(lang, "Servers"), hint = "Порядок — тот же, что в переключателе и для Ctrl+1…9".ru(lang, "The order is the switcher's, and Ctrl+1…9's")) {
                 servers.forEachIndexed { index, server ->
-                    if (index > 0) RowDivider()
+                    if (index > 0) ItemSeparator()
                     val isCurrent = server.id == current?.id
                     // A server of a cloud account: under it, and the cloud's to add and remove.
                     val child = server.parent != null
                     Column(modifier = Modifier.padding(start = if (child) 40.dp else 12.dp, top = 12.dp, end = 12.dp, bottom = 12.dp).testTag("servers:row-${server.id}")) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Monogram(title = server.name, size = 36.dp)
+                            Avatar(name = server.name, size = 36.dp, shape = AvatarShape.Square, fill = Kit.colors.primary, contentColor = Kit.colors.onPrimary)
                             Spacer(Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
@@ -564,14 +578,14 @@ internal class ManageServersScreen(private val host: RestoAppHost) : HostScreen 
                                 modifier = Modifier.padding(top = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                AppTextField(
+                                Input(
                                     value = typed,
                                     onValueChange = { typed = it },
                                     placeholder = server.name,
                                     modifier = Modifier.fillMaxWidth().testTag("servers:name-field"),
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    AppButton(
+                                    Button(
                                         text = "Сохранить".ru(lang, "Save"),
                                         onClick = {
                                             host.rename(server.id, typed)
@@ -581,7 +595,7 @@ internal class ManageServersScreen(private val host: RestoAppHost) : HostScreen 
                                         size = ButtonSize.Sm,
                                         modifier = Modifier.testTag("servers:save-name"),
                                     )
-                                    AppButton(
+                                    Button(
                                         text = "Отмена".ru(lang, "Cancel"),
                                         onClick = { renaming = null },
                                         variant = ButtonVariant.Ghost,
@@ -599,7 +613,7 @@ internal class ManageServersScreen(private val host: RestoAppHost) : HostScreen 
                                 )
                                 Spacer(Modifier.height(8.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    AppButton(
+                                    Button(
                                         text = "Удалить".ru(lang, "Remove"),
                                         onClick = {
                                             host.remove(server.id)
@@ -609,7 +623,7 @@ internal class ManageServersScreen(private val host: RestoAppHost) : HostScreen 
                                         size = ButtonSize.Sm,
                                         modifier = Modifier.testTag("servers:confirm-remove"),
                                     )
-                                    AppButton(
+                                    Button(
                                         text = "Отмена".ru(lang, "Cancel"),
                                         onClick = { removing = null },
                                         variant = ButtonVariant.Ghost,
@@ -629,7 +643,7 @@ internal class ManageServersScreen(private val host: RestoAppHost) : HostScreen 
                                 modifier = Modifier.padding(top = 4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                AppButton(
+                                Button(
                                     text = "Переименовать".ru(lang, "Rename"),
                                     onClick = {
                                         typed = server.name
@@ -640,7 +654,7 @@ internal class ManageServersScreen(private val host: RestoAppHost) : HostScreen 
                                     size = ButtonSize.Sm,
                                     modifier = Modifier.testTag("servers:rename-${server.id}"),
                                 )
-                                AppButton(
+                                Button(
                                     text = "↑",
                                     onClick = { host.move(server.id, -1) },
                                     enabled = index > 0,
@@ -648,7 +662,7 @@ internal class ManageServersScreen(private val host: RestoAppHost) : HostScreen 
                                     size = ButtonSize.Sm,
                                     modifier = Modifier.testTag("servers:up-${server.id}"),
                                 )
-                                AppButton(
+                                Button(
                                     text = "↓",
                                     onClick = { host.move(server.id, 1) },
                                     enabled = index < servers.lastIndex,
@@ -657,7 +671,7 @@ internal class ManageServersScreen(private val host: RestoAppHost) : HostScreen 
                                     modifier = Modifier.testTag("servers:down-${server.id}"),
                                 )
                                 if (!isCurrent) {
-                                    AppButton(
+                                    Button(
                                         text = "Удалить".ru(lang, "Remove"),
                                         onClick = {
                                             renaming = null
@@ -673,18 +687,20 @@ internal class ManageServersScreen(private val host: RestoAppHost) : HostScreen 
                     }
                 }
             }
-            AppButton(
+            Button(
                 text = "+ " + "Подключить сервер".ru(lang, "Connect a server"),
                 onClick = { open(host.addScreen) },
                 variant = ButtonVariant.Outline,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:add"),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("servers:add"),
+                size = ButtonSize.Lg,
             )
             Spacer(Modifier.height(8.dp))
-            AppButton(
+            Button(
                 text = "+ " + HostWords(lang).connectCloud,
                 onClick = { open(host.addScreens[1]) },
                 variant = ButtonVariant.Outline,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("servers:add-cloud-account"),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("servers:add-cloud-account"),
+                size = ButtonSize.Lg,
             )
             val files by host.filesFlow.collectAsState()
             files?.let { platform ->
@@ -750,15 +766,12 @@ private fun AuthTransferSection(host: RestoAppHost, files: AuthFiles, lang: Stri
         }
     }
 
-    Section(
-        title = "Перенос входов".ru(lang, "Transfer sign-ins"),
-        hint = "Входы на все серверы — в файл под паролем и из него в другом приложении"
-            .ru(lang, "Sign-ins to every server into a password-protected file, and from it in another app"),
-    ) {
+    Group(title = "Перенос входов".ru(lang, "Transfer sign-ins"), hint = "Входы на все серверы — в файл под паролем и из него в другом приложении"
+            .ru(lang, "Sign-ins to every server into a password-protected file, and from it in another app")) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             when (val now = mode) {
                 Transfer.Idle -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppButton(
+                    Button(
                         text = "Сохранить в файл".ru(lang, "Save to a file"),
                         onClick = { done = null; reset(Transfer.Export) },
                         enabled = count > 0 && !busy,
@@ -766,7 +779,7 @@ private fun AuthTransferSection(host: RestoAppHost, files: AuthFiles, lang: Stri
                         size = ButtonSize.Sm,
                         modifier = Modifier.testTag("servers:export"),
                     )
-                    AppButton(
+                    Button(
                         text = "Загрузить из файла".ru(lang, "Load from a file"),
                         onClick = {
                             launchWork {
@@ -803,7 +816,7 @@ private fun AuthTransferSection(host: RestoAppHost, files: AuthFiles, lang: Stri
                         Text(text = "Пароли не совпадают".ru(lang, "The passwords differ"), style = tokens.label, color = tokens.muted)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppButton(
+                        Button(
                             text = if (busy) "Шифруем…".ru(lang, "Sealing…") else "Сохранить".ru(lang, "Save"),
                             onClick = {
                                 val typed = password
@@ -819,7 +832,7 @@ private fun AuthTransferSection(host: RestoAppHost, files: AuthFiles, lang: Stri
                             size = ButtonSize.Sm,
                             modifier = Modifier.testTag("servers:export-save"),
                         )
-                        AppButton(
+                        Button(
                             text = "Отмена".ru(lang, "Cancel"),
                             onClick = { reset(Transfer.Idle) },
                             enabled = !busy,
@@ -837,7 +850,7 @@ private fun AuthTransferSection(host: RestoAppHost, files: AuthFiles, lang: Stri
                     )
                     PasswordField(password, { password = it }, "Пароль файла".ru(lang, "File password"), "servers:import-password")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppButton(
+                        Button(
                             text = if (busy) "Открываем…".ru(lang, "Opening…") else "Загрузить".ru(lang, "Load"),
                             onClick = {
                                 val typed = password
@@ -852,7 +865,7 @@ private fun AuthTransferSection(host: RestoAppHost, files: AuthFiles, lang: Stri
                             size = ButtonSize.Sm,
                             modifier = Modifier.testTag("servers:import-load"),
                         )
-                        AppButton(
+                        Button(
                             text = "Отмена".ru(lang, "Cancel"),
                             onClick = { reset(Transfer.Idle) },
                             enabled = !busy,
@@ -887,7 +900,7 @@ internal class ServersSection(private val host: RestoAppHost) : HostSection {
         val status by session.status.collectAsState()
         current?.let { server ->
             Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Monogram(title = server.title, size = 36.dp)
+                Avatar(name = server.title, size = 36.dp, shape = AvatarShape.Square, fill = Kit.colors.primary, contentColor = Kit.colors.onPrimary)
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text(text = server.title, style = tokens.body.copy(fontWeight = FontWeight.SemiBold), color = tokens.foreground)
@@ -897,20 +910,20 @@ internal class ServersSection(private val host: RestoAppHost) : HostSection {
                     }
                 }
             }
-            RowDivider()
+            ItemSeparator()
         }
         Row(
             modifier = Modifier.padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            AppButton(
+            Button(
                 text = "Управление".ru(lang, "Manage"),
                 onClick = { open(host.manageScreen) },
                 variant = ButtonVariant.Outline,
                 size = ButtonSize.Sm,
                 modifier = Modifier.testTag("settings:servers-manage"),
             )
-            AppButton(
+            Button(
                 text = "Подключить".ru(lang, "Connect"),
                 onClick = { open(host.addScreen) },
                 variant = ButtonVariant.Outline,
@@ -918,21 +931,21 @@ internal class ServersSection(private val host: RestoAppHost) : HostSection {
                 modifier = Modifier.testTag("settings:servers-add"),
             )
             when {
-                connection.profile.isDemo -> AppButton(
+                connection.profile.isDemo -> Button(
                     text = words.demoTitle,
                     onClick = { open(DemoScreen(host)) },
                     variant = ButtonVariant.Outline,
                     size = ButtonSize.Sm,
                     modifier = Modifier.testTag("settings:demo"),
                 )
-                status == ServerStatus.SignedOut -> AppButton(
+                status == ServerStatus.SignedOut -> Button(
                     text = words.signIn,
                     onClick = { open(LoginScreen(host)) },
                     variant = ButtonVariant.Outline,
                     size = ButtonSize.Sm,
                     modifier = Modifier.testTag("settings:sign-in"),
                 )
-                else -> AppButton(
+                else -> Button(
                     text = words.signOut,
                     onClick = { scope.launch { session.signOut() } },
                     variant = ButtonVariant.Ghost,

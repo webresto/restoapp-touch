@@ -22,7 +22,7 @@ jsonSchemaValidator = "1.5.9"
 quickjs = "1.0.15"
 
 # The library. Bumped by an explicit commit, as in Unitool.
-superizer = "0.8.2"
+superizer = "0.9.0"
 
 [libraries]
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
@@ -41,6 +41,7 @@ quickjs = { module = "io.github.dokar3:quickjs-kt", version.ref = "quickjs" }
 superizer-core = { module = "cx.m42.superizer:core", version.ref = "superizer" }
 superizer-ui-theme = { module = "cx.m42.superizer:ui-theme", version.ref = "superizer" }
 superizer-ui = { module = "cx.m42.superizer:ui", version.ref = "superizer" }
+superizer-ui-kit = { module = "cx.m42.superizer:ui-kit", version.ref = "superizer" }
 superizer-host = { module = "cx.m42.superizer:host", version.ref = "superizer" }
 superizer-testing = { module = "cx.m42.superizer:testing", version.ref = "superizer" }
 
