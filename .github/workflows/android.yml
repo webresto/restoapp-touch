@@ -13,18 +13,20 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: true
 
 # Superizer as a built release (settings.gradle.kts), the version in gradle/libs.versions.toml — the same for the
-# iPhone build (ios.yml). Read from its GitHub Packages with a classic PAT that has read:packages: this repo's own
-# GITHUB_TOKEN cannot read another organisation's packages.
+# iPhone build (ios.yml). GitHub Packages wants a token even for a public package: the run's own GITHUB_TOKEN
+# (packages: read) reads Superizer's, which is public; a SUPERIZER_PACKAGES_TOKEN secret (a classic PAT with
+# read:packages) takes its place if it is ever set.
 env:
   SUPERIZER_FROM_MAVEN: '1'
   ORG_GRADLE_PROJECT_SuperizerPackagesUsername: ${{ github.actor }}
-  ORG_GRADLE_PROJECT_SuperizerPackagesPassword: ${{ secrets.SUPERIZER_PACKAGES_TOKEN }}
+  ORG_GRADLE_PROJECT_SuperizerPackagesPassword: ${{ secrets.SUPERIZER_PACKAGES_TOKEN || secrets.GITHUB_TOKEN }}
 
 jobs:
   apk:

@@ -26,6 +26,7 @@ on:
 # Connect, never into git.
 permissions:
   contents: read
+  packages: read
 
 # An upload is never cancelled: a push to main waits for the build before it. A newer push to
 # ios-ipa stops the older build there.
@@ -41,7 +42,7 @@ env:
   # token is explained). Its klibs come from Linux; the Mac only links the framework.
   SUPERIZER_FROM_MAVEN: '1'
   ORG_GRADLE_PROJECT_SuperizerPackagesUsername: ${{ github.actor }}
-  ORG_GRADLE_PROJECT_SuperizerPackagesPassword: ${{ secrets.SUPERIZER_PACKAGES_TOKEN }}
+  ORG_GRADLE_PROJECT_SuperizerPackagesPassword: ${{ secrets.SUPERIZER_PACKAGES_TOKEN || secrets.GITHUB_TOKEN }}
 
 jobs:
   ipa:

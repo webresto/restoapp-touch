@@ -40,7 +40,7 @@ dependencyResolutionManagement {
          * Superizer's releases (its `publish.yml`). GitHub Packages asks for a token even to read a
          * public package: a classic PAT with `read:packages`, as `SuperizerPackagesUsername` and
          * `SuperizerPackagesPassword` in `~/.gradle/gradle.properties` or `ORG_GRADLE_PROJECT_*` in
-         * the environment (CI: the `SUPERIZER_PACKAGES_TOKEN` secret). Only the library's groups are
+         * the environment (CI: the run's own `GITHUB_TOKEN`, or a `SUPERIZER_PACKAGES_TOKEN` secret if set). Only the library's groups are
          * asked here, and only when the library is not built from its sources.
          *
          * Read as optional values, not `credentials(PasswordCredentials::class)`: that one fails the
