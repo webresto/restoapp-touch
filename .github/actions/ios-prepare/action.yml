@@ -1,26 +1,11 @@
-# The steps every iOS job starts with: Superizer next door, a JDK, Gradle, the Kotlin/Native toolchain
-# and the Kotlin framework linked. One place, so the lanes in ios.yml cannot drift apart.
+# The steps every iOS job starts with: a JDK, Gradle, the Kotlin/Native toolchain and the Kotlin framework linked.
+# Superizer comes built (SUPERIZER_FROM_MAVEN in ios.yml). One place, so the lanes in ios.yml cannot drift apart.
 name: ios-prepare
-description: Check out Superizer beside the repo, set up Java, Gradle and ~/.konan, link the Kotlin framework for Release on a device
-
-inputs:
-  superizer_ref:
-    description: Commit of Superizer (the same one android.yml builds with)
-    required: true
+description: Set up Java, Gradle and ~/.konan, link the Kotlin framework for Release on a device
 
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v4
-      with:
-        repository: adminization/superizer
-        ref: ${{ inputs.superizer_ref }}
-        path: superizer-checkout
-
-    - name: Put the library where settings.gradle.kts looks for it
-      shell: bash
-      run: mv superizer-checkout ../superizer
-
     - name: Xcode
       shell: bash
       run: xcodebuild -version && xcrun --sdk iphoneos --show-sdk-version

@@ -19,11 +19,13 @@ pluginManagement {
  * there — the global context, say — is visible here on the next build.
  *
  * Build files still write Maven coordinates (`cx.m42.superizer:core:…`), never `project(":core")`,
- * so `SUPERIZER_FROM_MAVEN=1` can resolve the same text out of mavenLocal instead. Superizer is not
- * on Maven Central, so without the checkout and without that there is nothing to build against.
+ * so `SUPERIZER_FROM_MAVEN=1` resolves the same text as a built release instead — the version in
+ * `gradle/libs.versions.toml` — from mavenLocal or from Superizer's GitHub Packages. CI builds that
+ * way: the library is not compiled again on every run, on the Mac least of all.
  */
+val superizerFromMaven = System.getenv("SUPERIZER_FROM_MAVEN") == "1"
 val superizerDir = file("../superizer")
-if (System.getenv("SUPERIZER_FROM_MAVEN") != "1") {
+if (!superizerFromMaven) {
     check(superizerDir.exists()) {
         "Superizer's sources are expected at ${superizerDir.canonicalPath}: " +
             "git clone git@github.com:adminization/superizer.git ${superizerDir.canonicalPath}"
@@ -34,6 +36,29 @@ if (System.getenv("SUPERIZER_FROM_MAVEN") != "1") {
 dependencyResolutionManagement {
     repositories {
         mavenLocal()
+        /**
+         * Superizer's releases (its `publish.yml`). GitHub Packages asks for a token even to read a
+         * public package: a classic PAT with `read:packages`, as `SuperizerPackagesUsername` and
+         * `SuperizerPackagesPassword` in `~/.gradle/gradle.properties` or `ORG_GRADLE_PROJECT_*` in
+         * the environment (CI: the `SUPERIZER_PACKAGES_TOKEN` secret). Only the library's groups are
+         * asked here, and only when the library is not built from its sources.
+         *
+         * Read as optional values, not `credentials(PasswordCredentials::class)`: that one fails the
+         * build at configuration without the token, even when the release is already in mavenLocal.
+         */
+        if (superizerFromMaven) {
+            fun property(name: String) = providers.gradleProperty(name)
+                .orElse(providers.environmentVariable("ORG_GRADLE_PROJECT_$name"))
+            maven {
+                name = "SuperizerPackages"
+                url = uri("https://maven.pkg.github.com/adminization/superizer")
+                credentials {
+                    username = property("SuperizerPackagesUsername").orNull
+                    password = property("SuperizerPackagesPassword").orNull
+                }
+                mavenContent { includeGroupAndSubgroups("cx.m42.superizer") }
+            }
+        }
         google {
             mavenContent {
                 includeGroupAndSubgroups("androidx")

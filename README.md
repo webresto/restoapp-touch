@@ -22,7 +22,7 @@ Built for the desktop, Android and the iPhone, written for every platform. The d
 |---|---|
 | JDK | 17 (on this machine 21 hangs the Gradle daemon, `.ai-notes` D5) |
 | Gradle | none — use the bundled `./gradlew` |
-| Superizer | its sources at `../superizer` (`git clone git@github.com:adminization/superizer.git ../superizer`); to edit the library from this project's tree, link it with `ln -s ../superizer superizer` (git ignores the link); `SUPERIZER_FROM_MAVEN=1` builds against mavenLocal instead |
+| Superizer | its sources at `../superizer` (`git clone git@github.com:adminization/superizer.git ../superizer`); to edit the library from this project's tree, link it with `ln -s ../superizer superizer` (git ignores the link); `SUPERIZER_FROM_MAVEN=1` builds against the release in `gradle/libs.versions.toml` instead — from mavenLocal or Superizer's GitHub Packages (a classic PAT with `read:packages` as `SuperizerPackagesUsername`/`SuperizerPackagesPassword` in `~/.gradle/gradle.properties`); CI builds so |
 | restoapp-dev | optional: `../restoapp-dev` on branch `mobile-app` with `node_modules` — the live tests run the hook from there, and skip themselves without it. `-Prestoapp.dev=…` points them at another checkout — a git worktree of the server, where both sides of a change are written; without it, a `restoapp-dev` link in the project root wins over `../restoapp-dev`. The tests of a module's app also need `modules/simple-navigation` 1.8.0 in that checkout (`base_modules`, branch `simple-navigation-mobile-ui`) — without it they fail, they do not skip |
 
 ## Running it

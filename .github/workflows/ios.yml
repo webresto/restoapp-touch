@@ -37,8 +37,11 @@ env:
   # The same runner, and the same flag, as Unitool's lanes (../client, ios.yml). Compose Multiplatform
   # 1.11.1 references UIViewLayoutRegion, an iOS 26 class, behind an availability check.
   OTHER_LDFLAGS: '$(inherited) -Wl,-U,_OBJC_CLASS_$_UIViewLayoutRegion'
-  # One commit of the library for every build, Android's too (android.yml).
-  SUPERIZER_REF: 5b3eda4df70da45345c6338965c45b1e3ebe50c0
+  # Superizer as a built release, the version in gradle/libs.versions.toml — Android's too (android.yml, where the
+  # token is explained). Its klibs come from Linux; the Mac only links the framework.
+  SUPERIZER_FROM_MAVEN: '1'
+  ORG_GRADLE_PROJECT_SuperizerPackagesUsername: ${{ github.actor }}
+  ORG_GRADLE_PROJECT_SuperizerPackagesPassword: ${{ secrets.SUPERIZER_PACKAGES_TOKEN }}
 
 jobs:
   ipa:
@@ -49,8 +52,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/ios-prepare
-        with:
-          superizer_ref: ${{ env.SUPERIZER_REF }}
 
       # The build number is the run number, so two installs never carry the same CFBundleVersion.
       - name: Build for a device, unsigned
@@ -128,8 +129,6 @@ jobs:
 
       - uses: ./.github/actions/ios-prepare
         if: steps.gate.outputs.ready == 'true'
-        with:
-          superizer_ref: ${{ env.SUPERIZER_REF }}
 
       # Signed by hand, as Unitool and agentiz are. Automatic signing on a clean runner would have to
       # mint a development certificate every run, and the API key is an App Manager's. So the App

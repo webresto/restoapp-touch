@@ -18,22 +18,20 @@ concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: true
 
+# Superizer as a built release (settings.gradle.kts), the version in gradle/libs.versions.toml — the same for the
+# iPhone build (ios.yml). Read from its GitHub Packages with a classic PAT that has read:packages: this repo's own
+# GITHUB_TOKEN cannot read another organisation's packages.
+env:
+  SUPERIZER_FROM_MAVEN: '1'
+  ORG_GRADLE_PROJECT_SuperizerPackagesUsername: ${{ github.actor }}
+  ORG_GRADLE_PROJECT_SuperizerPackagesPassword: ${{ secrets.SUPERIZER_PACKAGES_TOKEN }}
+
 jobs:
   apk:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-
-      # The same Superizer as the iPhone build (ios.yml): one commit of the library for both.
-      - uses: actions/checkout@v4
-        with:
-          repository: adminization/superizer
-          ref: 5b3eda4df70da45345c6338965c45b1e3ebe50c0
-          path: superizer-checkout
-
-      - name: Put the library where settings.gradle.kts looks for it
-        run: mv superizer-checkout ../superizer
 
       - uses: actions/setup-java@v4
         with:
