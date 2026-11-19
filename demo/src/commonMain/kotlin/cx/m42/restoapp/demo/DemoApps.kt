@@ -1,6 +1,9 @@
 package cx.m42.restoapp.demo
 
+import cx.m42.restoapp.protocol.Board
 import cx.m42.restoapp.protocol.ClientRender
+import cx.m42.restoapp.protocol.Column
+import cx.m42.restoapp.protocol.SummaryBlock
 import cx.m42.restoapp.protocol.Control
 import cx.m42.restoapp.protocol.Controls
 import cx.m42.restoapp.protocol.DeclaredApp
@@ -245,12 +248,14 @@ internal fun ordersApp(words: DemoWords, places: List<String>): DeclaredApp {
     val client = words.t("Клиент", "Customer")
     val receiving = words.t("Получение", "Receiving")
     val contents = words.t("Состав", "Contents")
-    val stateSpecials = listOf(
-        Special(JsonPrimitive(OrderState.ORDER.name), words.state(OrderState.ORDER), Tones.INFO),
-        Special(JsonPrimitive(OrderState.COOKING.name), words.state(OrderState.COOKING), Tones.WARNING),
-        Special(JsonPrimitive(OrderState.ON_THE_WAY.name), words.state(OrderState.ON_THE_WAY), Tones.INFO),
-        Special(JsonPrimitive(OrderState.DONE.name), words.state(OrderState.DONE), Tones.SUCCESS),
-        Special(JsonPrimitive(OrderState.REJECT.name), words.state(OrderState.REJECT), Tones.DANGER),
+    // P2: the words and the tone of each state, as the hook declares an enum field.
+    val stateTitles = OrderState.entries.associate { it.name to words.state(it) }
+    val stateTones = mapOf(
+        OrderState.ORDER.name to Tones.INFO,
+        OrderState.COOKING.name to Tones.WARNING,
+        OrderState.ON_THE_WAY.name to Tones.SUCCESS,
+        OrderState.DONE.name to Tones.MUTED,
+        OrderState.REJECT.name to Tones.DANGER,
     )
     return DeclaredApp(
         id = ORDERS,
@@ -261,10 +266,12 @@ internal fun ordersApp(words: DemoWords, places: List<String>): DeclaredApp {
         home = "orders.list",
         scope = DeclaredApp.SCOPE_PLACE,
         places = places,
+        // P4: «Заказы · 8» in the menu — the active orders of the point.
+        badge = "orders.badge",
         models = mapOf(
             "order" to Model(
                 listOf(
-                    Field("state", words.t("Статус", "State"), Formats.ENUM, readonly = true, specials = stateSpecials),
+                    Field("state", words.t("Статус", "State"), Formats.ENUM, readonly = true, titles = stateTitles, tones = stateTones),
                     Field("createdAt", words.t("Создан", "Created"), Formats.RELATIVE, readonly = true),
                     Field("customerName", words.t("Имя", "Name"), Formats.TEXT, readonly = true, section = client),
                     Field("customerPhone", words.t("Телефон", "Phone"), Formats.PHONE, readonly = true, section = client),
@@ -310,6 +317,16 @@ internal fun ordersApp(words: DemoWords, places: List<String>): DeclaredApp {
                     chips = "tab",
                     open = "orders.get",
                     empty = words.t("Заказов нет", "No orders"),
+                    // P1: the table after the order's number.
+                    columns = listOf(
+                        Column("state", width = Column.Width.NARROW),
+                        Column("customerName", width = Column.Width.WIDE),
+                        Column("method"),
+                        Column("createdAt"),
+                        Column("total", align = Column.Align.END),
+                    ),
+                    // P6: the active orders by stage.
+                    board = Board("state", listOf(OrderState.ORDER.name, OrderState.COOKING.name, OrderState.ON_THE_WAY.name, OrderState.DONE.name)),
                 ),
             ),
             DeclaredMethod(
@@ -319,6 +336,12 @@ internal fun ordersApp(words: DemoWords, places: List<String>): DeclaredApp {
                 model = "order",
                 input = objectSchema(listOf("id"), mapOf("id" to stringProperty(100, minLength = 1))),
                 ui = Ui(view = Views.DETAIL, item = ItemUi(title = "title", subtitle = "summary", badge = "state")),
+            ),
+            DeclaredMethod(
+                name = "orders.badge",
+                kind = DeclaredMethod.KIND_QUERY,
+                title = words.t("Активные заказы", "Active orders"),
+                input = objectSchema(emptyList(), emptyMap()),
             ),
             DeclaredMethod(
                 name = "orders.setState",
@@ -335,6 +358,8 @@ internal fun ordersApp(words: DemoWords, places: List<String>): DeclaredApp {
                         tones = mapOf(OrderState.DONE.name to Tones.SUCCESS, OrderState.REJECT.name to Tones.DANGER),
                     ),
                     confirm = words.t("Отклонить заказ? Клиент получит уведомление.", "Reject the order? The customer will be told."),
+                    // P3: the next step of an order is the record's main button.
+                    primary = true,
                 ),
             ),
         ),
@@ -678,42 +703,31 @@ internal fun marketingApp(words: DemoWords, money: Boolean): DeclaredApp {
                 title = words.t("Маркетинг", "Marketing"),
                 model = "summary",
                 input = objectSchema(emptyList(), mapOf("days" to days)),
-                ui = Ui(view = Views.DETAIL, item = ItemUi(title = "title", subtitle = "subtitle"), chips = "days"),
-            ),
-            DeclaredMethod(
-                name = "marketing.promocodes",
-                kind = DeclaredMethod.KIND_QUERY,
-                title = codes,
-                model = "promocode",
-                input = objectSchema(emptyList(), mapOf("q" to stringProperty(100), "status" to statusFilter, "cursor" to stringProperty(200))),
                 ui = Ui(
-                    view = Views.LIST,
-                    item = ItemUi(title = "code", subtitle = "description", meta = "period", value = "promotionsCount", badge = "status"),
-                    search = "q",
-                    chips = "status",
-                    open = "marketing.promocode",
-                    empty = words.t("Промокодов нет", "No promo codes"),
-                ),
-            ),
-            DeclaredMethod(
-                name = "marketing.promocode",
-                kind = DeclaredMethod.KIND_QUERY,
-                title = words.t("Промокод", "Promo code"),
-                model = "promocode",
-                input = objectSchema(listOf("id"), id),
-                ui = Ui(view = Views.DETAIL, item = ItemUi(title = "code", subtitle = "description", badge = "status")),
-            ),
-            DeclaredMethod(
-                name = "marketing.setCodeEnabled",
-                kind = DeclaredMethod.KIND_MUTATION,
-                title = words.t("Код действует", "The code works"),
-                input = objectSchema(listOf("id", "enable"), id + mapOf("enable" to booleanProperty())),
-                ui = Ui(
-                    view = Views.ACTION,
-                    on = "promocode",
-                    placement = listOf("row", "detail"),
-                    control = Control(type = Controls.TOGGLE, param = "enable", bind = "enable"),
-                    confirm = words.t("Выключить промокод? Он перестанет работать сразу.", "Switch the promo code off? It stops working at once."),
+                    view = Views.DETAIL,
+                    item = ItemUi(title = "title", subtitle = "subtitle"),
+                    chips = "days",
+                    section = words.t("Сводка", "Summary"),
+                    // P7: numbers and charts over the card; the arrays are not in the model, so an older client
+                    // shows the card of the declared fields only.
+                    summary = if (money) {
+                        listOf(
+                            SummaryBlock(SummaryBlock.METRIC, "applications", delta = "applicationsDelta"),
+                            SummaryBlock(SummaryBlock.METRIC, "totalDiscount", delta = "totalDiscountDelta"),
+                            SummaryBlock(SummaryBlock.METRIC, "avgDiscount", delta = "avgDiscountDelta"),
+                            SummaryBlock(SummaryBlock.METRIC, "codesActive"),
+                            SummaryBlock(SummaryBlock.METRIC, "promotionsSelf"),
+                            SummaryBlock(SummaryBlock.SERIES, "applicationsByDay", title = words.t("Применения по дням", "Applications by day"), format = Formats.NUMBER),
+                            SummaryBlock(SummaryBlock.SHARE, "codesShare", title = words.t("Применения по промокодам", "Applications by promo code")),
+                            SummaryBlock(SummaryBlock.LIST, "codesDiscount", title = words.t("Скидки по промокодам", "Discounts by promo code")),
+                        )
+                    } else {
+                        listOf(
+                            SummaryBlock(SummaryBlock.METRIC, "codesActive"),
+                            SummaryBlock(SummaryBlock.METRIC, "promotionsSelf"),
+                            SummaryBlock(SummaryBlock.SHARE, "codesShare", title = words.t("Промокоды по статусам", "Promo codes by status")),
+                        )
+                    },
                 ),
             ),
             DeclaredMethod(
@@ -732,6 +746,7 @@ internal fun marketingApp(words: DemoWords, money: Boolean): DeclaredApp {
                     chips = "filter",
                     open = "marketing.promotion",
                     empty = words.t("Акций нет", "No promotions"),
+                    section = promotions,
                 ),
             ),
             DeclaredMethod(
@@ -794,6 +809,43 @@ internal fun marketingApp(words: DemoWords, money: Boolean): DeclaredApp {
                 ),
             ),
             DeclaredMethod(
+                name = "marketing.promocodes",
+                kind = DeclaredMethod.KIND_QUERY,
+                title = codes,
+                model = "promocode",
+                input = objectSchema(emptyList(), mapOf("q" to stringProperty(100), "status" to statusFilter, "cursor" to stringProperty(200))),
+                ui = Ui(
+                    view = Views.LIST,
+                    item = ItemUi(title = "code", subtitle = "description", meta = "period", value = "promotionsCount", badge = "status"),
+                    search = "q",
+                    chips = "status",
+                    open = "marketing.promocode",
+                    empty = words.t("Промокодов нет", "No promo codes"),
+                    section = codes,
+                ),
+            ),
+            DeclaredMethod(
+                name = "marketing.promocode",
+                kind = DeclaredMethod.KIND_QUERY,
+                title = words.t("Промокод", "Promo code"),
+                model = "promocode",
+                input = objectSchema(listOf("id"), id),
+                ui = Ui(view = Views.DETAIL, item = ItemUi(title = "code", subtitle = "description", badge = "status")),
+            ),
+            DeclaredMethod(
+                name = "marketing.setCodeEnabled",
+                kind = DeclaredMethod.KIND_MUTATION,
+                title = words.t("Код действует", "The code works"),
+                input = objectSchema(listOf("id", "enable"), id + mapOf("enable" to booleanProperty())),
+                ui = Ui(
+                    view = Views.ACTION,
+                    on = "promocode",
+                    placement = listOf("row", "detail"),
+                    control = Control(type = Controls.TOGGLE, param = "enable", bind = "enable"),
+                    confirm = words.t("Выключить промокод? Он перестанет работать сразу.", "Switch the promo code off? It stops working at once."),
+                ),
+            ),
+            DeclaredMethod(
                 name = "marketing.applications",
                 kind = DeclaredMethod.KIND_QUERY,
                 title = applications,
@@ -808,6 +860,7 @@ internal fun marketingApp(words: DemoWords, money: Boolean): DeclaredApp {
                     chips = "status",
                     open = "marketing.application",
                     empty = words.t("Код пока никто не вводил", "Nobody has typed a code yet"),
+                    section = applications,
                 ),
             ).takeIf { money },
             DeclaredMethod(

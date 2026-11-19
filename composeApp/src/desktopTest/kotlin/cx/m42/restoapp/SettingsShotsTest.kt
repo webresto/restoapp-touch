@@ -51,7 +51,9 @@ class SettingsShotsTest {
 
     private fun ComposeUiTest.shot(name: String) {
         waitForIdle()
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(out, "$name.png"))
+        // The whole scene, so the editor and the transfer (popups over the page — a second root) are in it.
+        val image = (this as? androidx.compose.ui.test.SkikoComposeUiTest)?.captureToImage() ?: onRoot().captureToImage()
+        ImageIO.write(image.toAwtImage(), "png", File(out, "$name.png"))
         taken += name
     }
 
@@ -131,10 +133,7 @@ class SettingsShotsTest {
 
             // Connect the stand by its address and sign in as the administrator: «Настройки» is behind
             // the token of the web page, `settings-manager`.
-            onNode(hasContentDescription("Открыть меню")).performClick()
-            waitForIdle()
-            onNodeWithTag("context:row").performClick()
-            waitForIdle()
+            openContexts()
             onNodeWithTag("context:add").performClick()
             waitForIdle()
             onNodeWithTag("servers:add-custom").performClick()
@@ -147,11 +146,12 @@ class SettingsShotsTest {
             onNodeWithTag("servers:connect").performClick()
             waitUntil(timeoutMillis = 60_000L) {
                 if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
-                host.active.value.superizer.registry.get(AppId("settings")) != null && exists("home:tile-settings")
+                host.active.value.superizer.registry.get(AppId("settings")) != null && exists("home:summary")
             }
             shot("01-home-with-settings")
 
-            onNodeWithTag("home:tile-settings").performScrollTo().performClick()
+            assertApp("settings")
+            openApp("settings")
             waitUntil(timeoutMillis = 30_000L) { exists("settings:list") }
             // The list: every setting by key, its name under it, the value and the type as a badge.
             shot("02-list")
@@ -315,6 +315,9 @@ class SettingsShotsTest {
                 ]}
                 """.trimIndent(),
             )
+            // Export and import are two tabs of the screen now; the paste is the import's.
+            onAllNodesWithText("Импорт").onFirst().performClick()
+            waitForIdle()
             onNodeWithTag("settings:transfer-paste").performClick()
             waitUntil(timeoutMillis = 30_000L) { exists("settings:transfer-selected") }
             shot("33-transfer-difference")

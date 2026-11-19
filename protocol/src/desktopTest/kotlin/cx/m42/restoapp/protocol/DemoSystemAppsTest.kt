@@ -289,6 +289,6 @@ class DemoSystemAppsTest {
     @Test
     fun theRevisionMovedWithTheDeclaration(): Unit = runBlocking {
         // -5: «Ассистент» joined the administrator's apps (assistant.plan.md).
-        assertTrue(demo().describe("demo", "ru").value.revision.endsWith("-5"))
+        assertTrue(demo().describe("demo", "ru").value.revision.endsWith("-6"))
     }
 }

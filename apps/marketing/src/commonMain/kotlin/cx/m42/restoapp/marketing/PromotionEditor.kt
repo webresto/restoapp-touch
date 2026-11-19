@@ -1,46 +1,95 @@
 package cx.m42.restoapp.marketing
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.composeunstyled.Text
+import com.composables.icons.lucide.Banknote
+import com.composables.icons.lucide.ChevronDown
+import com.composables.icons.lucide.ChevronRight
+import com.composables.icons.lucide.CircleAlert
+import com.composables.icons.lucide.Gift
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Percent
+import com.composables.icons.lucide.Search
+import com.composables.icons.lucide.TriangleAlert
+import com.composables.icons.lucide.X
 import cx.m42.restoapp.protocol.MobileApiException
-import cx.m42.restoapp.render.CatalogShell
-import cx.m42.restoapp.render.Chips
-import cx.m42.restoapp.render.EmptyState
-import cx.m42.restoapp.render.GroupTile
 import cx.m42.restoapp.render.HoldUnsaved
-import cx.m42.restoapp.render.ListRow
 import cx.m42.restoapp.render.NativeActionScope
-import cx.m42.restoapp.render.Notice
 import cx.m42.restoapp.render.money
-import cx.m42.superizer.theme.AppTheme
-import cx.m42.superizer.ui.platform.ScreenSteps
-import cx.m42.superizer.ui.platform.SystemBackHandler
+import cx.m42.superizer.kit.ActionBar
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.superizer.kit.Checkbox
+import cx.m42.superizer.kit.Chip
+import cx.m42.superizer.kit.Dialog
+import cx.m42.superizer.kit.DialogActions
+import cx.m42.superizer.kit.Field
+import cx.m42.superizer.kit.Grid
+import cx.m42.superizer.kit.Icon
+import cx.m42.superizer.kit.IconTile
+import cx.m42.superizer.kit.Input
+import cx.m42.superizer.kit.Kit
+import cx.m42.superizer.kit.LocalWindowClass
+import cx.m42.superizer.kit.Notice
+import cx.m42.superizer.kit.Page
+import cx.m42.superizer.kit.PageHeader
+import cx.m42.superizer.kit.PageWidth
+import cx.m42.superizer.kit.Panel
+import cx.m42.superizer.kit.Pill
+import cx.m42.superizer.kit.Select
+import cx.m42.superizer.kit.SelectOption
+import cx.m42.superizer.kit.Separator
+import cx.m42.superizer.kit.Skeleton
+import cx.m42.superizer.kit.StatusBadge
+import cx.m42.superizer.kit.SwitchItem
+import cx.m42.superizer.kit.Tabs
+import cx.m42.superizer.kit.Text
+import cx.m42.superizer.kit.TextVariant
+import cx.m42.superizer.kit.Tone
+import cx.m42.superizer.kit.WindowClass
+import cx.m42.superizer.kit.byWindow
+import cx.m42.superizer.kit.kitClickable
+import cx.m42.superizer.kit.palette
+import cx.m42.superizer.kit.textColor
+import cx.m42.superizer.kit.textStyles
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -50,14 +99,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
-import cx.m42.superizer.kit.Button
-import cx.m42.superizer.kit.ButtonSize
-import cx.m42.superizer.kit.ButtonVariant
-import cx.m42.restoapp.render.Group
-import cx.m42.superizer.kit.Field
-import cx.m42.superizer.kit.Input
-import cx.m42.superizer.kit.ItemSeparator
-import cx.m42.superizer.kit.SwitchItem
 
 /**
  * The editor of a promotion — the screen `control: {type: "native", screen: "promotion-editor"}` asks for
@@ -98,7 +139,14 @@ internal data class EditorForm(
 /** What the catalog is open for: the products of the discount, its groups, or the gift. */
 internal enum class Picking { DISHES, GROUPS, GIFT }
 
-internal data class CatalogItem(val id: String, val name: String, val price: Double, val notForSale: Boolean, val promo: Boolean)
+internal data class CatalogItem(
+    val id: String,
+    val name: String,
+    val price: Double,
+    val notForSale: Boolean,
+    val promo: Boolean,
+    val parentGroup: String? = null,
+)
 
 internal data class CatalogPage(
     val groups: List<CatalogItem> = emptyList(),
@@ -224,277 +272,448 @@ internal fun refusalOf(form: EditorForm, words: MarketingWords): String? = when 
 @Composable
 internal fun PromotionEditor(scope: NativeActionScope) {
     val words = remember(scope.lang) { MarketingWords(scope.lang) }
-    val tokens = AppTheme
     var form by remember(scope.record) { mutableStateOf(formOf(scope.record)) }
     var picking by remember { mutableStateOf<Picking?>(null) }
     var refusal by remember { mutableStateOf<String?>(null) }
     val opened = remember(scope.record) { formOf(scope.record) }
+    // What the chosen ids are called: read once from the catalog, and from every page the picker opens.
+    val names = remember(scope.record) { mutableStateMapOf<String, String>() }
+    val dirty = form != opened
+    val fresh = scope.record["id"] == null
+    val cls = LocalWindowClass.current
+    val currency = scope.facts?.currency
+
+    LaunchedEffect(scope.record) {
+        val known = opened.dishes + listOfNotNull(opened.giftDish)
+        if (opened.groups.isNotEmpty()) catalogOf(scope, buildJsonObject {})?.let { page -> page.groups.forEach { names[it.id] = it.name } }
+        if (known.isNotEmpty()) {
+            catalogOf(scope, buildJsonObject { put("ids", buildJsonArray { known.forEach { add(JsonPrimitive(it)) } }) })
+                ?.let { page -> page.items.forEach { names[it.id] = it.name } }
+        }
+    }
 
     fun save(saved: () -> Unit) {
         val why = refusalOf(form, words)
         refusal = why
         if (why == null) scope.submitThen(paramsOf(form, scope.record), saved)
     }
-    HoldUnsaved(form != opened, scope.hold) { saved -> if (!scope.busy) save(saved) }
+    HoldUnsaved(dirty, scope.hold) { saved -> if (!scope.busy) save(saved) }
 
-    Box(modifier = Modifier.fillMaxSize().testTag("marketing:editor")) {
-        if (picking != null) {
-            CatalogPicker(
-                scope = scope,
-                words = words,
-                picking = picking!!,
-                form = form,
-                onChange = { form = it },
-                onClose = { picking = null },
-            )
-            return@Box
-        }
-
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(
-                    text = words.cancel,
-                    onClick = scope.leave,
-                    variant = ButtonVariant.Ghost,
-                    size = ButtonSize.Sm,
-                    modifier = Modifier.testTag("marketing:editor-cancel"),
+    val saveLabel = if (scope.busy) words.saving else words.save
+    Column(modifier = Modifier.fillMaxSize().testTag("marketing:editor")) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            Page(PageWidth.Default) {
+                PageHeader(
+                    title = form.name.ifBlank { if (fresh) words.newPromotion else opened.name.ifBlank { words.editor } },
+                    description = words.editorHint,
+                    leading = {
+                        Box(
+                            Modifier
+                                .size(44.dp)
+                                .clip(Kit.shapes.lg)
+                                .border(1.dp, Kit.colors.input, Kit.shapes.lg)
+                                .background(Kit.colors.background)
+                                .kitClickable(Kit.shapes.lg, onClick = scope.leave)
+                                .semantics { contentDescription = words.close }
+                                .testTag("marketing:editor-cancel"),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Lucide.X, contentDescription = null, size = 18.dp) }
+                    },
+                    badge = { if (dirty) StatusBadge(words.unsaved, Tone.Warn, Modifier.testTag("marketing:editor-unsaved")) },
+                    actions = if (cls == WindowClass.Compact) null else {
+                        {
+                            Button(words.cancel, scope.leave, variant = ButtonVariant.Outline, modifier = Modifier.testTag("marketing:editor-cancel-button"))
+                            Button(
+                                saveLabel,
+                                { save {} },
+                                enabled = dirty && !scope.busy,
+                                loading = scope.busy,
+                                modifier = Modifier.testTag("marketing:editor-save"),
+                            )
+                        }
+                    },
                 )
+                refusal?.let {
+                    Notice(Tone.Danger, Lucide.CircleAlert, words.cannotSave, it, Modifier.testTag("marketing:editor-refusal"))
+                }
+                scope.failure?.let {
+                    Notice(Tone.Danger, Lucide.TriangleAlert, words.serverRefused, it, Modifier.testTag("marketing:editor-failure"))
+                }
+                Grid(if (cls == WindowClass.Expanded) 5 else 1, spans = listOf(3, 2), gap = byWindow(16.dp, 20.dp, 24.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(byWindow(16.dp, 20.dp, 24.dp))) {
+                        BasicsPanel(form, words) { form = it }
+                        DiscountPanel(form, words, currency, names, edit = { form = it }, pickGift = { picking = Picking.GIFT })
+                        AppliesPanel(form, words, names) { picking = it }
+                        ConditionsPanel(form, words, currency) { form = it }
+                        BehaviourPanel(form, words) { form = it }
+                    }
+                    PromotionPreview(form, words, scope)
+                }
+            }
+        }
+        if (cls == WindowClass.Compact) {
+            ActionBar {
                 Text(
-                    text = form.name.ifBlank { words.editor },
-                    style = tokens.subtitle,
-                    color = tokens.foreground,
+                    if (dirty) words.unsavedChanges else words.noChanges,
+                    Modifier.weight(1f),
+                    variant = TextVariant.Muted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 8.dp).weight(1f),
                 )
                 Button(
-                    text = if (scope.busy) words.saving else words.save,
-                    onClick = { save {} },
-                    enabled = !scope.busy,
-                    size = ButtonSize.Sm,
+                    saveLabel,
+                    { save {} },
+                    enabled = dirty && !scope.busy,
+                    loading = scope.busy,
                     modifier = Modifier.testTag("marketing:editor-save"),
                 )
             }
+        }
+    }
 
-            Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                refusal?.let { Notice(it, "danger", null, null, "marketing:editor-refusal") }
+    picking?.let { what ->
+        CatalogPicker(
+            scope = scope,
+            words = words,
+            picking = what,
+            form = form,
+            onNames = { found -> names.putAll(found) },
+            onChange = { form = it },
+            onClose = { picking = null },
+        )
+    }
+}
 
-                Group(title = words.basics) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Field(label = words.name) {
-                            Input(
-                                value = form.name,
-                                onValueChange = { form = form.copy(name = it.take(200)) },
-                                label = words.name,
-                                modifier = Modifier.testTag("marketing:editor-name"),
-                            )
-                        }
-                        Field(label = words.description) {
-                            Input(
-                                value = form.description,
-                                onValueChange = { form = form.copy(description = it.take(1000)) },
-                                label = words.description,
-                                modifier = Modifier.testTag("marketing:editor-description"),
-                            )
-                        }
-                    }
+/** The unit after a number in a field; the field's label says it to a screen reader, so it stays out of the text. */
+@Composable
+private fun UnitSign(sign: String) {
+    Text(sign, variant = TextVariant.Muted, modifier = Modifier.clearAndSetSemantics {})
+}
+
+/** «₽» of RUB: the sign [money] writes after a sum, alone. */
+private fun currencySign(currency: String?): String = money(0.0, currency).drop(1).trim { it.isWhitespace() || it == '\u00A0' }
+
+/** The form's own setter, as every panel takes it. */
+private typealias Edit = (EditorForm) -> Unit
+
+private fun <T> Set<T>.toggle(value: T): Set<T> = if (value in this) this - value else this + value
+
+/** A field that opens a choice: what is chosen as pills, or a quiet «Выбрать…», and a chevron. */
+@Composable
+private fun ChooserField(label: String, chosen: List<String>, empty: String, tag: String, onClick: () -> Unit, description: String? = null) {
+    Field(label, description = description) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 44.dp)
+                .clip(Kit.shapes.md)
+                .border(1.dp, Kit.colors.input, Kit.shapes.md)
+                .background(Kit.colors.background)
+                .kitClickable(Kit.shapes.md, hover = false, onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .testTag(tag),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (chosen.isEmpty()) {
+                Text(empty, Modifier.weight(1f), color = Kit.colors.mutedForeground, maxLines = 1)
+            } else {
+                FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    chosen.forEach { Pill(it, Tone.Brand) }
                 }
+            }
+            Icon(Lucide.ChevronRight, null, size = 16.dp, tint = Kit.colors.mutedForeground)
+        }
+    }
+}
 
-                Group(title = words.discount) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Chips(
-                            values = listOf("percentage", "flat"),
-                            titles = mapOf("percentage" to words.percentage, "flat" to words.flat),
-                            counts = emptyMap(),
-                            selected = if (form.percentage) "percentage" else "flat",
-                            onSelect = { form = form.copy(percentage = it == "percentage") },
-                            tag = "marketing:editor-kind",
-                            inset = 0.dp,
-                        )
-                        Field(label = words.amount) {
-                            Input(
-                                value = form.amount,
-                                onValueChange = { form = form.copy(amount = digits(it)) },
-                                label = words.amount,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.testTag("marketing:editor-amount"),
-                            )
-                        }
-                    }
+/** Switches in one bordered block, hairlines between them — as the prototype's settings rows. */
+@Composable
+private fun SwitchBlock(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(Kit.shapes.xl).border(1.dp, Kit.colors.border, Kit.shapes.xl),
+        content = content,
+    )
+}
+
+@Composable
+private fun ChipField(label: String, hint: String?, chips: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, variant = TextVariant.Small)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { chips() }
+        if (hint != null) Text(hint, variant = TextVariant.Muted)
+    }
+}
+
+@Composable
+private fun BasicsPanel(form: EditorForm, words: MarketingWords, edit: Edit) {
+    Panel(title = words.basics) {
+        Field(words.name) {
+            Input(
+                value = form.name,
+                onValueChange = { edit(form.copy(name = it.take(200))) },
+                placeholder = words.namePlaceholder,
+                label = words.name,
+                modifier = Modifier.testTag("marketing:editor-name"),
+            )
+        }
+        Field(words.description, description = words.descriptionHint) {
+            Input(
+                value = form.description,
+                onValueChange = { edit(form.copy(description = it.take(1000))) },
+                label = words.description,
+                singleLine = false,
+                minLines = 2,
+                modifier = Modifier.testTag("marketing:editor-description"),
+            )
+        }
+        SwitchBlock {
+            SwitchItem(
+                title = words.works,
+                checked = form.enable,
+                onCheckedChange = { edit(form.copy(enable = it, onlyByCode = if (it) form.onlyByCode else false)) },
+                description = words.worksHint,
+                modifier = Modifier.testTag("marketing:editor-enable"),
+            )
+            Separator()
+            SwitchItem(
+                title = words.onlyByCode,
+                checked = form.onlyByCode,
+                onCheckedChange = { edit(form.copy(onlyByCode = it)) },
+                description = words.onlyByCodeHint,
+                enabled = form.enable,
+                modifier = Modifier.testTag("marketing:editor-only-by-code"),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiscountPanel(form: EditorForm, words: MarketingWords, currency: String?, names: Map<String, String>, edit: Edit, pickGift: () -> Unit) {
+    val sign = currencySign(currency)
+    Panel(title = words.discount) {
+        Tabs(
+            listOf(words.percentage, words.flat),
+            if (form.percentage) 0 else 1,
+            { edit(form.copy(percentage = it == 0)) },
+            modifier = Modifier.testTag("marketing:editor-kind"),
+        )
+        Field(if (form.percentage) words.percentSize else words.flatSize, modifier = Modifier.widthIn(max = 320.dp)) {
+            Input(
+                value = form.amount,
+                onValueChange = { edit(form.copy(amount = digits(it))) },
+                label = words.amount + ", " + (if (form.percentage) "%" else sign),
+                placeholder = "0",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                trailing = { UnitSign(if (form.percentage) "%" else sign) },
+                modifier = Modifier.testTag("marketing:editor-amount"),
+            )
+        }
+        Separator()
+        val gift = form.giftDish
+        ChooserField(
+            words.gift,
+            listOfNotNull(gift?.let { names[it] ?: words.giftDish }),
+            words.noGift,
+            "marketing:editor-gift",
+            pickGift,
+            description = if (gift == null) words.giftHint else null,
+        )
+        if (gift != null) {
+            Grid(byWindow(1, 2, 2), gap = 12.dp) {
+                Field(words.giftAmount) {
+                    Input(
+                        value = form.giftAmount,
+                        onValueChange = { edit(form.copy(giftAmount = digits(it, dot = false))) },
+                        label = words.giftAmount,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.testTag("marketing:editor-gift-amount"),
+                    )
                 }
-
-                Group(title = words.appliesTo, hint = if (form.dishes.isEmpty() && form.groups.isEmpty()) words.wholeBasket else words.chosen) {
-                    ListRow(
-                        title = words.counted(words.dishes, form.dishes.size),
-                        subtitle = null, meta = null, value = null, valueTone = null, badge = null, badgeTone = null,
-                        tag = "marketing:editor-dishes",
-                        onClick = { picking = Picking.DISHES },
-                    )
-                    ItemSeparator()
-                    ListRow(
-                        title = words.counted(words.groups, form.groups.size),
-                        subtitle = null, meta = null, value = null, valueTone = null, badge = null, badgeTone = null,
-                        tag = "marketing:editor-groups",
-                        onClick = { picking = Picking.GROUPS },
+                Field(words.giftFrom) {
+                    Input(
+                        value = form.giftFrom,
+                        onValueChange = { edit(form.copy(giftFrom = digits(it))) },
+                        label = words.giftFrom + ", " + sign,
+                        placeholder = "0",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        trailing = { UnitSign(sign) },
+                        modifier = Modifier.testTag("marketing:editor-gift-from"),
                     )
                 }
+            }
+            Button(
+                words.removeGift,
+                { edit(form.copy(giftDish = null)) },
+                variant = ButtonVariant.Ghost,
+                size = ButtonSize.Sm,
+                leadingIcon = Lucide.X,
+                modifier = Modifier.testTag("marketing:editor-gift-clear"),
+            )
+        }
+    }
+}
 
-                Group(title = words.conditions) {
-                    ListRow(
-                        title = words.giftDish,
-                        subtitle = form.giftDish?.let { words.giftWords(form.giftAmount.toIntOrNull() ?: 1, form.giftFrom) },
-                        meta = null, value = null, valueTone = null, badge = null, badgeTone = null,
-                        tag = "marketing:editor-gift",
-                        onClick = { picking = Picking.GIFT },
-                    )
-                    ItemSeparator()
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (form.giftDish != null) {
-                            Field(label = words.giftAmount) {
-                                Input(
-                                    value = form.giftAmount,
-                                    onValueChange = { form = form.copy(giftAmount = digits(it, dot = false)) },
-                                    label = words.giftAmount,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.testTag("marketing:editor-gift-amount"),
-                                )
-                            }
-                            Field(label = words.giftFrom) {
-                                Input(
-                                    value = form.giftFrom,
-                                    onValueChange = { form = form.copy(giftFrom = digits(it)) },
-                                    label = words.giftFrom,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.testTag("marketing:editor-gift-from"),
-                                )
-                            }
-                        }
-                        Field(label = words.minBasket) {
-                            Input(
-                                value = form.minBasketTotal,
-                                onValueChange = { form = form.copy(minBasketTotal = digits(it)) },
-                                label = words.minBasket,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.testTag("marketing:editor-min-basket"),
-                            )
-                        }
-                        Text(text = words.serviceTypes, style = tokens.label, color = tokens.muted)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            for (kind in listOf("delivery", "pickup", "dine-in")) {
-                                Button(
-                                    text = words.serviceType(kind),
-                                    onClick = {
-                                        form = form.copy(
-                                            serviceTypes = if (kind in form.serviceTypes) form.serviceTypes - kind else form.serviceTypes + kind,
-                                        )
-                                    },
-                                    variant = if (kind in form.serviceTypes) ButtonVariant.Default else ButtonVariant.Outline,
-                                    size = ButtonSize.Sm,
-                                    modifier = Modifier.testTag("marketing:editor-service-$kind"),
-                                )
-                            }
-                        }
-                        if (form.serviceTypes.isEmpty()) {
-                            Text(text = words.anyService, style = tokens.footnote, color = tokens.muted)
-                        }
-                    }
+@Composable
+private fun AppliesPanel(form: EditorForm, words: MarketingWords, names: Map<String, String>, pick: (Picking) -> Unit) {
+    Panel(title = words.appliesTo, description = if (form.dishes.isEmpty() && form.groups.isEmpty()) words.wholeBasketHint else words.chosen) {
+        ChooserField(words.menuGroups, chosenNames(form.groups, names, words), words.choose, "marketing:editor-groups", { pick(Picking.GROUPS) })
+        ChooserField(words.dishes, chosenNames(form.dishes, names, words), words.choose, "marketing:editor-dishes", { pick(Picking.DISHES) })
+    }
+}
+
+/** The names of the chosen ids, as far as they are known; the rest as one «+N». */
+private fun chosenNames(ids: Set<String>, names: Map<String, String>, words: MarketingWords): List<String> {
+    val known = ids.mapNotNull { names[it] }
+    val unknown = ids.size - known.size
+    return if (unknown > 0) known + words.more(unknown) else known
+}
+
+@Composable
+private fun ConditionsPanel(form: EditorForm, words: MarketingWords, currency: String?, edit: Edit) {
+    val sign = currencySign(currency)
+    Panel(title = words.conditionsOnly) {
+        Field(words.minBasket, description = words.basketHint, modifier = Modifier.widthIn(max = 320.dp)) {
+            Input(
+                value = form.minBasketTotal,
+                onValueChange = { edit(form.copy(minBasketTotal = digits(it))) },
+                placeholder = "0",
+                label = words.minBasket + ", " + sign,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                trailing = { UnitSign(sign) },
+                modifier = Modifier.testTag("marketing:editor-min-basket"),
+            )
+        }
+        ChipField(words.serviceTypes, if (form.serviceTypes.isEmpty()) words.anyService else null) {
+            for (kind in listOf("delivery", "pickup", "dine-in")) {
+                Chip(
+                    words.serviceType(kind),
+                    selected = kind in form.serviceTypes,
+                    onClick = { edit(form.copy(serviceTypes = form.serviceTypes.toggle(kind))) },
+                    modifier = Modifier.testTag("marketing:editor-service-$kind"),
+                )
+            }
+        }
+        ChipField(words.weekDays, if (form.days.isEmpty()) words.everyDay else null) {
+            for ((day, title) in words.days) {
+                Chip(
+                    title,
+                    selected = day in form.days,
+                    onClick = { edit(form.copy(days = form.days.toggle(day))) },
+                    modifier = Modifier.testTag("marketing:editor-day-$day"),
+                )
+            }
+        }
+        if (form.days.isNotEmpty()) {
+            Grid(2, gap = 12.dp) {
+                Field(words.from) {
+                    Select(form.start, hourOptions(form.start), { edit(form.copy(start = it)) }, title = words.fromHour, modifier = Modifier.testTag("marketing:editor-start"))
                 }
-
-                Group(title = words.behaviour) {
-                    SwitchItem(
-                        title = words.works,
-                        checked = form.enable,
-                        onCheckedChange = { form = form.copy(enable = it, onlyByCode = if (it) form.onlyByCode else false) },
-                        modifier = Modifier.testTag("marketing:editor-enable"),
-                    )
-                    Text(text = words.worksHint, style = tokens.footnote, color = tokens.muted, modifier = Modifier.padding(horizontal = 16.dp))
-                    ItemSeparator()
-                    SwitchItem(
-                        title = words.onlyByCode,
-                        checked = form.onlyByCode,
-                        onCheckedChange = { form = form.copy(onlyByCode = it) },
-                        enabled = form.enable,
-                        modifier = Modifier.testTag("marketing:editor-only-by-code"),
-                    )
-                    Text(text = words.onlyByCodeHint, style = tokens.footnote, color = tokens.muted, modifier = Modifier.padding(horizontal = 16.dp))
-                    ItemSeparator()
-                    SwitchItem(
-                        title = words.joint,
-                        checked = form.joint,
-                        onCheckedChange = { form = form.copy(joint = it) },
-                        modifier = Modifier.testTag("marketing:editor-joint"),
-                    )
-                    ItemSeparator()
-                    SwitchItem(
-                        title = words.onStorefront,
-                        checked = form.onStorefront,
-                        onCheckedChange = { form = form.copy(onStorefront = it) },
-                        modifier = Modifier.testTag("marketing:editor-storefront"),
-                    )
-                    ItemSeparator()
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Field(label = words.priority) {
-                            Input(
-                                value = form.sortOrder,
-                                onValueChange = { form = form.copy(sortOrder = it.filter { char -> char.isDigit() || char == '-' }.take(5)) },
-                                label = words.priority,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.testTag("marketing:editor-sort-order"),
-                            )
-                        }
-                        Text(text = words.priorityHint, style = tokens.footnote, color = tokens.muted)
-                    }
+                Field(words.till) {
+                    Select(form.stop, hourOptions(form.stop), { edit(form.copy(stop = it)) }, title = words.tillHour, modifier = Modifier.testTag("marketing:editor-stop"))
                 }
+            }
+        }
+    }
+}
 
-                Group(title = words.schedule, hint = if (form.days.isEmpty()) words.aroundTheClock else null) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            for ((day, title) in words.days) {
-                                Button(
-                                    text = title,
-                                    onClick = { form = form.copy(days = if (day in form.days) form.days - day else form.days + day) },
-                                    variant = if (day in form.days) ButtonVariant.Default else ButtonVariant.Outline,
-                                    size = ButtonSize.Sm,
-                                    modifier = Modifier.testTag("marketing:editor-day-$day"),
-                                )
-                            }
-                        }
-                        if (form.days.isNotEmpty()) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Box(Modifier.weight(1f)) {
-                                    Field(label = words.from) {
-                                        Input(
-                                            value = form.start,
-                                            onValueChange = { form = form.copy(start = it.take(5)) },
-                                            label = words.from,
-                                            modifier = Modifier.testTag("marketing:editor-start"),
-                                        )
-                                    }
-                                }
-                                Box(Modifier.weight(1f)) {
-                                    Field(label = words.till) {
-                                        Input(
-                                            value = form.stop,
-                                            onValueChange = { form = form.copy(stop = it.take(5)) },
-                                            label = words.till,
-                                            modifier = Modifier.testTag("marketing:editor-stop"),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+/** Every half hour of a day, and the value already set when it is between them. */
+private fun hourOptions(current: String): List<SelectOption> {
+    val halves = (0..48).map { i -> (i / 2).toString().padStart(2, '0') + if (i % 2 == 0) ":00" else ":30" }.dropLast(1) + "23:59"
+    return (if (current in halves || current.isBlank()) halves else (halves + current).sorted()).map { SelectOption(it, it) }
+}
 
-                Group(title = words.total) {
+@Composable
+private fun BehaviourPanel(form: EditorForm, words: MarketingWords, edit: Edit) {
+    Panel(title = words.behaviour) {
+        SwitchBlock {
+            SwitchItem(
+                title = words.joint,
+                checked = form.joint,
+                onCheckedChange = { edit(form.copy(joint = it)) },
+                modifier = Modifier.testTag("marketing:editor-joint"),
+            )
+            Separator()
+            SwitchItem(
+                title = words.onStorefront,
+                checked = form.onStorefront,
+                onCheckedChange = { edit(form.copy(onStorefront = it)) },
+                modifier = Modifier.testTag("marketing:editor-storefront"),
+            )
+        }
+        Field(words.priority, description = words.priorityHint, modifier = Modifier.widthIn(max = 240.dp)) {
+            Input(
+                value = form.sortOrder,
+                onValueChange = { edit(form.copy(sortOrder = it.filter { char -> char.isDigit() || char == '-' }.take(5))) },
+                label = words.priority,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.testTag("marketing:editor-sort-order"),
+            )
+        }
+    }
+}
+
+/** How the promotion reads to a guest and to a cashier, as the form changes. */
+@Composable
+private fun PromotionPreview(form: EditorForm, words: MarketingWords, scope: NativeActionScope) {
+    val brand = Kit.palette.brand
+    val onBrand = Kit.palette.onBrand
+    val amount = amountOf(form.amount)
+    val schedule = buildList {
+        if (form.days.isEmpty()) {
+            add(words.aroundTheClock)
+        } else {
+            add(words.days.filter { it.first in form.days }.joinToString(", ") { it.second } + " · " + form.start + "–" + form.stop)
+        }
+        if (form.serviceTypes.isNotEmpty()) add(form.serviceTypes.joinToString(", ") { words.serviceType(it).lowercase() })
+        if (form.onlyByCode) add(words.byCode)
+        if (!form.enable) add(words.off)
+    }.joinToString(" · ")
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.testTag("marketing:editor-preview")) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Brush.linearGradient(listOf(lerp(brand, Color.White, 0.06f), lerp(brand, Color.Black, 0.3f))))
+                .padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(words.guestSees, style = Kit.textStyles.overline, color = onBrand.copy(alpha = 0.72f))
+            Text(form.name.ifBlank { words.editor }, style = Kit.typography.large, color = onBrand)
+            Text(
+                summaryOf(form, words, scope),
+                style = Kit.typography.h3,
+                color = onBrand,
+                modifier = Modifier.testTag("marketing:editor-summary"),
+            )
+            Text(schedule, style = Kit.typography.muted, color = onBrand.copy(alpha = 0.82f))
+        }
+        Panel(title = words.atTill, gap = 10.dp) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                IconTile(
+                    when {
+                        form.giftDish != null && amount <= 0 -> Lucide.Gift
+                        form.percentage -> Lucide.Percent
+                        else -> Lucide.Banknote
+                    },
+                    Tone.Success,
+                    32.dp,
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(form.name.ifBlank { words.editor }, style = Kit.textStyles.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
-                        text = summaryOf(form, words, scope),
-                        style = tokens.body.copy(fontWeight = FontWeight.SemiBold),
-                        color = tokens.foreground,
-                        modifier = Modifier.padding(16.dp).testTag("marketing:editor-summary"),
+                        if (form.onlyByCode) words.appliesByCode else words.appliesByItself,
+                        style = Kit.textStyles.caption,
+                        color = Kit.colors.mutedForeground,
                     )
                 }
-                Spacer(Modifier.height(24.dp))
+                if (amount > 0) {
+                    Text(
+                        if (form.percentage) words.percentOff(trimNumber(amount)) else "−" + money(amount, scope.facts?.currency),
+                        style = Kit.textStyles.number.copy(fontWeight = FontWeight.SemiBold),
+                        color = Tone.Success.textColor(),
+                    )
+                }
             }
         }
     }
@@ -515,9 +734,31 @@ internal fun summaryOf(form: EditorForm, words: MarketingWords, scope: NativeAct
     return parts.joinToString(", ").ifEmpty { words.nothing }
 }
 
+/** One answer of `marketing.catalog`, or null when it did not come — the picker says why itself. */
+private suspend fun catalogOf(scope: NativeActionScope, params: JsonObject): CatalogPage? = try {
+    pageOf(scope.call("marketing.catalog", params) as? JsonObject ?: JsonObject(emptyMap()))
+} catch (refused: MobileApiException) {
+    null
+}
+
+private fun pageOf(answer: JsonObject): CatalogPage {
+    fun nodes(name: String) = (answer[name] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }.map { node ->
+        CatalogItem(
+            id = node.text("id"),
+            name = node.text("name"),
+            price = node.number("price"),
+            notForSale = node.flag("notForSale"),
+            promo = node.flag("promo"),
+            parentGroup = node.text("parentGroup").ifEmpty { null },
+        )
+    }
+    return CatalogPage(groups = nodes("groups"), items = nodes("items"), loading = false)
+}
+
 /**
- * The catalog of the menu, for choosing what the discount is for — and the gift, where only a product the guest
- * cannot add himself is allowed (core's own rule, `Promotion.validateGift`).
+ * The catalog of the menu in a dialog, for choosing what the discount is for — with ticks, applied on
+ * «Готово» — and the gift, where only a product the guest cannot add himself is allowed (core's own
+ * rule, `Promotion.validateGift`) and one tap chooses it.
  */
 @Composable
 private fun CatalogPicker(
@@ -525,129 +766,201 @@ private fun CatalogPicker(
     words: MarketingWords,
     picking: Picking,
     form: EditorForm,
+    onNames: (Map<String, String>) -> Unit,
     onChange: (EditorForm) -> Unit,
     onClose: () -> Unit,
 ) {
-    val tokens = AppTheme
     var query by remember { mutableStateOf("") }
-    var group by remember { mutableStateOf<String?>(null) }
-    var page by remember { mutableStateOf(CatalogPage(loading = true)) }
+    var top by remember { mutableStateOf(CatalogPage(loading = true)) }
+    var found by remember { mutableStateOf(CatalogPage()) }
     var failure by remember { mutableStateOf<String?>(null) }
+    var picked by remember { mutableStateOf(if (picking == Picking.GROUPS) form.groups else form.dishes) }
+    val open = remember { mutableStateMapOf<String, CatalogPage>() }
+    val seen = remember { mutableStateMapOf<String, String>() }
+    val gift = picking == Picking.GIFT
 
-    LaunchedEffect(query, group) {
-        page = page.copy(loading = true)
-        try {
-            val answer = scope.call(
-                "marketing.catalog",
-                buildJsonObject {
-                    if (query.isNotBlank()) put("q", query.trim())
-                    group?.let { put("group", it) }
-                },
-            ) as? JsonObject ?: JsonObject(emptyMap())
-            fun nodes(name: String) = (answer[name] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }.map { node ->
-                CatalogItem(
-                    id = node.text("id"),
-                    name = node.text("name"),
-                    price = node.number("price"),
-                    notForSale = node.flag("notForSale"),
-                    promo = node.flag("promo"),
-                )
-            }
-            page = CatalogPage(groups = nodes("groups"), items = nodes("items"), loading = false)
+    suspend fun load(params: JsonObject): CatalogPage? = try {
+        pageOf(scope.call("marketing.catalog", params) as? JsonObject ?: JsonObject(emptyMap())).also { page ->
             failure = null
-        } catch (refused: MobileApiException) {
-            page = page.copy(loading = false)
-            failure = refused.message
+            (page.groups + page.items).forEach { seen[it.id] = it.name }
         }
+    } catch (refused: MobileApiException) {
+        failure = refused.message
+        null
+    }
+
+    LaunchedEffect(Unit) { top = load(buildJsonObject {}) ?: CatalogPage() }
+    LaunchedEffect(query) {
+        if (query.isNotBlank()) {
+            found = found.copy(loading = true)
+            found = load(buildJsonObject { put("q", query.trim()) }) ?: CatalogPage()
+        }
+    }
+
+    fun finish(apply: () -> Unit) {
+        onNames(seen.toMap())
+        apply()
+        onClose()
     }
 
     val title = when (picking) {
         Picking.DISHES -> words.dishes
-        Picking.GROUPS -> words.groups
+        Picking.GROUPS -> words.menuGroups
         Picking.GIFT -> words.gift
     }
-
-    val up: () -> Unit = { if (group != null) group = null else onClose() }
-    SystemBackHandler(enabled = true, onBack = up)
-    ScreenSteps(if (group != null) 2 else 1)
-    CatalogShell(
-        back = words.back,
-        onBack = up,
+    Dialog(
+        onDismiss = onClose,
         title = title,
-        query = query,
-        searchHint = words.searchProduct,
-        onQuery = { query = it },
-        tag = "marketing:picker",
-    ) {
-        failure?.let { Notice(it, "danger", null, null, "marketing:picker-error") }
-        when {
-            page.loading && page.items.isEmpty() && page.groups.isEmpty() ->
-                Text(words.loading, style = tokens.label, color = tokens.muted, modifier = Modifier.padding(20.dp).testTag("marketing:picker-loading"))
-            page.items.isEmpty() && page.groups.isEmpty() -> EmptyState(words.nothingFound, null, null, null, "marketing:picker-empty")
-        }
-
-        for (node in page.groups) {
-            if (picking == Picking.GROUPS) {
-                // A group itself is what is chosen here: a row with a tick, not a door.
-                PickerRow(
-                    title = node.name,
-                    subtitle = null,
-                    chosen = node.id in form.groups,
-                    tag = "marketing:picker-group-${node.id}",
-                    onClick = {
-                        onChange(form.copy(groups = if (node.id in form.groups) form.groups - node.id else form.groups + node.id))
-                    },
-                )
+        description = if (gift) words.giftHint else words.chosenCount(picked.size),
+        closeLabel = words.close,
+        width = 520.dp,
+        footer = {
+            if (gift) {
+                Button(words.cancel, onClose, Modifier.fillMaxWidth().testTag("marketing:picker-cancel"), variant = ButtonVariant.Outline)
             } else {
-                GroupTile(node.name, { group = node.id }, "marketing:picker-open-${node.id}")
+                Box(Modifier.testTag("marketing:picker-done-row")) {
+                    DialogActions(
+                        confirm = words.done,
+                        onConfirm = {
+                            finish {
+                                onChange(if (picking == Picking.GROUPS) form.copy(groups = picked) else form.copy(dishes = picked))
+                            }
+                        },
+                        cancel = words.cancel,
+                        onCancel = onClose,
+                    )
+                }
             }
-        }
+        },
+    ) {
+        Column(Modifier.fillMaxWidth().testTag("marketing:picker"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (picking != Picking.GROUPS) {
+                Input(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = words.searchProduct,
+                    leadingIcon = Lucide.Search,
+                    modifier = Modifier.testTag("marketing:picker-search"),
+                )
+            }
+            failure?.let { Notice(Tone.Danger, Lucide.TriangleAlert, words.serverRefused, it, Modifier.testTag("marketing:picker-error")) }
 
-        if (picking != Picking.GROUPS) {
-            for (item in page.items) {
-                val gift = picking == Picking.GIFT
+            @Composable
+            fun itemRow(item: CatalogItem, indent: Boolean) {
                 // core refuses a gift that is for sale, and so does this screen: the rule is one.
                 val allowed = !gift || item.notForSale || item.promo
+                val chosen = if (gift) form.giftDish == item.id else item.id in picked
                 PickerRow(
                     title = item.name,
-                    subtitle = money(item.price, scope.facts?.currency) + if (gift && !allowed) " · " + words.giftDish else "",
-                    chosen = if (gift) form.giftDish == item.id else item.id in form.dishes,
+                    subtitle = money(item.price, scope.facts?.currency) + if (gift && !allowed) " · " + words.notGiftable else "",
+                    leading = { Checkbox(chosen, null, enabled = allowed) },
+                    indent = indent,
                     enabled = allowed,
                     tag = "marketing:picker-dish-${item.id}",
                     onClick = {
                         if (gift) {
-                            onChange(form.copy(giftDish = if (form.giftDish == item.id) null else item.id))
-                            onClose()
+                            finish { onChange(form.copy(giftDish = if (form.giftDish == item.id) null else item.id)) }
                         } else {
-                            onChange(form.copy(dishes = if (item.id in form.dishes) form.dishes - item.id else form.dishes + item.id))
+                            picked = picked.toggle(item.id)
                         }
                     },
                 )
             }
+
+            if (query.isNotBlank() && picking != Picking.GROUPS) {
+                when {
+                    found.loading -> PickerSkeleton()
+                    found.items.isEmpty() -> Text(words.nothingFound, variant = TextVariant.Muted, modifier = Modifier.padding(8.dp).testTag("marketing:picker-empty"))
+                    else -> found.items.forEach { itemRow(it, indent = false) }
+                }
+                return@Column
+            }
+            if (top.loading) {
+                PickerSkeleton()
+                return@Column
+            }
+            val groupIds = top.groups.map { it.id }.toSet()
+            val roots = top.groups.filter { it.parentGroup == null || it.parentGroup !in groupIds }
+            if (roots.isEmpty() && top.items.isEmpty()) {
+                Text(words.nothingFound, variant = TextVariant.Muted, modifier = Modifier.padding(8.dp).testTag("marketing:picker-empty"))
+            }
+            for (group in roots) {
+                if (picking == Picking.GROUPS) {
+                    // A group itself is what is chosen here: a row with a tick, not a door.
+                    PickerRow(
+                        title = group.name,
+                        subtitle = null,
+                        leading = { Checkbox(group.id in picked, null) },
+                        tag = "marketing:picker-group-${group.id}",
+                        onClick = { picked = picked.toggle(group.id) },
+                    )
+                } else {
+                    val page = open[group.id]
+                    val ticked = page?.items?.count { it.id in picked } ?: 0
+                    PickerRow(
+                        title = group.name,
+                        subtitle = null,
+                        leading = {
+                            Icon(if (page != null) Lucide.ChevronDown else Lucide.ChevronRight, null, size = 16.dp, tint = Kit.colors.mutedForeground)
+                        },
+                        trailing = if (ticked > 0) {
+                            { Pill(ticked.toString(), Tone.Brand) }
+                        } else {
+                            null
+                        },
+                        tag = "marketing:picker-open-${group.id}",
+                        onClick = { if (page != null) open.remove(group.id) else open[group.id] = CatalogPage(loading = true) },
+                    )
+                    if (page != null) {
+                        LaunchedEffect(group.id) {
+                            if (page.loading) open[group.id] = load(buildJsonObject { put("group", group.id) }) ?: CatalogPage()
+                        }
+                        if (page.loading) PickerSkeleton() else page.items.forEach { itemRow(it, indent = true) }
+                    }
+                }
+            }
+            if (picking != Picking.GROUPS) {
+                top.items.filter { it.parentGroup == null || it.parentGroup !in groupIds }.forEach { itemRow(it, indent = false) }
+            }
         }
-        Spacer(Modifier.height(24.dp))
     }
 }
 
-/** A row of the picker: what it is, and whether it is ticked. */
+/** A row of the picker: a tick or a chevron, what it is, and its price. */
 @Composable
 private fun PickerRow(
     title: String,
     subtitle: String?,
-    chosen: Boolean,
+    leading: @Composable () -> Unit,
     tag: String,
+    indent: Boolean = false,
     enabled: Boolean = true,
+    trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    ListRow(
-        title = title,
-        subtitle = subtitle,
-        meta = null,
-        value = if (chosen) "✓" else null,
-        valueTone = if (chosen) "success" else null,
-        badge = null,
-        badgeTone = null,
-        tag = tag,
-        onClick = if (enabled) onClick else null,
-    )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 44.dp)
+            .clip(Kit.shapes.md)
+            .kitClickable(Kit.shapes.md, enabled = enabled, onClick = onClick)
+            .padding(start = if (indent) 36.dp else 8.dp, end = 8.dp, top = 6.dp, bottom = 6.dp)
+            .testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        leading()
+        Column(Modifier.weight(1f)) {
+            Text(title, style = Kit.textStyles.label, color = if (enabled) Kit.colors.foreground else Kit.colors.mutedForeground)
+            if (subtitle != null) Text(subtitle, style = Kit.textStyles.caption, color = Kit.colors.mutedForeground)
+        }
+        trailing?.invoke()
+    }
+}
+
+@Composable
+private fun PickerSkeleton() {
+    Column(Modifier.testTag("marketing:picker-loading"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        repeat(3) { Skeleton(Modifier.fillMaxWidth().height(36.dp)) }
+    }
 }

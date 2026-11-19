@@ -6,6 +6,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -74,7 +80,7 @@ class MarketingScreenTest {
     @Test
     fun theSummaryIsTheHomeScreenWithItsNumbersAndItsLinks() = marketing {
         assertShown("marketing:detail")
-        node("marketing:title").assertTextEquals("Маркетинг")
+        node("marketing:title").assert(hasAnyDescendant(hasText("Маркетинг")))
         node("marketing:field-codesTotal:value").assertTextEquals("4")
         node("marketing:field-promotionsByCodeOnly:value").assertTextEquals("1")
         // The links the server built, in its order; the bottom frame has no «Назад».
@@ -115,20 +121,23 @@ class MarketingScreenTest {
         tap("marketing:back")
         idle()
         assertShown("marketing:detail")
-        node("marketing:title").assertTextEquals("Маркетинг")
+        node("marketing:title").assert(hasAnyDescendant(hasText("Маркетинг")))
         assertNull(screen.chrome.value.title)
     }
 
     @Test
     fun theChipsOfTheSummaryAskTheServerForAnotherPeriod() = marketing {
-        node("marketing:field-applications:value").assertTextEquals("3")
+        // The number is a tile of the summary (P7) now, and the card does not repeat it.
+        fun applications(text: String) = ui.onNode(hasText(text) and hasAnyAncestor(hasTestTag("marketing:summary-applications"))).assertExists()
+        assertAbsent("marketing:field-applications")
+        applications("3")
         tap("marketing:chip-7")
         idle()
         // Only what was typed within the week is counted then.
-        node("marketing:field-applications:value").assertTextEquals("2")
+        applications("2")
         tap("marketing:chip-90")
         idle()
-        node("marketing:field-applications:value").assertTextEquals("4")
+        applications("4")
         // The chip travels with the frame: its snapshot brings the same period back.
         assertEquals("90", screen.currentChip())
     }
@@ -332,7 +341,8 @@ class MarketingScreenTest {
             tap("marketing:link-url-0")
             idle()
             assertTrue(runtime.navigation.urls.isEmpty())
-            assertShown("marketing:notice")
+            // Over the summary, above the line that was tapped.
+            ui.onNodeWithTag("marketing:notice").assertExists()
             ui.onNodeWithText("Не удалось открыть ссылку").assertExists()
         }
 
@@ -342,7 +352,8 @@ class MarketingScreenTest {
             tap("marketing:link-url-0")
             idle()
             assertTrue(runtime.navigation.urls.isEmpty())
-            assertShown("marketing:notice")
+            // Over the summary, above the line that was tapped.
+            ui.onNodeWithTag("marketing:notice").assertExists()
         }
 
     @Test
@@ -363,7 +374,7 @@ class MarketingScreenTest {
             runtime.navigation.unknown += cx.m42.superizer.app.AppId("system")
             tap("marketing:link-system.catalog")
             idle()
-            assertShown("marketing:notice")
+            ui.onNodeWithTag("marketing:notice").assertExists()
             ui.onNodeWithText("Этот переход сейчас недоступен").assertExists()
         }
 

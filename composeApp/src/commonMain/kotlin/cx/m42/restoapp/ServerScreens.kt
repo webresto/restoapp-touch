@@ -71,6 +71,13 @@ import com.composables.icons.lucide.FlaskConical
 import com.composables.icons.lucide.Server
 import com.composables.icons.lucide.CircleCheck
 import cx.m42.superizer.kit.Field
+import cx.m42.superizer.kit.Alert
+import cx.m42.superizer.kit.AlertVariant
+import cx.m42.superizer.kit.FactRow
+import cx.m42.superizer.kit.Panel
+import cx.m42.superizer.kit.Spinner
+import cx.m42.superizer.kit.StepIndicator
+import cx.m42.superizer.kit.Tone
 import cx.m42.superizer.kit.TextVariant
 import cx.m42.superizer.kit.Text as KitText
 import cx.m42.restoapp.render.LeadingIcon
@@ -95,8 +102,11 @@ private fun Superizer.lang(): String {
 internal class AddServerScreen(private val host: RestoAppHost, private val cloudAccount: Boolean) : HostScreen {
     override val id: String = if (cloudAccount) "add-cloud" else "add-server"
 
+    // The flow lays out its own column, with the brand beside it on a desktop.
+    override val wide: Boolean get() = true
+
     override fun title(langTag: String): String =
-        if (cloudAccount) HostWords(langTag).connectCloud else "Подключить сервер".ru(langTag, "Connect a server")
+        if (cloudAccount) HostWords(langTag).connectCloud else HostWords(langTag).addTitle
 
     @Composable
     override fun Content(superizer: Superizer, back: () -> Unit, open: (HostScreen) -> Unit) {
@@ -118,210 +128,216 @@ internal class AddServerScreen(private val host: RestoAppHost, private val cloud
         var working by remember { mutableStateOf<String?>(null) }
         var problem by remember { mutableStateOf<String?>(null) }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(tokens.pageBackground)
-                .verticalScroll(rememberScrollState())
-                .padding(vertical = 12.dp),
-        ) {
-            fun openCloud() {
-                if (working != null) return
-                cloud = true
-                custom = false
-                address = host.cloudAddress
-                found = null
-                problem = null
-                working = words.checking
-                scope.launch {
-                    try {
-                        val result = host.check(address)
-                        found = result
-                        name = result.second.name
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: Exception) {
-                        problem = words.failure(failure)
-                    } finally {
-                        working = null
-                    }
+        fun check() {
+            working = words.checking
+            problem = null
+            scope.launch {
+                try {
+                    val result = host.check(address)
+                    found = result
+                    name = result.second.name
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    problem = words.failure(failure)
+                } finally {
+                    working = null
                 }
             }
-            // «Подключить облачный аккаунт» goes straight to the cloud's sign-in.
-            if (cloudAccount) LaunchedEffect(Unit) { openCloud() }
+        }
 
-            if (cloudAccount) {
-                Option(title = words.cloud, body = words.cloudHint, icon = Lucide.Cloud, tag = "servers:add-cloud", selected = true, onClick = { if (found == null) openCloud() })
-            } else {
-                Option(title = words.demoServer, body = words.demoServerHint, icon = Lucide.FlaskConical, tag = "servers:add-demo", onClick = { host.addDemo() })
-            }
-            if (!cloudAccount) Option(
-                title = words.ownServer,
-                body = words.ownServerHint,
-                icon = Lucide.Server,
-                tag = "servers:add-custom",
-                selected = custom,
-                onClick = {
-                    if (cloud) {
-                        address = ""
-                        found = null
-                        problem = null
+        fun openCloud() {
+            if (working != null) return
+            cloud = true
+            custom = false
+            address = host.cloudAddress
+            found = null
+            problem = null
+            check()
+        }
+        // «Подключить облачный аккаунт» goes straight to the cloud's sign-in.
+        if (cloudAccount) LaunchedEffect(Unit) { openCloud() }
+
+        fun signIn() {
+            val base = found?.first ?: return
+            working = words.signingIn
+            problem = null
+            scope.launch {
+                try {
+                    val about = found?.second?.name
+                    // A second account at the same address (or the cloud, where an account is
+                    // the whole point): the login goes into the name, so the switcher tells them apart.
+                    val shown = if ((cloud || found?.second?.cloud == true || host.hasServerAt(base)) && (name.isBlank() || name.trim() == about)) {
+                        "${about ?: hostOf(base)} · ${login.trim()}"
+                    } else {
+                        name
                     }
-                    custom = true
-                    cloud = false
-                },
-            )
-
-            if (cloud && found == null) {
-                Text(
-                    text = working ?: words.cloudHint,
-                    style = tokens.label,
-                    color = tokens.muted,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp).testTag("servers:cloud-status"),
-                )
+                    val isCloud = cloud || found?.second?.cloud == true
+                    host.addServer(base, shown, login, password, cloud = isCloud) { fraction -> working = words.progress(fraction) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    problem = words.failure(failure)
+                } finally {
+                    working = null
+                }
             }
+        }
 
-            if (custom || (cloud && found != null)) {
-                Spacer(Modifier.height(12.dp))
-                if (custom) Group(title = words.address) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Input(
-                            value = address,
-                            onValueChange = {
-                                address = it
-                                found = null
-                                problem = null
-                            },
-                            placeholder = "https://admin.restoran.ru",
-                            label = words.address,
-                            modifier = Modifier.fillMaxWidth().testTag("servers:address"),
+        fun register() {
+            val base = found?.first ?: return
+            val about = found?.second?.name ?: hostOf(base)
+            working = words.signingUp
+            problem = null
+            scope.launch {
+                try {
+                    host.registerServer(base, "$about · ${login.trim()}", login, fullName, email, password) { fraction -> working = words.progress(fraction) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    problem = words.failure(failure)
+                } finally {
+                    working = null
+                }
+            }
+        }
+
+        @Composable
+        fun signInForm() {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Field(label = words.login) { Input(value = login, onValueChange = { login = it }, label = words.login, modifier = Modifier.fillMaxWidth().testTag("servers:login")) }
+                PasswordField(password, { password = it }, words.password, "servers:password")
+                Field(label = words.name) { Input(value = name, onValueChange = { name = it }, label = words.name, modifier = Modifier.fillMaxWidth().testTag("servers:name")) }
+            }
+            problem?.let { AuthProblem(it) }
+            Button(
+                text = working ?: words.signIn,
+                onClick = ::signIn,
+                enabled = working == null && login.isNotBlank() && password.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth().testTag("servers:connect"),
+                size = ButtonSize.Lg,
+            )
+        }
+
+        AuthFrame(words, "servers:flow") {
+            when {
+                cloudAccount -> {
+                    AuthHeading(if (signUp) words.signUpTitle else words.cloudTitle, if (signUp) words.signUpHint else words.cloudSignIn)
+                    AuthOption(AuthIcons.cloud, Tone.Brand, words.cloud, words.cloudHint, "servers:add-cloud", selected = true) { if (found == null) openCloud() }
+                    if (found == null) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (working != null) Spinner(size = 14.dp, color = Kit.colors.mutedForeground)
+                            KitText(working ?: words.cloudHint, Modifier.testTag("servers:cloud-status"), variant = TextVariant.Muted)
+                        }
+                        problem?.let { AuthProblem(it) }
+                    } else if (signUp) {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Field(label = words.login) { Input(value = login, onValueChange = { login = it }, label = words.login, modifier = Modifier.fillMaxWidth().testTag("servers:signup-login")) }
+                            Field(label = words.fullName) { Input(value = fullName, onValueChange = { fullName = it }, label = words.fullName, modifier = Modifier.fillMaxWidth().testTag("servers:signup-name")) }
+                            Field(label = words.email) {
+                                Input(
+                                    value = email, onValueChange = { email = it }, label = words.email,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                    modifier = Modifier.fillMaxWidth().testTag("servers:signup-email"),
+                                )
+                            }
+                            PasswordField(password, { password = it }, words.passwordRule, "servers:signup-password")
+                        }
+                        problem?.let { AuthProblem(it) }
+                        Button(
+                            text = working ?: words.signUpButton,
+                            onClick = ::register,
+                            enabled = working == null && login.isNotBlank() && fullName.isNotBlank() && password.length >= 8,
+                            modifier = Modifier.fillMaxWidth().testTag("servers:signup"),
+                            size = ButtonSize.Lg,
                         )
-                        found?.let { (_, about) ->
-                            Text(
-                                text = words.server(about.name, about.version),
-                                style = tokens.label,
-                                color = tokens.muted,
-                                modifier = Modifier.testTag("servers:found"),
+                        Button(
+                            text = words.haveAccount,
+                            onClick = { signUp = false; problem = null },
+                            variant = ButtonVariant.Ghost,
+                            modifier = Modifier.fillMaxWidth().testTag("servers:to-signin"),
+                        )
+                    } else {
+                        signInForm()
+                        if (found?.second?.registration == true) {
+                            Button(
+                                text = words.noAccount,
+                                onClick = { signUp = true; problem = null },
+                                variant = ButtonVariant.Ghost,
+                                modifier = Modifier.fillMaxWidth().testTag("servers:to-signup"),
                             )
                         }
                     }
                 }
-                if (found == null) {
-                    if (custom) Button(
-                        text = if (working != null) words.checking else words.next,
-                        onClick = {
-                            working = words.checking
-                            problem = null
-                            scope.launch {
-                                try {
-                                    val result = host.check(address)
-                                    found = result
-                                    name = result.second.name
-                                } catch (cancelled: CancellationException) {
-                                    throw cancelled
-                                } catch (failure: Exception) {
-                                    problem = words.failure(failure)
-                                } finally {
-                                    working = null
-                                }
-                            }
-                        },
-                        enabled = working == null && address.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("servers:check"),
-                        size = ButtonSize.Lg,
-                    )
-                } else if (cloud && signUp) {
-                    Group(title = words.signUp, hint = words.signUpHint) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Field(label = words.login) { Input(value = login, onValueChange = { login = it }, label = words.login, modifier = Modifier.testTag("servers:signup-login")) }
-                            Field(label = words.fullName) { Input(value = fullName, onValueChange = { fullName = it }, label = words.fullName, modifier = Modifier.testTag("servers:signup-name")) }
-                            Field(label = words.email) { Input(value = email, onValueChange = { email = it }, label = words.email, modifier = Modifier.testTag("servers:signup-email")) }
-                            PasswordField(password, { password = it }, words.passwordRule, "servers:signup-password")
+                !custom -> {
+                    // The bar already says «Подключить сервер»: the step needs only what it is about.
+                    AuthHeading(null, words.addLead)
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AuthOption(AuthIcons.server, Tone.Brand, words.ownServer, words.ownServerHint, "servers:add-custom") {
+                            custom = true
+                            cloud = false
                         }
+                        AuthOption(AuthIcons.demo, Tone.Neutral, words.demoServer, words.demoServerHint, "servers:add-demo") { host.addDemo() }
                     }
-                    Button(
-                        text = working ?: words.signUpButton,
-                        onClick = {
-                            val base = found?.first ?: return@Button
-                            val about = found?.second?.name ?: hostOf(base)
-                            working = words.signingUp
-                            problem = null
-                            scope.launch {
-                                try {
-                                    host.registerServer(base, "$about · ${login.trim()}", login, fullName, email, password) { fraction -> working = words.progress(fraction) }
-                                } catch (cancelled: CancellationException) {
-                                    throw cancelled
-                                } catch (failure: Exception) {
-                                    problem = words.failure(failure)
-                                } finally {
-                                    working = null
-                                }
-                            }
-                        },
-                        enabled = working == null && login.isNotBlank() && fullName.isNotBlank() && password.length >= 8,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("servers:signup"),
-                        size = ButtonSize.Lg,
-                    )
-                    Button(
-                        text = words.haveAccount,
-                        onClick = { signUp = false; problem = null },
-                        variant = ButtonVariant.Ghost,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("servers:to-signin"),
-                        size = ButtonSize.Lg,
-                    )
-                } else {
-                    Group(title = words.signIn, hint = if (cloud) words.cloudSignIn else null) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Field(label = words.login) { Input(value = login, onValueChange = { login = it }, label = words.login, modifier = Modifier.testTag("servers:login")) }
-                            PasswordField(password, { password = it }, words.password, "servers:password")
-                            Field(label = words.name) { Input(value = name, onValueChange = { name = it }, label = words.name, modifier = Modifier.testTag("servers:name")) }
+                }
+                else -> {
+                    StepIndicator(listOf(words.stepAddress, words.stepSignIn), if (found == null) 0 else 1)
+                    val seen = found
+                    if (seen == null) {
+                        AuthHeading(words.addressTitle, words.addressLead)
+                        Field(label = words.address) {
+                            Input(
+                                value = address,
+                                onValueChange = {
+                                    address = it
+                                    found = null
+                                    problem = null
+                                },
+                                placeholder = "https://admin.restoran.ru",
+                                label = words.address,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+                                modifier = Modifier.fillMaxWidth().testTag("servers:address"),
+                            )
                         }
-                    }
-                    Button(
-                        text = working ?: words.signIn,
-                        onClick = {
-                            val base = found?.first ?: return@Button
-                            working = words.signingIn
-                            problem = null
-                            scope.launch {
-                                try {
-                                    val about = found?.second?.name
-                                    // A second account at the same address (or the cloud, where an account is
-                                    // the whole point): the login goes into the name, so the switcher tells them apart.
-                                    val shown = if ((cloud || found?.second?.cloud == true || host.hasServerAt(base)) && (name.isBlank() || name.trim() == about)) {
-                                        "${about ?: hostOf(base)} · ${login.trim()}"
-                                    } else {
-                                        name
-                                    }
-                                    val isCloud = cloud || found?.second?.cloud == true
-                                    host.addServer(base, shown, login, password, cloud = isCloud) { fraction -> working = words.progress(fraction) }
-                                } catch (cancelled: CancellationException) {
-                                    throw cancelled
-                                } catch (failure: Exception) {
-                                    problem = words.failure(failure)
-                                } finally {
-                                    working = null
-                                }
-                            }
-                        },
-                        enabled = working == null && login.isNotBlank() && password.isNotEmpty(),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("servers:connect"),
-                        size = ButtonSize.Lg,
-                    )
-                    if (cloud && found?.second?.registration == true) {
+                        problem?.let { AuthProblem(it) }
                         Button(
-                            text = words.noAccount,
-                            onClick = { signUp = true; problem = null },
-                            variant = ButtonVariant.Ghost,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("servers:to-signup"),
+                            text = working ?: words.checkServer,
+                            onClick = ::check,
+                            enabled = working == null && address.isNotBlank(),
+                            loading = working != null,
+                            modifier = Modifier.fillMaxWidth().testTag("servers:check"),
                             size = ButtonSize.Lg,
+                        )
+                    } else {
+                        val (base, about) = seen
+                        AuthHeading(words.signInTitle, words.signInLead)
+                        Panel(Modifier.fillMaxWidth().testTag("servers:found"), gap = 10.dp) {
+                            FactRow(words.name, about.name)
+                            about.version?.let { FactRow(words.version, it) }
+                            FactRow(words.address, hostOf(base), mono = true)
+                        }
+                        signInForm()
+                        Button(
+                            text = words.changeAddress,
+                            onClick = {
+                                found = null
+                                problem = null
+                            },
+                            variant = ButtonVariant.Ghost,
+                            enabled = working == null,
+                            modifier = Modifier.fillMaxWidth().testTag("servers:change-address"),
                         )
                     }
                 }
             }
-            problem?.let { Problem(it) }
         }
     }
+}
+
+/** What went wrong in a flow, in the column with the form rather than across the page. */
+@Composable
+private fun AuthProblem(text: String) {
+    Alert(text, Modifier.fillMaxWidth().testTag("servers:problem"), variant = AlertVariant.Destructive)
 }
 
 /** A password field: the keyboard neither suggests over it nor learns it, and it shows dots. */
@@ -334,7 +350,7 @@ internal fun PasswordField(value: String, onChange: (String) -> Unit, placeholde
             label = placeholder,
             password = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            modifier = Modifier.testTag(tag),
+            modifier = Modifier.fillMaxWidth().testTag(tag),
         )
     }
 }
@@ -354,6 +370,8 @@ internal class LoginScreen(private val host: RestoAppHost) : HostScreen {
 
     override val secure: Boolean = true
 
+    override val wide: Boolean get() = true
+
     override fun title(langTag: String): String = HostWords(langTag).signIn
 
     @Composable
@@ -369,15 +387,16 @@ internal class LoginScreen(private val host: RestoAppHost) : HostScreen {
         var working by remember { mutableStateOf<String?>(null) }
         var problem by remember { mutableStateOf<String?>(null) }
 
-        Column(
-            modifier = Modifier.fillMaxSize().background(tokens.pageBackground).verticalScroll(rememberScrollState()).padding(vertical = 12.dp),
-        ) {
-            Group(title = connection.profile.name, hint = hostOf(connection.profile.address)) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Field(label = words.login) { Input(value = login, onValueChange = { login = it }, label = words.login, modifier = Modifier.testTag("login:login")) }
-                    PasswordField(password, { password = it }, words.password, "login:password")
-                }
+        AuthFrame(words, "login:flow") {
+            AuthHeading(connection.profile.name, words.signInAgainLead)
+            Panel(Modifier.fillMaxWidth(), gap = 10.dp) {
+                FactRow(words.address, hostOf(connection.profile.address), mono = true)
             }
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Field(label = words.login) { Input(value = login, onValueChange = { login = it }, label = words.login, modifier = Modifier.fillMaxWidth().testTag("login:login")) }
+                PasswordField(password, { password = it }, words.password, "login:password")
+            }
+            problem?.let { AuthProblem(it) }
             Button(
                 text = working ?: words.signIn,
                 onClick = {
@@ -397,10 +416,9 @@ internal class LoginScreen(private val host: RestoAppHost) : HostScreen {
                     }
                 },
                 enabled = working == null && login.isNotBlank() && password.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("login:submit"),
+                modifier = Modifier.fillMaxWidth().testTag("login:submit"),
                 size = ButtonSize.Lg,
             )
-            problem?.let { Problem(it) }
         }
     }
 }

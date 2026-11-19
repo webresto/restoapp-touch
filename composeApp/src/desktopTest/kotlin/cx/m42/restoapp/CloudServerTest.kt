@@ -70,7 +70,8 @@ class CloudServerTest {
 
     private fun ComposeUiTest.shot(name: String) {
         waitForIdle()
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(out, "$name.png"))
+        // The whole scene: a dialog is a popup — a second root — and onRoot() refuses two.
+        ImageIO.write(((this as? androidx.compose.ui.test.SkikoComposeUiTest)?.captureToImage() ?: onRoot().captureToImage()).toAwtImage(), "png", File(out, "$name.png"))
     }
 
     /** waitUntil, and on a timeout a screenshot `failed-<name>` of what was on screen. */
@@ -95,8 +96,7 @@ class CloudServerTest {
 
     /** The switcher's sheet, opened and settled: it slides in, and a tap during the slide misses its row. */
     private fun ComposeUiTest.openSwitcher() {
-        openMenu()
-        onNodeWithTag("context:row").performClick()
+        openContexts()
         waitUntil(timeoutMillis = 5_000L) { exists("context:sheet") }
         mainClock.advanceTimeBy(1_000)
         waitForIdle()
@@ -124,25 +124,19 @@ class CloudServerTest {
         onNodeWithTag("context:list", useUnmergedTree = true).performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, dy) }
     }
 
-    private fun ComposeUiTest.openMenu() {
-        onNode(hasContentDescription("Открыть меню")).performClick()
-        waitForIdle()
-    }
+    /** The shell of the server in force is up, with the app [appId] among its apps — whatever «Главная» draws. */
+    private fun ComposeUiTest.ready(host: RestoAppHost, appId: String) =
+        host.active.value.superizer.registry.get(AppId(appId)) != null && exists("shell:nav-home")
 
-    /** An app of the server in force: «Главная» of the drawer, then its tile (a title alone may also be a heading). */
-    private fun ComposeUiTest.openApp(appId: String, tag: String) {
-        openMenu()
-        onAllNodesWithText("Главная").onFirst().performClick()
-        waitUntil(timeoutMillis = 10_000L) { exists("home:tile-$appId") }
-        onNodeWithTag("home:tile-$appId").performScrollTo().performClick()
+    /** An app of the server in force, by the navigation: the bottom bar, or «Ещё». */
+    private fun ComposeUiTest.enter(appId: String, tag: String) {
+        openApp(appId)
         waitUntil(timeoutMillis = 15_000L) { exists(tag) }
     }
 
     /** «Подключить сервер → Resto Cloud» and the account's login: the cloud becomes the server in force. */
     private fun ComposeUiTest.connectCloud(host: RestoAppHost, login: String, password: String) {
-        openMenu()
-        onNodeWithTag("context:row").performClick()
-        waitForIdle()
+        openContexts()
         // «Подключить облачный аккаунт» — the second "+" row: straight to the cloud's sign-in.
         onNodeWithTag("context:add-add-cloud").performClick()
         // server.about of the cloud, then the form of the account.
@@ -155,7 +149,7 @@ class CloudServerTest {
         waitUntil(timeoutMillis = 60_000L) {
             host.current.value?.title?.endsWith("· $login") == true && host.active.value.superizer.registry.get(AppId("services")) != null
         }
-        waitUntil(timeoutMillis = 15_000L) { exists("home:tile-services") }
+        waitUntil(timeoutMillis = 15_000L) { ready(host, "services") }
     }
 
     @Test
@@ -176,16 +170,16 @@ class CloudServerTest {
 
         val title = "Кафе из приложения ${System.currentTimeMillis() % 100000}"
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
             connectCloud(host, login, password)
             val cloudId = host.current.value!!.id
             assertEquals("Resto Cloud · $login", host.current.value!!.title)
-            onNodeWithTag("home:tile-account").assertExists()
+            assertApp("account")
             shot("02-home")
 
             // «Аккаунт»: the balance and the profile — the home record of the app.
-            onNodeWithTag("home:tile-account").performClick()
+            openApp("account")
             waitUntil(timeoutMillis = 15_000L) { exists("account:detail") }
             waitUntil(timeoutMillis = 15_000L) { hasText("Баланс, кредитов") }
             assertTrue(hasText(login), "the account card does not show the login")
@@ -195,7 +189,7 @@ class CloudServerTest {
             shot("04-transactions")
 
             // «Серверы»: a new one from the form of the list, then its card.
-            openApp("services", "services:list")
+            enter("services", "services:list")
             onNodeWithTag("services:add").performClick()
             waitUntil(timeoutMillis = 5_000L) { exists("services:form:title") }
             onNodeWithTag("services:form:title").performTextInput(title)
@@ -249,22 +243,21 @@ class CloudServerTest {
                 shot("12-second-account")
                 if (host.active.value.session.declaration.value?.user?.isAdministrator == true) {
                     // An administrator: every account, and the services of all of them.
-                    onNodeWithTag("home:tile-accounts").assertExists()
-                    onNodeWithTag("home:tile-accounts").performClick()
+                    assertApp("accounts")
+                    openApp("accounts")
                     waitUntil(timeoutMillis = 15_000L) { exists("accounts:list") && hasText(login) }
                     shot("13-accounts")
                     onAllNodesWithText(login).onFirst().performClick()
                     waitUntil(timeoutMillis = 15_000L) { exists("accounts:detail") }
                     shot("14-account-of-user")
                 }
-                openMenu()
-                onNodeWithTag("context:row").performClick()
+                openContexts()
                 waitUntil(timeoutMillis = 5_000L) { exists("context:sheet") }
                 shot("15-switcher")
                 onNodeWithTag("context:item-$cloudId").performClick()
                 runCatching {
                     waitUntil(timeoutMillis = 15_000L) { host.current.value?.id == cloudId }
-                    waitUntil(timeoutMillis = 15_000L) { exists("services:root") || exists("home:tile-services") }
+                    waitUntil(timeoutMillis = 15_000L) { exists("services:root") || ready(host, "services") }
                 }.onFailure { shot("16-debug"); throw it }
                 assertTrue(host.active.value.session.status.value != ServerStatus.SignedOut, "the first account is signed out after the switch")
                 shot("16-back-to-first")
@@ -308,13 +301,11 @@ class CloudServerTest {
         var startedId = ""
         // Three PoW CAPTCHAs (the local RestoApp, the cloud, the server of the cloud) and two dozen screens: past the default minute.
         runComposeUiTest(testTimeout = 5.minutes) {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
 
             // 1. A RestoApp of one's own, by its address — the local one.
-            openMenu()
-            onNodeWithTag("context:row").performClick()
-            waitForIdle()
+            openContexts()
             onNodeWithTag("context:add").performClick()
             waitForIdle()
             onNodeWithTag("servers:add-custom").performClick()
@@ -329,7 +320,7 @@ class CloudServerTest {
             onNodeWithTag("servers:connect").performClick()
             waitOrShot("local", 60_000L) { host.current.value?.title == "Локальный RestoApp" && host.active.value.superizer.registry.get(AppId("dishes")) != null }
             val localId = host.current.value!!.id
-            waitUntil(timeoutMillis = 15_000L) { exists("home:tile-dishes") }
+            waitUntil(timeoutMillis = 15_000L) { ready(host, "dishes") }
             shot("40-local-restoapp-home")
 
             // 2. The cloud account: all its servers come with it, under it.
@@ -356,11 +347,11 @@ class CloudServerTest {
             waitUntil(timeoutMillis = 60_000L) {
                 host.current.value?.id == live.id && host.active.value.superizer.registry.get(AppId("dishes")) != null
             }
-            waitUntil(timeoutMillis = 15_000L) { exists("home:tile-dishes") }
+            waitUntil(timeoutMillis = 15_000L) { ready(host, "dishes") }
             shot("44-cloud-server-home")
 
             // 5. Administered as the local one: the same «Блюда», a dish switched off and on at a point.
-            onNodeWithTag("home:tile-dishes").performClick()
+            openApp("dishes")
             waitUntil(timeoutMillis = 15_000L) { exists("dishes:list") }
             onNodeWithTag("dishes:chip-all").performClick()
             waitUntil(timeoutMillis = 15_000L) { exists("dishes:row-d3") }
@@ -387,16 +378,16 @@ class CloudServerTest {
             openSwitcher()
             shot("47-switcher-on-cloud-server")
             pick("$localId")
-            waitOrShot("back-local", 30_000L) { host.current.value?.id == localId && exists("home:tile-dishes") }
+            waitOrShot("back-local", 30_000L) { host.current.value?.id == localId && ready(host, "dishes") }
             shot("48-back-on-local-restoapp")
 
             // 7. Started in the cloud: the switcher shows it at once.
             openSwitcher()
             pick("$accountId")
-            waitUntil(timeoutMillis = 30_000L) { host.current.value?.id == accountId && exists("home:tile-services") }
+            waitUntil(timeoutMillis = 30_000L) { host.current.value?.id == accountId && ready(host, "services") }
             // Any stopped server of the fleet (a stop never finishes on a laptop's fake cluster, so earlier runs leave some «stopping»).
             val toStart = host.servers.value.first { it.parent == accountId && it.status == "stopped" && it.id != live.id && it.name != "Кафе 01" }
-            onNodeWithTag("home:tile-services").performClick()
+            openApp("services")
             waitUntil(timeoutMillis = 15_000L) { exists("services:list") && hasText(toStart.name) }
             onAllNodesWithText(toStart.name).onFirst().performScrollTo().performClick()
             waitUntil(timeoutMillis = 15_000L) { exists("services:services.power-start") }
@@ -454,11 +445,9 @@ class CloudServerTest {
         val service = "Кофейня $stamp"
 
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
-            openMenu()
-            onNodeWithTag("context:row").performClick()
-            waitForIdle()
+            openContexts()
             onNodeWithTag("context:add-add-cloud").performClick()
             waitUntil(timeoutMillis = 15_000L) { exists("servers:to-signup") }
             onNodeWithTag("servers:to-signup").performScrollTo().performClick()
@@ -472,25 +461,31 @@ class CloudServerTest {
             waitUntil(timeoutMillis = 60_000L) {
                 host.current.value?.title == "Resto Cloud · $newLogin" && host.active.value.superizer.registry.get(AppId("services")) != null
             }
-            waitUntil(timeoutMillis = 15_000L) { exists("home:tile-account") }
+            waitUntil(timeoutMillis = 15_000L) { ready(host, "account") }
             shot("21-signed-up-home")
 
             // The account: the welcome credits, then the profile edited in place.
-            onNodeWithTag("home:tile-account").performClick()
+            openApp("account")
             waitUntil(timeoutMillis = 15_000L) { exists("account:account.update") && hasText("Новый Пользователь") }
             shot("22-new-account")
             onNodeWithTag("account:account.update").performScrollTo().performClick()
             waitUntil(timeoutMillis = 5_000L) { exists("account:account.update:form:fullName") }
             onNodeWithTag("account:account.update:form:fullName").performTextClearance()
             onNodeWithTag("account:account.update:form:fullName").performTextInput("Анна Кофейная")
-            if (exists("account:account.update:form:locale-ru")) onNodeWithTag("account:account.update:form:locale-ru").performClick()
+            // A choice of a form is the kit's select: open it, then pick (03-render.md).
+            if (exists("account:account.update:form:locale")) {
+                onNodeWithTag("account:account.update:form:locale").performScrollTo().performClick()
+                waitForIdle()
+                onNodeWithTag("account:account.update:form:locale-ru").performClick()
+            }
             shot("23-profile-form")
-            onNodeWithTag("account:account.update:form:submit").performScrollTo().performClick()
+            // «Сохранить» is in the header (wider than a phone) or the action bar (a phone), not under the form.
+            onNodeWithTag("account:account.update:form:submit").also { runCatching { it.performScrollTo() } }.performClick()
             waitUntil(timeoutMillis = 15_000L) { hasText("Анна Кофейная") && !exists("account:account.update:form") }
             shot("24-profile-saved")
 
             // A service of the new account: create, then its settings.
-            openApp("services", "services:list")
+            enter("services", "services:list")
             onNodeWithTag("services:add").performClick()
             waitUntil(timeoutMillis = 5_000L) { exists("services:form:title") }
             onNodeWithTag("services:form:title").performTextInput(service)
@@ -502,11 +497,13 @@ class CloudServerTest {
             waitUntil(timeoutMillis = 5_000L) { exists("services:services.update:form:title") }
             onNodeWithTag("services:services.update:form:title").performTextClearance()
             onNodeWithTag("services:services.update:form:title").performTextInput("$service — центр")
+            // Another version than the one it has: the last option that is not «next» — in the kit's select, opened first.
+            onNodeWithTag("services:services.update:form:imageVersion").performScrollTo().performClick()
+            waitForIdle()
             val versions = tagsStartingWith("services:services.update:form:imageVersion-")
-            // Another version than the one it has: the last chip that is not «next».
-            versions.lastOrNull { !it.endsWith("-next") }?.let { onNodeWithTag(it).performScrollTo().performClick() }
+            versions.lastOrNull { !it.endsWith("-next") }?.let { onNodeWithTag(it).performClick() }
             shot("26-service-settings-form")
-            onNodeWithTag("services:services.update:form:submit").performScrollTo().performClick()
+            onNodeWithTag("services:services.update:form:submit").also { runCatching { it.performScrollTo() } }.performClick()
             waitUntil(timeoutMillis = 15_000L) { hasText("$service — центр") && hasText("Изменены настройки", substring = true) }
             shot("27-service-settings-saved")
 
@@ -526,7 +523,7 @@ class CloudServerTest {
             shot("30-service-deleting")
 
             // The balance has the welcome credits and the charge for the minutes it ran.
-            openApp("account", "account:detail")
+            enter("account", "account:detail")
             waitUntil(timeoutMillis = 15_000L) { hasText("Баланс, кредитов") }
             onAllNodesWithText("Операции по балансу").onFirst().performScrollTo().performClick()
             waitUntil(timeoutMillis = 15_000L) { exists("account:list") && hasText("Приветственные кредиты") }

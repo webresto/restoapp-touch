@@ -8,6 +8,7 @@ import cx.m42.superizer.app.AppIcon
 import cx.m42.superizer.app.AppId
 import cx.m42.superizer.app.AppInstance
 import cx.m42.superizer.app.AppManifest
+import cx.m42.superizer.app.AppSetupContext
 import cx.m42.superizer.app.AppMetadata
 import cx.m42.superizer.app.SuperizerApp
 import cx.m42.superizer.app.localized
@@ -45,8 +46,22 @@ public class ServerApp(declared: DeclaredApp, lang: String) : SuperizerApp<Serve
 
     override val configSpec: AppConfigSpec<ServerAppConfig> = AppConfigSpec(ServerAppConfig.serializer(), ServerAppConfig())
 
+    /** The mark in the menu (P4), while the app is enabled; null until [setup], and for an app without `badge`. */
+    private var badge: BadgePoller? = null
+
+    /**
+     * The mark beside the app in the menu, when the declaration names a method for it (`app.badge`). It is
+     * kept on the app's own runtime, so it counts while no screen of the app is open.
+     */
+    override fun setup(ctx: AppSetupContext) {
+        val server = ctx.runtime.service(RestoServer.Key) ?: return
+        val poller = BadgePoller(ctx.runtime.scope, server, ctx.runtime.lifecycle).start()
+        badge = poller
+        ctx.badge(poller.mark)
+    }
+
     override fun launch(runtime: InstanceRuntime, config: ServerAppConfig): AppInstance =
-        ServerAppInstance(runtime, runtime.require(RestoServer.Key), config.target)
+        ServerAppInstance(runtime, runtime.require(RestoServer.Key), config.target, mutated = { badge?.refresh() })
 
     public companion object {
         /** Ids the menu can take: the declaration's ids are kebab-case by the contract, but a server may be wrong. */

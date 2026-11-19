@@ -1,5 +1,7 @@
 package cx.m42.restoapp.render
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -8,7 +10,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,11 +29,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,37 +46,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.composables.icons.lucide.ArrowUpRight
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ChevronRight
-import com.composables.icons.lucide.ChevronsUpDown
-import com.composables.icons.lucide.CircleAlert
-import com.composables.icons.lucide.CircleCheck
 import com.composables.icons.lucide.Inbox
-import com.composables.icons.lucide.Info
 import com.composables.icons.lucide.Lucide
-import com.composables.icons.lucide.MapPin
-import com.composables.icons.lucide.Minus
-import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.Search
-import com.composables.icons.lucide.TriangleAlert
 import cx.m42.restoapp.protocol.Tones
+import androidx.compose.ui.semantics.text
 import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.StatusBadge
+import cx.m42.superizer.kit.kitClickable
+import cx.m42.superizer.kit.textColor
+import cx.m42.superizer.kit.color
+import cx.m42.superizer.kit.softColor
+import cx.m42.superizer.kit.textStyles
 import cx.m42.superizer.kit.ButtonSize
 import cx.m42.superizer.kit.ButtonVariant
-import cx.m42.superizer.kit.Field
 import cx.m42.superizer.kit.Icon
-import cx.m42.superizer.kit.IconButton
 import cx.m42.superizer.kit.Input
-import cx.m42.superizer.kit.ItemSeparator
 import cx.m42.superizer.kit.Kit
 import cx.m42.superizer.kit.Switch
 import cx.m42.superizer.kit.Text
 import cx.m42.superizer.kit.TextVariant
-import cx.m42.superizer.theme.Tokens
 import cx.m42.superizer.ui.platform.SystemBackHandler
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
 
 /*
  * The renderer's building blocks (plan section 4, "Задел под JS-приложения"): each takes plain
@@ -93,25 +83,6 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** The page's gutter: what every block keeps from the screen's edges. */
 public val PageGutter: androidx.compose.ui.unit.Dp = 16.dp
-
-/** A tone of the contract as a colour of the theme; null — the ordinary text colour. */
-internal fun Tokens.toneColor(tone: String?): Color? = when (tone) {
-    Tones.DANGER -> danger
-    Tones.WARNING -> warning
-    Tones.SUCCESS -> success
-    Tones.INFO -> accent
-    else -> null
-}
-
-/** The same, from the kit's palette — what the components here draw with. */
-@Composable
-internal fun toneOf(tone: String?): Color? = when (tone) {
-    Tones.DANGER -> Kit.colors.destructive
-    Tones.WARNING -> Kit.colors.warning
-    Tones.SUCCESS -> Kit.colors.success
-    Tones.INFO -> Kit.colors.info
-    else -> null
-}
 
 /**
  * A titled block of rows on the grey page: the unit of every card, every settings screen and every
@@ -135,8 +106,7 @@ public fun Group(
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.Bottom) {
                 Text(
                     text = title.orEmpty(),
-                    style = Kit.typography.small.copy(fontWeight = FontWeight.SemiBold),
-                    color = Kit.colors.mutedForeground,
+                    style = Kit.textStyles.label.copy(fontWeight = FontWeight.SemiBold),
                     modifier = Modifier.weight(1f),
                 )
                 if (action != null && onAction != null) {
@@ -152,9 +122,9 @@ public fun Group(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(Kit.shapes.lg)
+                .clip(RoundedCornerShape(14.dp))
                 .background(Kit.colors.card)
-                .border(1.dp, Kit.colors.border, Kit.shapes.lg),
+                .border(1.dp, Kit.colors.border, RoundedCornerShape(14.dp)),
             content = content,
         )
         hint?.let {
@@ -163,29 +133,25 @@ public fun Group(
     }
 }
 
-/** The line between two rows of a [Group]. */
-@Composable
-public fun RowLine() {
-    ItemSeparator()
-}
-
 /**
- * A small label in the tone's colour, with a dot in front: an order's state. One text node — the dot is
- * drawn behind it — so the label's text is what a test or a screen reader finds on it.
+ * An order's state: the kit's `StatusBadge` in the tone. One text node — the dot and the pill are its
+ * drawing — so the label's text is what a test or a screen reader finds on it.
  */
 @Composable
 public fun Badge(text: String, tone: String?, modifier: Modifier = Modifier) {
-    val color = toneOf(tone) ?: Kit.colors.mutedForeground
+    // The kit's `StatusBadge` drawn as one text: its pill, its dot and its words, without its breathing.
+    val kitTone = toneKit(tone)
+    val dot = kitTone.color()
     Text(
         text = text,
-        style = Kit.typography.small.copy(fontWeight = FontWeight.SemiBold, fontSize = Kit.typography.small.fontSize * 0.86f),
-        color = color,
+        style = Kit.textStyles.caption.copy(fontWeight = FontWeight.Medium),
+        color = kitTone.textColor(),
         maxLines = 1,
         modifier = modifier
-            .clip(CircleShape)
-            .background(color.copy(alpha = 0.12f))
-            .drawBehind { drawCircle(color, radius = 3.dp.toPx(), center = androidx.compose.ui.geometry.Offset(11.dp.toPx(), size.height / 2)) }
-            .padding(start = 19.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
+            .clip(Kit.shapes.full)
+            .background(kitTone.softColor())
+            .drawBehind { drawCircle(dot, radius = 3.dp.toPx(), center = androidx.compose.ui.geometry.Offset(10.dp.toPx(), size.height / 2)) }
+            .padding(start = 18.dp, end = 9.dp, top = 4.dp, bottom = 4.dp),
     )
 }
 
@@ -211,8 +177,8 @@ public fun ListRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp)
-            .let { if (onClick != null) it.clickable(role = Role.Button, onClick = onClick) else it }
+            .heightIn(min = 56.dp)
+            .let { if (onClick != null) it.kitClickable(onClick = onClick) else it }
             .padding(start = 16.dp, end = if (onClick != null && chevron) 10.dp else 16.dp, top = 10.dp, bottom = 10.dp)
             .testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
@@ -221,7 +187,7 @@ public fun ListRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = title,
-                    style = Kit.typography.p.copy(fontWeight = FontWeight.Medium),
+                    style = Kit.textStyles.label,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
@@ -242,73 +208,8 @@ public fun ListRow(
         }
         trailing()
         if (onClick != null && chevron) {
-            Icon(Lucide.ChevronRight, contentDescription = null, size = 18.dp, tint = Kit.colors.mutedForeground, modifier = Modifier.padding(start = 4.dp))
+            Icon(Lucide.ChevronRight, contentDescription = null, size = 16.dp, tint = Kit.colors.mutedForeground, modifier = Modifier.padding(start = 6.dp))
         }
-    }
-}
-
-@Composable
-internal fun ValueText(text: String, tone: String?, modifier: Modifier = Modifier) {
-    Text(
-        text = text,
-        style = Kit.typography.p.copy(fontWeight = FontWeight.Medium),
-        color = toneOf(tone) ?: Kit.colors.foreground,
-        textAlign = TextAlign.End,
-        maxLines = 1,
-        modifier = modifier.widthIn(min = 40.dp),
-    )
-}
-
-/** −, the value, + — the row form of a stepper. A null [onMinus] / [onPlus] greys that side out. */
-@Composable
-public fun StepperRow(
-    display: String,
-    tone: String?,
-    onMinus: (() -> Unit)?,
-    onPlus: (() -> Unit)?,
-    enabled: Boolean,
-    tag: String,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .padding(start = 8.dp)
-            .clip(Kit.shapes.full)
-            .border(1.dp, Kit.colors.border, Kit.shapes.full),
-    ) {
-        IconButton(
-            Lucide.Minus,
-            contentDescription = "−",
-            onClick = { onMinus?.invoke() },
-            enabled = enabled && onMinus != null,
-            size = ButtonSize.Sm,
-            modifier = Modifier.testTag("$tag:minus"),
-        )
-        ValueText(display, tone, Modifier.widthIn(min = 44.dp).testTag("$tag:value"))
-        IconButton(
-            Lucide.Plus,
-            contentDescription = "+",
-            onClick = { onPlus?.invoke() },
-            enabled = enabled && onPlus != null,
-            size = ButtonSize.Sm,
-            modifier = Modifier.testTag("$tag:plus"),
-        )
-    }
-}
-
-/** A switch on its own, for a row that has a title already. */
-@Composable
-public fun SwitchControl(checked: Boolean, label: String, enabled: Boolean, onChange: (Boolean) -> Unit, tag: String) {
-    Box(
-        modifier = Modifier
-            .padding(start = 8.dp)
-            .clip(CircleShape)
-            .clickable(enabled = enabled, role = Role.Switch) { onChange(!checked) }
-            .padding(4.dp)
-            .testTag(tag)
-            .semantics { this.selected = checked },
-    ) {
-        Switch(checked = checked, onCheckedChange = null, enabled = enabled, contentDescription = label)
     }
 }
 
@@ -324,41 +225,7 @@ public fun Chips(
     /** What the row keeps from the edges: the page's gutter on a screen, nothing inside a card. */
     inset: androidx.compose.ui.unit.Dp = PageGutter,
 ) {
-    val c = Kit.colors
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = inset, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        values.forEach { value ->
-            val isSelected = value == selected
-            Row(
-                modifier = Modifier
-                    .heightIn(min = 36.dp)
-                    .clip(CircleShape)
-                    .background(if (isSelected) c.primary else c.card)
-                    .border(1.dp, if (isSelected) c.primary else c.border, CircleShape)
-                    .clickable(role = Role.Tab) { onSelect(value) }
-                    .semantics { this.selected = isSelected }
-                    .padding(horizontal = 14.dp, vertical = 7.dp)
-                    .testTag("$tag-$value"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    text = titles[value] ?: value,
-                    variant = TextVariant.Small,
-                    color = if (isSelected) c.onPrimary else c.foreground,
-                )
-                counts[value]?.let { count ->
-                    Text(
-                        text = count.toString(),
-                        variant = TextVariant.Small,
-                        color = if (isSelected) c.onPrimary.copy(alpha = 0.7f) else c.mutedForeground,
-                    )
-                }
-            }
-        }
-    }
+    ChipsRow(values, titles, counts, selected, onSelect, tag, Modifier.padding(horizontal = inset, vertical = if (inset > 0.dp) 8.dp else 0.dp))
 }
 
 /** The search over a list: a field with the magnifier in it, across the top. */
@@ -381,44 +248,7 @@ public fun SearchBox(value: String, placeholder: String, onChange: (String) -> U
  */
 @Composable
 public fun Notice(text: String, tone: String?, action: String?, onAction: (() -> Unit)?, tag: String) {
-    val color = toneOf(tone) ?: Kit.colors.mutedForeground
-    val icon = when (tone) {
-        Tones.DANGER -> Lucide.CircleAlert
-        Tones.WARNING -> Lucide.TriangleAlert
-        Tones.SUCCESS -> Lucide.CircleCheck
-        else -> Lucide.Info
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = PageGutter, vertical = 6.dp)
-            .clip(Kit.shapes.lg)
-            .background(color.copy(alpha = 0.08f))
-            .border(1.dp, color.copy(alpha = 0.25f), Kit.shapes.lg)
-            .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp)
-            .testTag(tag),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Icon(icon, contentDescription = null, size = 18.dp, tint = color)
-        Text(text = text, variant = TextVariant.Small, modifier = Modifier.weight(1f).padding(vertical = 4.dp))
-        if (action != null && onAction != null) {
-            Button(
-                text = action,
-                onClick = onAction,
-                variant = ButtonVariant.Ghost,
-                size = ButtonSize.Sm,
-                modifier = Modifier.testTag("$tag:action"),
-            )
-        }
-    }
-}
-
-/** A tone as a button's variant: danger is red, success and info are the main action, the rest outlined. */
-public fun buttonVariantOf(tone: String?): ButtonVariant = when (tone) {
-    Tones.DANGER -> ButtonVariant.Destructive
-    Tones.SUCCESS, Tones.INFO -> ButtonVariant.Default
-    else -> ButtonVariant.Outline
+    NoticeBar(text, tone, action, onAction, tag, Modifier.padding(horizontal = PageGutter, vertical = 6.dp))
 }
 
 /**
@@ -488,33 +318,6 @@ public fun ConfirmButton(
     }
 }
 
-/** "Ленина, 5 ⇅" at the top of an app by points: where you are, and a tap to go elsewhere. */
-@Composable
-public fun PlaceLine(title: String, address: String?, onClick: () -> Unit, tag: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = PageGutter, end = PageGutter, top = 10.dp, bottom = 2.dp)
-            .clip(Kit.shapes.lg)
-            .background(Kit.colors.card)
-            .border(1.dp, Kit.colors.border, Kit.shapes.lg)
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .testTag(tag),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        LeadingIcon(Lucide.MapPin, Kit.colors.info)
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = Kit.typography.p.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (!address.isNullOrBlank() && address != title) {
-                Text(text = address, variant = TextVariant.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        Icon(Lucide.ChevronsUpDown, contentDescription = null, size = 18.dp, tint = Kit.colors.mutedForeground)
-    }
-}
-
 /** An icon on a tinted rounded square: what leads a row that stands for a place, a section, an app. */
 @Composable
 public fun LeadingIcon(icon: ImageVector, tint: Color, modifier: Modifier = Modifier) {
@@ -523,6 +326,22 @@ public fun LeadingIcon(icon: ImageVector, tint: Color, modifier: Modifier = Modi
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = null, size = 18.dp, tint = tint)
+    }
+}
+
+/** A switch on its own, for a row that has a title already. */
+@Composable
+public fun SwitchControl(checked: Boolean, label: String, enabled: Boolean, onChange: (Boolean) -> Unit, tag: String) {
+    Box(
+        modifier = Modifier
+            .padding(start = 8.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, role = Role.Switch) { onChange(!checked) }
+            .padding(4.dp)
+            .testTag(tag)
+            .semantics { this.selected = checked },
+    ) {
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled, contentDescription = label)
     }
 }
 
@@ -581,7 +400,7 @@ public fun BoxScope.ChoiceSheet(
  * long. Back and a tap on the scrim close it.
  */
 @Composable
-public fun BoxScope.BottomSheet(
+private fun BoxScope.BottomSheet(
     visible: Boolean,
     title: String?,
     onDismiss: () -> Unit,
@@ -629,58 +448,6 @@ public fun BoxScope.BottomSheet(
     }
 }
 
-/** One label–value line of a card: the label quiet on the left, the value on the right. */
-@Composable
-public fun FieldLine(label: String, value: String, tone: String?, tag: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 16.dp, vertical = 11.dp).testTag(tag),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(text = label, color = Kit.colors.mutedForeground, modifier = Modifier.weight(0.45f))
-        Text(
-            text = value,
-            color = toneOf(tone) ?: Kit.colors.foreground,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(0.55f).testTag("$tag:value"),
-        )
-    }
-}
-
-/** A row that leads somewhere: its words, a line about it, and where it goes — one more screen, or out of the app. */
-@Composable
-public fun LinkLine(
-    title: String,
-    subtitle: String?,
-    external: Boolean,
-    onClick: () -> Unit,
-    tag: String,
-    /** What a screen reader hears for the arrow of a line that leaves the app. */
-    externalHint: String? = null,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(start = 16.dp, end = 10.dp, top = 10.dp, bottom = 10.dp)
-            .testTag(tag),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title)
-            subtitle?.takeIf { it.isNotBlank() }?.let { Text(it, variant = TextVariant.Muted) }
-        }
-        Icon(
-            if (external) Lucide.ArrowUpRight else Lucide.ChevronRight,
-            contentDescription = if (external) externalHint else null,
-            size = 18.dp,
-            tint = Kit.colors.mutedForeground,
-            modifier = Modifier.testTag("$tag:value"),
-        )
-    }
-}
-
 /** The middle of the screen when there is nothing else to show: an icon, a line, and maybe a button. */
 @Composable
 public fun EmptyState(text: String, hint: String?, action: String?, onAction: (() -> Unit)?, tag: String) {
@@ -703,157 +470,3 @@ public fun EmptyState(text: String, hint: String?, action: String?, onAction: ((
     }
 }
 
-/** One field of a form: what the schema says it is, and what the person has typed. */
-public data class FormField(
-    val name: String,
-    val title: String,
-    /** `string`, `integer`, `number`, `boolean`, or an `enum` when [values] is not empty. */
-    val type: String,
-    val required: Boolean,
-    val values: List<String> = emptyList(),
-    val titles: Map<String, String> = emptyMap(),
-    /** `phone`, `money`, `datetime` — a hint, not a type. */
-    val format: String? = null,
-    /** The schema's `default`: what the form starts with — the current value when a record's form edits it. */
-    val initial: String? = null,
-)
-
-/**
- * A form by the schema of a method (`control: {type: "form"}`): one line per property, the button of
- * the method under them.
- *
- * As declarative as everything else here — the fields are the schema's, the words are the server's,
- * and what comes back is a plain map of values, so the same component serves the script apps later.
- * A property this version cannot draw (a nested object, an array) is left out rather than guessed at.
- */
-@Composable
-public fun FormCard(
-    title: String,
-    fields: List<FormField>,
-    submit: String,
-    busy: Boolean,
-    words: RenderWords,
-    onSubmit: (Map<String, JsonElement>, saved: () -> Unit) -> Unit,
-    onCancel: (() -> Unit)?,
-    tag: String,
-    hold: (UnsavedWork?) -> Unit = {},
-) {
-    val values = remember(tag, fields) {
-        mutableStateMapOf<String, String>().apply {
-            fields.forEach { field -> if (field.type != "boolean") field.initial?.let { put(field.name, it) } }
-        }
-    }
-    val flags = remember(tag, fields) {
-        mutableStateMapOf<String, Boolean>().apply {
-            fields.forEach { field -> if (field.type == "boolean" && field.initial == "true") put(field.name, true) }
-        }
-    }
-    val filled = fields.none { field ->
-        field.required && when {
-            field.type == "boolean" -> false
-            else -> values[field.name].isNullOrBlank()
-        }
-    }
-    fun send(saved: () -> Unit) = onSubmit(
-        fields.mapNotNull { field ->
-            when {
-                field.type == "boolean" -> field.name to JsonPrimitive(flags[field.name] == true)
-                else -> values[field.name]?.takeIf { it.isNotBlank() }?.let { typed ->
-                    field.name to when (field.type) {
-                        "integer" -> JsonPrimitive(typed.trim().toLongOrNull() ?: 0L)
-                        "number" -> JsonPrimitive(typed.trim().replace(',', '.').toDoubleOrNull() ?: 0.0)
-                        else -> JsonPrimitive(typed.trim())
-                    }
-                }
-            }
-        }.toMap(),
-        saved,
-    )
-    // Changed against what it started with: a form of a record starts filled in and is not "unsaved" until edited.
-    val dirty = fields.any { field ->
-        if (field.type == "boolean") (flags[field.name] == true) != (field.initial == "true")
-        else values[field.name].orEmpty() != field.initial.orEmpty()
-    }
-    HoldUnsaved(dirty, hold) { saved -> if (filled && !busy) send(saved) }
-    // Filled in, the form is a step of its own: back closes it, not the screen under it.
-    SystemBackHandler(enabled = dirty && onCancel != null) { onCancel?.invoke() }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = PageGutter, vertical = 6.dp)
-            .clip(Kit.shapes.lg)
-            .background(Kit.colors.card)
-            .border(1.dp, Kit.colors.border, Kit.shapes.lg)
-            .padding(16.dp)
-            .testTag(tag),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Text(text = title, variant = TextVariant.H4)
-        fields.forEach { field ->
-            val caption = if (field.required) field.title else "${field.title} · ${words.optional}"
-            when {
-                field.type == "boolean" -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(field.title, modifier = Modifier.weight(1f))
-                    SwitchControl(
-                        checked = flags[field.name] == true,
-                        label = field.title,
-                        enabled = !busy,
-                        onChange = { flags[field.name] = it },
-                        tag = "$tag:${field.name}",
-                    )
-                }
-                field.values.isNotEmpty() -> Field(label = caption) {
-                    Chips(
-                        values = field.values,
-                        titles = field.titles,
-                        counts = emptyMap(),
-                        selected = values[field.name],
-                        onSelect = { values[field.name] = it },
-                        tag = "$tag:${field.name}",
-                        inset = 0.dp,
-                    )
-                }
-                else -> Field(label = caption) {
-                    Input(
-                        value = values[field.name].orEmpty(),
-                        onValueChange = { values[field.name] = it },
-                        label = field.title,
-                        keyboardOptions = keyboardFor(field),
-                        modifier = Modifier.testTag("$tag:${field.name}"),
-                    )
-                }
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            onCancel?.let {
-                Button(
-                    text = words.cancel,
-                    onClick = it,
-                    enabled = !busy,
-                    variant = ButtonVariant.Outline,
-                    modifier = Modifier.weight(1f).testTag("$tag:cancel"),
-                )
-            }
-            Button(
-                text = submit,
-                onClick = { send {} },
-                enabled = !busy && filled,
-                loading = busy,
-                modifier = Modifier.weight(1f).testTag("$tag:submit"),
-            )
-        }
-    }
-}
-
-/** The keyboard a field wants: digits for a number, the phone pad for a phone, mail for an e-mail. */
-internal fun keyboardFor(field: FormField): androidx.compose.foundation.text.KeyboardOptions {
-    val type = when {
-        field.type == "integer" -> androidx.compose.ui.text.input.KeyboardType.Number
-        field.type == "number" || field.format == "money" -> androidx.compose.ui.text.input.KeyboardType.Decimal
-        field.format == "phone" -> androidx.compose.ui.text.input.KeyboardType.Phone
-        field.format == "email" -> androidx.compose.ui.text.input.KeyboardType.Email
-        else -> androidx.compose.ui.text.input.KeyboardType.Text
-    }
-    return androidx.compose.foundation.text.KeyboardOptions(keyboardType = type)
-}

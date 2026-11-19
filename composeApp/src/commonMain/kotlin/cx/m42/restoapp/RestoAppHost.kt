@@ -1,12 +1,16 @@
 package cx.m42.restoapp
 
+import cx.m42.superizer.ThemeMode
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import cx.m42.restoapp.demo.DemoBackend
 import cx.m42.restoapp.demo.DemoRole
 import cx.m42.restoapp.demo.DemoStore
+import cx.m42.restoapp.protocol.Declaration
 import cx.m42.restoapp.protocol.DeviceInfo
 import cx.m42.restoapp.protocol.HttpMobileApi
 import cx.m42.restoapp.protocol.MobileApi
@@ -41,6 +45,7 @@ import cx.m42.superizer.host.platform.currentPlatform
 import cx.m42.superizer.runtime.HostInfo
 import cx.m42.superizer.runtime.HostLifecycle
 import cx.m42.superizer.runtime.NetworkService
+import cx.m42.superizer.ui.shell.ShellLayout
 import cx.m42.superizer.ui.shell.SuperizerShell
 import kotlinx.coroutines.delay
 import cx.m42.restoapp.render.ServerStatus
@@ -216,7 +221,7 @@ public class RestoAppHost(
         old.leave()
         old.session.close()
         save(list.value.copy(current = id, previous = old.profile.id))
-        _active.value = connect(target, language, session = null)
+        _active.value = connect(target, language, session = null, theme = old.superizer.settings.theme.value)
         _active.value.session.refreshInBackground()
         signInToCloudServerIfNeeded(_active.value)
         scope.launch { syncAllCloud() }
@@ -236,6 +241,7 @@ public class RestoAppHost(
     public suspend fun syncCloud(accountId: String) {
         val account = list.value.find(accountId)?.takeIf { it.cloud } ?: return
         val token = storedToken(accountId) ?: return
+        runCatching { refreshBalance(account) }
         val servers = HttpMobileApi(account.address, network).cloudServers(token)
         listing.withLock {
             val now = list.value
@@ -295,6 +301,46 @@ public class RestoAppHost(
         }
     }
 
+    /**
+     * P9 `open.server` of a card of [accountId]: the server [cloudId] of the account, opened in the app the way its
+     * switcher opens it — the switch signs in through the cloud. Only one that runs; false otherwise.
+     */
+    internal fun openCloudServer(accountId: String, cloudId: String): Boolean {
+        val child = cloudChild(accountId, cloudId)?.takeIf { it.status == "online" } ?: return false
+        scope.launch { switchNow(child.id) }
+        return true
+    }
+
+    internal fun canOpenCloudServer(accountId: String, cloudId: String): Boolean = cloudChild(accountId, cloudId)?.status == "online"
+
+    private fun cloudChild(accountId: String, cloudId: String): ServerProfile? =
+        list.value.servers.firstOrNull { it.parent == accountId && it.cloudId == cloudId }
+
+    /** When each account's money was last read: the ones not in force are asked every [BALANCE_MS]. */
+    private val balanceAt = mutableMapOf<String, Long>()
+
+    /** P10: the money left on [accountId] as its declaration says it — kept on its profile for the switcher and the strip. */
+    private suspend fun keepBalance(accountId: String, declaration: Declaration?) {
+        val balance = declaration?.balance ?: return
+        balanceAt[accountId] = clock()
+        listing.withLock {
+            val now = list.value
+            val account = now.find(accountId)?.takeIf { it.cloud } ?: return@withLock
+            val currency = declaration.server.ofCloud().currency
+            if (account.balance == balance && account.currency == currency) return@withLock
+            save(now.copy(servers = now.servers.map { if (it.id == accountId) it.copy(balance = balance, currency = currency) else it }))
+        }
+    }
+
+    /** The money of an account not in force, when it was not asked for a while. */
+    private suspend fun refreshBalance(account: ServerProfile) {
+        if (_active.value.profile.id == account.id) return
+        if (clock() - (balanceAt[account.id] ?: 0L) < BALANCE_MS) return
+        val token = storedToken(account.id) ?: return
+        val declaration = HttpMobileApi(account.address, network).describe(token, lang).value
+        keepBalance(account.id, declaration)
+    }
+
     private fun signInToCloudServerIfNeeded(connection: Connection) {
         if (connection.profile.parent != null && connection.session.status.value == ServerStatus.SignedOut) {
             scope.launch { connectCloudServer(connection.profile.id) }
@@ -308,7 +354,7 @@ public class RestoAppHost(
         val language = old.superizer.settings.langTag.value
         old.leave()
         old.session.close()
-        _active.value = connect(list.value.find(serverId) ?: return@withLock, language, session = null)
+        _active.value = connect(list.value.find(serverId) ?: return@withLock, language, session = null, theme = old.superizer.settings.theme.value)
     }
 
     private fun storedToken(serverId: String): String? = storedSession(serverId)?.token
@@ -325,7 +371,7 @@ public class RestoAppHost(
         if (old.profile.id != serverId) return@withLock
         val language = old.superizer.settings.langTag.value
         old.leave()
-        _active.value = connect(old.profile, language, old.session)
+        _active.value = connect(old.profile, language, old.session, theme = old.superizer.settings.theme.value)
     }
 
     /** Adds one more demo server and goes to it, as GitHub goes to a new account. */
@@ -583,7 +629,7 @@ public class RestoAppHost(
      * Builds [profile]'s Superizer on its own storage, on [session] or a new one. The previous
      * Superizer must already be gone.
      */
-    private fun connect(profile: ServerProfile, language: String?, session: ServerSession?): Connection {
+    private fun connect(profile: ServerProfile, language: String?, session: ServerSession?, theme: ThemeMode? = null): Connection {
         store.useStorageOf(profile.id)
         val serverScope = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
         val live = session ?: ServerSession(
@@ -595,6 +641,8 @@ public class RestoAppHost(
             solver = solver,
             lang = language ?: "ru",
             afterMutation = { if (profile.cloud) scope.launch { runCatching { syncCloud(profile.id) } } },
+            canOpenServer = { id -> profile.cloud && canOpenCloudServer(profile.id, id) },
+            openServer = { id -> profile.cloud && openCloudServer(profile.id, id) },
         )
         val leaving = MutableStateFlow(HostLifecycle.Foreground)
         val lifecycle = combine(PlatformLifecycle.state, leaving) { platform, left ->
@@ -606,7 +654,18 @@ public class RestoAppHost(
         // an app that comes as JS the script runtime (js-module.plan.md), everything else the
         // universal renderer. An app asking for a native screen or a script version this build does
         // not have falls back to the renderer, which shows the «needs a newer version» tile.
-        val apps = declaration?.apps.orEmpty().filter(ServerApp::canShow).map { app ->
+        // The console's order (_plan/07): what a shift lives in comes first and so lands in the phone's bar; an app
+        // the list does not know keeps the server's order, after them.
+        val apps = declaration?.apps.orEmpty().filter(ServerApp::canShow)
+            // «Главная» of the server is Home itself (HomeSummary), not one more app in the menu.
+            // A cloud account's «Обзор» is its Home too (_plan/08), whether or not it asks for the native screen.
+            .filterNot { it.id == HOME_APP && (it.native == "home" || profile.cloud) }
+            .let { declared ->
+                // An account's menu keeps the cloud's order (Обзор, Сервисы, Ассистент, Баланс, then the rest); a server's
+                // follows the console's.
+                val order = if (profile.cloud) CLOUD_ORDER else CONSOLE_ORDER
+                declared.sortedBy { app -> order.indexOf(app.id).let { if (it < 0) order.size else it } }
+            }.map { app ->
             when {
                 PosApp.canDraw(app) -> PosApp(app, live.lang)
                 // The assistant of this context's panel — the cloud's or the server's, the same chat.
@@ -637,6 +696,10 @@ public class RestoAppHost(
             )
             lifecycle(lifecycle)
             network(network)
+            // Violet until the person picks another accent in Settings (В5).
+            accent(RESTO_ACCENT)
+            // The till left open in the evening is the till in the morning (В2, А2).
+            reopenLastApp()
             contexts(this@RestoAppHost)
             hostSection(ServersSection(this@RestoAppHost))
             homeBanner(SessionBanner(this@RestoAppHost))
@@ -649,6 +712,8 @@ public class RestoAppHost(
         }
         // The language is the person's, not the server's: it follows them from server to server.
         if (language != null && superizer.settings.langTag.value != language) superizer.settings.chooseLanguage(language)
+        // So is the theme: each server keeps its own storage, and a dark device stays dark on the next one.
+        if (theme != null && superizer.settings.theme.value != theme) superizer.settings.chooseTheme(theme)
         val connection = Connection(profile, superizer, live, serverScope, leaving)
 
         serverScope.launch {
@@ -658,6 +723,16 @@ public class RestoAppHost(
                     lang = it
                     _contexts.value = list.value.servers.map { profile -> profile.toContext(lang) }
                     _current.value = list.value.currentProfile().toContext(lang)
+                }
+            }
+        }
+        if (profile.cloud) {
+            // P10: the money left follows every declaration of the account, and is asked again every five minutes.
+            serverScope.launch { live.declaration.collect { keepBalance(profile.id, it) } }
+            serverScope.launch {
+                while (true) {
+                    delay(BALANCE_MS)
+                    runCatching { live.refresh() }
                 }
             }
         }
@@ -697,11 +772,21 @@ public fun RestoApp(host: RestoAppHost) {
     val connection by host.active.collectAsState()
     // A new key per Superizer: nothing the previous one's shell remembered survives into the next.
     key(connection) {
-        SuperizerShell(connection.superizer, swipeBack = true)
+        // Phone, tablet and desktop from one menu: a bottom bar, a rail, a sidebar — the prototype's console (_plan/07).
+        SuperizerShell(connection.superizer, Modifier, swipeBack = true, layout = ShellLayout.Adaptive, typography = RestoTypography, chrome = remember(connection) { restoChrome(host, connection) })
     }
 }
 
 public const val SCHEME: String = "restoapp"
+
+/** The apps in the order of the console's menu; the first three stand in the phone's bar after Home. */
+private val CONSOLE_ORDER = listOf("orders", "pos", "dishes", "clients", "marketing", "assistant")
+
+/** The cloud's own menu: «Обзор» is Home, then these, then the rest in the cloud's order. */
+private val CLOUD_ORDER = listOf("services", "assistant", "balance")
+
+/** How often the money left on a cloud account is asked again (P10). */
+internal const val BALANCE_MS: Long = 5 * 60_000
 
 /** How often the servers of the cloud accounts are re-read. */
 internal const val CLOUD_SYNC_MS: Long = 60_000

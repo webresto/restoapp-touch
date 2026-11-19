@@ -8,6 +8,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
@@ -50,7 +53,9 @@ class PosScreenshotsTest {
 
     private fun ComposeUiTest.shot(name: String) {
         waitForIdle()
-        javax.imageio.ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(out, "$name.png"))
+        // The whole scene, dialogs included: a dialog is a popup, a second root `onRoot` would refuse.
+        val image = (this as? androidx.compose.ui.test.SkikoComposeUiTest)?.captureToImage() ?: onRoot().captureToImage()
+        javax.imageio.ImageIO.write(image.toAwtImage(), "png", File(out, "$name.png"))
     }
 
     private fun ComposeUiTest.tap(tag: String) {
@@ -67,6 +72,12 @@ class PosScreenshotsTest {
         runCatching { onNodeWithTag(tag).performScrollTo() }
         waitForIdle()
         onNodeWithTag(tag).performClick()
+        waitForIdle()
+    }
+
+    /** The «+» of the kit's stepper inside [tag]. */
+    private fun ComposeUiTest.plus(tag: String) {
+        onNode(hasContentDescription("+") and hasAnyAncestor(hasTestTag(tag))).performClick()
         waitForIdle()
     }
 
@@ -142,10 +153,8 @@ class PosScreenshotsTest {
             shot("pos-07-catalog-search")
             val drink = pos.state.value.catalog?.catalog?.items?.firstOrNull()
             drink?.let { tap("pos:product-${it.id}:add") }
-            // Out of the catalog: the search, then the group, then the catalog itself.
-            tap("pos:catalog-back")
-            tap("pos:catalog-back")
-            tap("pos:catalog-back")
+            // Out of the catalog, to the receipt.
+            tap("pos:to-receipt")
             shot("pos-08-receipt-lines")
 
             tap("pos:step-service")
@@ -187,8 +196,6 @@ class PosScreenshotsTest {
             shot("pos-14-checked")
 
             tapBelow("pos:place-order")
-            shot("pos-15-place-confirm")
-            tapBelow("pos:place-order:yes")
             settle(200)
             shot("pos-16-placed")
         }
@@ -211,8 +218,7 @@ class PosScreenshotsTest {
             tap("pos:group-Супы")
             val soup = pos.state.value.catalog?.catalog?.items?.first()!!
             tap("pos:product-${soup.id}:add")
-            tap("pos:catalog-back")
-            tap("pos:catalog-back")
+            tap("pos:to-receipt")
             shot("pos-18-receipt-delivery")
 
             tap("pos:step-guest")
@@ -261,7 +267,8 @@ class PosScreenshotsTest {
             settle(200)
             shot("pos-26-refused-promocode")
             tap("pos:sheet-promocode:close")
-            tapBelow("pos:drop")
+            tapBelow("pos:more")
+            tap("pos:drop")
             shot("pos-27-drop-confirm")
         }
 
@@ -288,12 +295,11 @@ class PosScreenshotsTest {
             // Тесто подороже, соус другой и две порции сыра — первая бесплатно.
             tap("pos:option-o-thick")
             tap("pos:option-o-hot")
-            tap("pos:option-o-cheese:amount:plus")
-            tap("pos:option-o-cheese:amount:plus")
+            plus("pos:option-o-cheese:amount")
+            plus("pos:option-o-cheese:amount")
             shot("pos-31-sheet-options-chosen")
             tap("pos:options-save")
-            tap("pos:catalog-back")
-            tap("pos:catalog-back")
+            tap("pos:to-receipt")
             shot("pos-32-receipt-options")
 
             // Обязательную группу оставили пустой: сервер отказывает, шторка остаётся.

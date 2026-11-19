@@ -45,11 +45,14 @@ class ThemeTest {
         waitForIdle()
     }
 
-    /** The top-left pixel's brightness, 0..255: the page behind everything. */
+    /**
+     * The brightness, 0..255, of the page behind everything: its left margin half-way down. (The bottom of the
+     * window is the bottom bar now, with its icons and labels.)
+     */
     private fun ComposeUiTest.cornerLuma(): Int {
         waitForIdle()
         val image = onRoot().captureToImage().toAwtImage()
-        val rgb = image.getRGB(image.width / 2, image.height - 40)
+        val rgb = image.getRGB(3, image.height / 2)
         return ((rgb shr 16 and 0xFF) * 3 + (rgb shr 8 and 0xFF) * 6 + (rgb and 0xFF)) / 10
     }
 
@@ -63,11 +66,12 @@ class ThemeTest {
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
         val settings = host.active.value.superizer.settings
         setContent { RestoApp(host) }
-        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("home:tile-orders").assertExists() }.isSuccess }
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("home:summary").assertExists() }.isSuccess }
 
-        onNodeWithContentDescription("Открыть меню").performClick()
+        // The settings of the app itself: the last row of «Ещё».
+        onNodeWithTag("shell:nav-more").performClick()
         waitForIdle()
-        onNodeWithContentDescription("Настройки").performClick()
+        tap("more:app-settings")
         waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("settings:theme").assertExists() }.isSuccess }
         assertEquals(ThemeMode.System, settings.theme.value)
 
@@ -82,10 +86,11 @@ class ThemeTest {
         tap("settings:theme-dark")
 
         shellBack()
-        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("home:tile-orders").assertExists() }.isSuccess }
+        openHome()
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("home:summary").assertExists() }.isSuccess }
         shot("02-home")
 
-        tap("home:tile-orders")
+        openApp("orders")
         waitUntil(timeoutMillis = 5_000L) { onAllNodes(tagStartsWith("orders:row-")).fetchSemanticsNodes().isNotEmpty() }
         shot("04-orders")
 
@@ -93,18 +98,18 @@ class ThemeTest {
         waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("orders:title").assertExists() }.isSuccess }
         shot("05-order")
 
+        // Back to the list of the orders; from the app's first screen the bottom bar goes on.
         shellBack()
         waitForIdle()
-        shellBack()
-        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("home:tile-pos").assertExists() }.isSuccess }
-        tap("home:tile-pos")
+        openApp("pos")
         waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("pos:new").assertExists() }.isSuccess }
         tap("pos:new")
         waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("pos:receipt").assertExists() }.isSuccess }
         shot("06-pos-receipt")
 
-        onNodeWithContentDescription("Открыть меню").performClick()
-        shot("03-drawer")
+        onNodeWithTag("shell:nav-more").performClick()
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("more:root").assertExists() }.isSuccess }
+        shot("03-more")
     }
 
     private fun tagStartsWith(prefix: String) = SemanticsMatcher("tag starts with $prefix") {

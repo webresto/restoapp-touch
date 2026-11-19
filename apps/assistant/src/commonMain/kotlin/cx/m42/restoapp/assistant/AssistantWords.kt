@@ -26,5 +26,12 @@ internal class AssistantWords(lang: String) {
     val loading = t("Загрузка…", "Loading…")
     val notConnected = t("Ассистент не подключён", "The assistant is not connected")
     val noConversations = t("Диалогов пока нет", "No conversations yet")
+    val history = t("История разговоров", "Conversation history")
+    val conversationsOverline = t("ДИАЛОГИ", "CONVERSATIONS")
+    val disclaimer = t("Ассистент может ошибаться. Действия он только готовит — включаете вы.", "The assistant can be wrong. It only prepares actions — you turn them on.")
+    val failedTitle = t("Не получилось", "Something went wrong")
+    val notConnectedHint = t("Проверьте связь с сервером и попробуйте ещё раз", "Check the connection to the server and try again")
+    val noConversationsHint = t("Начните новый — он появится здесь", "Start a new one — it will show here")
+    val done = t("готово", "done")
     fun tokens(n: Long) = t("токенов: $n", "tokens: $n")
 }

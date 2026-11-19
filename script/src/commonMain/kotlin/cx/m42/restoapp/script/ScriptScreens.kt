@@ -1,24 +1,27 @@
 package cx.m42.restoapp.script
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,108 +29,153 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.zIndex
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import cx.m42.restoapp.render.ChoiceSheet
+import androidx.compose.ui.zIndex
+import com.composables.icons.lucide.ChevronLeft
+import com.composables.icons.lucide.ChevronRight
+import com.composables.icons.lucide.CircleAlert
+import com.composables.icons.lucide.GripVertical
+import com.composables.icons.lucide.Inbox
+import com.composables.icons.lucide.Info
+import com.composables.icons.lucide.Lucide
 import cx.m42.restoapp.render.ConfirmButton
-import cx.m42.restoapp.render.EmptyState
-import cx.m42.restoapp.render.ListRow
-import cx.m42.restoapp.render.Notice
 import cx.m42.restoapp.render.RenderWords
-import cx.m42.restoapp.render.SheetChoice
-import cx.m42.restoapp.render.SwitchControl
+import cx.m42.superizer.kit.Alert
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.superizer.kit.Crumb
+import cx.m42.superizer.kit.EmptyState
+import cx.m42.superizer.kit.Field
+import cx.m42.superizer.kit.Icon
+import cx.m42.superizer.kit.Input
+import cx.m42.superizer.kit.ItemSeparator
+import cx.m42.superizer.kit.Kit
+import cx.m42.superizer.kit.Notice
+import cx.m42.superizer.kit.Page
+import cx.m42.superizer.kit.PageHeader
+import cx.m42.superizer.kit.PageWidth
+import cx.m42.superizer.kit.Select
+import cx.m42.superizer.kit.SelectOption
+import cx.m42.superizer.kit.Skeleton
+import cx.m42.superizer.kit.Switch
+import cx.m42.superizer.kit.Text
+import cx.m42.superizer.kit.TextVariant
+import cx.m42.superizer.kit.Tone
+import cx.m42.superizer.kit.byWindow
+import cx.m42.superizer.kit.kitClickable
+import cx.m42.superizer.kit.palette
+import cx.m42.superizer.kit.textColor
+import cx.m42.superizer.kit.textStyles
 import cx.m42.superizer.runtime.LocalAppRuntime
-import com.composeunstyled.Text
 import cx.m42.superizer.ui.platform.ScreenSteps
 import cx.m42.superizer.ui.platform.SystemBackHandler
 import cx.m42.superizer.ui.platform.hostDrawsBack
-import cx.m42.superizer.theme.AppTheme
 import kotlin.math.roundToInt
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import cx.m42.superizer.kit.Button
-import cx.m42.superizer.kit.ButtonSize
-import cx.m42.superizer.kit.ButtonVariant
-import cx.m42.superizer.kit.Input
 
 /**
- * The screen a script drew (js-module.plan.md, stage 0): a tree of nodes, drawn by the components
- * `:render` already has — a script gets no components of its own, and an unknown node is a line of
- * text rather than a crash.
+ * The screen a script drew (js-module.plan.md, stage 0): a tree of nodes, drawn by the kit's components
+ * in a narrow page with its header — a script gets no components of its own, and an unknown node is a
+ * line of text rather than a crash.
  */
 @Composable
 internal fun ScriptAppScreen(instance: ScriptAppInstance) {
     val runtime = LocalAppRuntime.current
     val lang by runtime.locale.langTag.collectAsState()
     val words = remember(lang) { RenderWords(lang) }
+    val own = remember(lang) { ScriptWords(lang) }
     val screen by instance.screen.collectAsState()
     val error by instance.error.collectAsState()
     val notice by instance.notice.collectAsState()
-    val busy by instance.busy.collectAsState()
     val chrome by instance.chrome.collectAsState()
+    val declared by instance.server.app.collectAsState()
     LaunchedEffect(instance) { instance.start() }
 
-    val tokens = AppTheme
-    Box(modifier = Modifier.fillMaxSize().background(tokens.pageBackground)) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            notice?.let { text ->
-                Notice(text, null, null, null, "script:notice")
-            }
-            error?.let { text ->
-                Notice(text, "danger", words.retry, { instance.retry() }, "script:error")
-            }
-            ScreenSteps(instance.steps)
+    ScreenSteps(instance.steps)
+    if (chrome.canGoBack) SystemBackHandler(enabled = true) { instance.back() }
+    Box(modifier = Modifier.fillMaxSize().background(Kit.palette.canvas)) {
+        Page(PageWidth.Narrow) {
+            val root = declared?.title.orEmpty()
+            val title = screen?.title?.takeIf { it.isNotBlank() } ?: root
+            PageHeader(
+                title = title,
+                // A screen standing on another one: the way back is the crumb, where the host draws no bar.
+                crumbs = if (chrome.canGoBack && root.isNotBlank()) listOf(Crumb(root, instance::back), Crumb(title, null)) else emptyList(),
+            )
             if (chrome.canGoBack) {
-                SystemBackHandler(enabled = true) { instance.back() }
                 // `script:nested` — a screen standing on another one, which the way back returns from.
                 Box(Modifier.testTag("script:nested"))
                 // Only where the host has no arrow of its own: the shell's goes through the handler above.
-                if (!hostDrawsBack) Button(
-                    text = "‹ " + words.back,
-                    onClick = instance::back,
-                    variant = ButtonVariant.Ghost,
-                    size = ButtonSize.Sm,
-                    modifier = Modifier.padding(8.dp).testTag("script:back"),
+                if (!hostDrawsBack) {
+                    Button(
+                        text = words.back,
+                        onClick = instance::back,
+                        variant = ButtonVariant.Ghost,
+                        size = ButtonSize.Sm,
+                        leadingIcon = Lucide.ChevronLeft,
+                        modifier = Modifier.testTag("script:back"),
+                    )
+                }
+            }
+            notice?.let { text ->
+                Alert(text, Modifier.testTag("script:notice"), icon = Lucide.Info)
+            }
+            error?.let { text ->
+                Notice(
+                    Tone.Danger,
+                    Lucide.CircleAlert,
+                    own.failed,
+                    text,
+                    Modifier.testTag("script:error"),
+                    action = { Button(words.retry, { instance.retry() }, variant = ButtonVariant.Outline) },
                 )
             }
             val drawn = screen
             when {
-                drawn != null -> ScriptNodeView(drawn.tree, instance, words, "script")
+                drawn != null -> ScriptNodeView(drawn.tree, instance, words, own, "script")
                 error != null -> Unit // the notice above is the whole screen until a retry works
-                else -> EmptyState(words.loading, null, null, null, "script:loading")
+                else -> Column(Modifier.testTag("script:loading"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    repeat(4) { Skeleton(Modifier.fillMaxWidth().height(52.dp)) }
+                }
             }
         }
     }
 }
 
-/** One node of the tree. Stage 0 draws six; anything else says so, in place, and keeps the screen. */
+/**
+ * One node of the tree, drawn by a kit component — the prelude's `ui.*` is this set: a column, a section with its
+ * title, a list of rows in one bordered block, a button, a field, a select, an empty state and a line of text.
+ * Anything else says so, in place, and keeps the screen.
+ */
 @Composable
-private fun ScriptNodeView(node: ScriptNode, instance: ScriptAppInstance, words: RenderWords, tag: String) {
+private fun ScriptNodeView(node: ScriptNode, instance: ScriptAppInstance, words: RenderWords, own: ScriptWords, tag: String) {
     when (node.type) {
-        "column" -> Column(modifier = Modifier.fillMaxWidth()) {
-            node.children.forEachIndexed { index, child -> ScriptNodeView(child, instance, words, "$tag:$index") }
+        "column" -> Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(byWindow(16.dp, 20.dp, 24.dp))) {
+            node.children.forEachIndexed { index, child -> ScriptNodeView(child, instance, words, own, "$tag:$index") }
         }
 
-        "section" -> Column(modifier = Modifier.fillMaxWidth()) {
+        "section" -> Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Kit.spacing.md)) {
             node.title?.let { title ->
                 Text(
                     text = title,
-                    style = AppTheme.label.copy(fontWeight = FontWeight.Medium),
-                    color = AppTheme.muted,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 4.dp).testTag("$tag:title"),
+                    style = Kit.textStyles.label.copy(fontWeight = FontWeight.SemiBold),
+                    modifier = Modifier.padding(start = 4.dp).testTag("$tag:title"),
                 )
             }
-            node.children.forEachIndexed { index, child -> ScriptNodeView(child, instance, words, "$tag:$index") }
+            node.children.forEachIndexed { index, child -> ScriptNodeView(child, instance, words, own, "$tag:$index") }
         }
 
         "list" ->
             if (node.items.isEmpty()) {
-                EmptyState(node.empty ?: words.nothingFound, null, null, null, "$tag:empty")
+                EmptyState(Lucide.Inbox, node.empty ?: words.nothingFound, own.emptyHint, Modifier.testTag("$tag:empty"))
             } else {
                 ScriptListView(node, instance, words, tag)
             }
@@ -140,28 +188,25 @@ private fun ScriptNodeView(node: ScriptNode, instance: ScriptAppInstance, words:
             words = words,
             onClick = { press(node.press, node.onPress, instance) },
             tag = "$tag:button",
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth(),
         )
 
         "field" -> ScriptFieldView(node, instance, tag)
 
-        "select" -> ScriptSelectView(node, instance, words, tag)
+        "select" -> ScriptSelectView(node, instance, own, tag)
 
-        "empty" -> EmptyState(node.title.orEmpty(), null, null, null, "$tag:empty")
+        "empty" -> EmptyState(Lucide.Inbox, node.title.orEmpty(), own.emptyHint, Modifier.testTag("$tag:empty"))
 
         "text" -> Text(
             text = node.title.orEmpty(),
-            style = AppTheme.body,
-            color = AppTheme.foreground,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).testTag("$tag:text"),
+            modifier = Modifier.padding(horizontal = 4.dp).testTag("$tag:text"),
         )
 
         // A script one version ahead of this build: its node is named, not drawn, and nothing breaks.
         else -> Text(
             text = node.title ?: node.type,
-            style = AppTheme.label,
-            color = AppTheme.muted,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).testTag("$tag:unknown"),
+            variant = TextVariant.Muted,
+            modifier = Modifier.padding(horizontal = 4.dp).testTag("$tag:unknown"),
         )
     }
 }
@@ -179,8 +224,11 @@ private fun ScriptNodeView(node: ScriptNode, instance: ScriptAppInstance, words:
 private fun ScriptListView(node: ScriptNode, instance: ScriptAppInstance, words: RenderWords, tag: String) {
     val reorder = node.onReorder
     if (reorder == null) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            node.items.forEach { row -> ScriptRowView(row, instance, words, "$tag:row-${row.key ?: row.title}", null) }
+        Rows(Modifier) {
+            node.items.forEachIndexed { index, row ->
+                if (index > 0) ItemSeparator()
+                ScriptRowView(row, instance, words, "$tag:row-${row.key ?: row.title}", null)
+            }
         }
         return
     }
@@ -193,8 +241,9 @@ private fun ScriptListView(node: ScriptNode, instance: ScriptAppInstance, words:
     fun target(from: Int): Int =
         (from + (offset / rowHeight).roundToInt()).coerceIn(0, node.items.lastIndex)
 
-    Column(modifier = Modifier.fillMaxWidth().testTag("$tag:list")) {
+    Rows(Modifier.testTag("$tag:list")) {
         node.items.forEachIndexed { index, row ->
+            if (index > 0) ItemSeparator()
             val from = dragging
             val shift = when {
                 from == null -> 0f
@@ -250,40 +299,70 @@ private data class DragSpec(
     val onCancel: () -> Unit,
 )
 
-/** A row of a list: its switch is drawn beside it, its handle after it, and its actions under it. */
+/** Rows in one bordered card, as the kit's groups are; hairlines between them are the caller's. */
+@Composable
+private fun Rows(modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(Kit.shapes.xl)
+            .background(Kit.colors.card)
+            .border(1.dp, Kit.colors.border, Kit.shapes.xl),
+        content = content,
+    )
+}
+
+/** A row of a list: its value or switch beside it, its handle after it, and its actions under it. */
 @Composable
 private fun ScriptRowView(row: ScriptRow, instance: ScriptAppInstance, words: RenderWords, tag: String, drag: DragSpec?) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        ListRow(
-            title = row.title.orEmpty(),
-            subtitle = row.subtitle,
-            meta = null,
-            value = row.value,
-            valueTone = row.tone,
-            badge = null,
-            badgeTone = null,
-            tag = tag,
-            onClick = if (row.press != null || row.onPress != null) {
-                { press(row.press, row.onPress, instance) }
-            } else {
-                null
-            },
-            trailing = {
-                row.toggle?.let { checked ->
-                    SwitchControl(
-                        checked = checked,
-                        label = row.title.orEmpty(),
-                        enabled = row.onToggle != null,
-                        onChange = { value -> row.onToggle?.let { instance.handle(it, JsonPrimitive(value)) } },
-                        tag = "$tag:toggle",
-                    )
-                }
-                drag?.let { DragHandle(it, words, "$tag:drag") }
-            },
-        )
+    val tappable = row.press != null || row.onPress != null
+    Column(modifier = Modifier.fillMaxWidth().background(if (drag?.active == true) Kit.colors.accent else Color.Transparent)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = byWindow(56.dp, 48.dp, 48.dp))
+                .then(
+                    if (tappable) {
+                        Modifier.semantics(mergeDescendants = true) {}.kitClickable { press(row.press, row.onPress, instance) }
+                    } else {
+                        Modifier
+                    },
+                )
+                .padding(start = Kit.spacing.lg, end = if (drag != null) 4.dp else Kit.spacing.md, top = 10.dp, bottom = 10.dp)
+                .testTag(tag),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Kit.spacing.md),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(row.title.orEmpty(), style = Kit.textStyles.label, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("$tag:title"))
+                row.subtitle?.let { Text(it, variant = TextVariant.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("$tag:subtitle")) }
+            }
+            row.value?.let {
+                Text(
+                    it,
+                    style = Kit.textStyles.number,
+                    color = toneOfScript(row.tone)?.textColor() ?: Kit.colors.foreground,
+                    maxLines = 1,
+                    modifier = Modifier.testTag("$tag:value"),
+                )
+            }
+            row.toggle?.let { checked ->
+                Switch(
+                    checked = checked,
+                    onCheckedChange = row.onToggle?.let { handler -> { value: Boolean -> instance.handle(handler, JsonPrimitive(value)) } },
+                    enabled = row.onToggle != null,
+                    contentDescription = row.title.orEmpty(),
+                    modifier = Modifier.testTag("$tag:toggle"),
+                )
+            }
+            if (tappable && row.toggle == null && drag == null) {
+                Icon(Lucide.ChevronRight, contentDescription = null, size = 16.dp, tint = Kit.colors.mutedForeground)
+            }
+            drag?.let { DragHandle(it, words, "$tag:drag") }
+        }
         if (row.actions.isNotEmpty()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, bottom = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = Kit.spacing.lg, end = Kit.spacing.md, bottom = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -291,7 +370,8 @@ private fun ScriptRowView(row: ScriptRow, instance: ScriptAppInstance, words: Re
                     Button(
                         text = action.title.orEmpty(),
                         onClick = { press(action.press, action.onPress, instance) },
-                        variant = if (action.tone == "danger") ButtonVariant.Destructive else ButtonVariant.Outline,
+                        // Red words for a dangerous action in a row; the red fill is for the question that follows.
+                        variant = if (action.tone == "danger") ButtonVariant.Ghost else ButtonVariant.Outline,
                         size = ButtonSize.Sm,
                         modifier = Modifier.testTag("$tag:action-$index"),
                     )
@@ -301,19 +381,27 @@ private fun ScriptRowView(row: ScriptRow, instance: ScriptAppInstance, words: Re
     }
 }
 
+/** The script's tone of a value, in the kit's: the same closed set the server's declarations use. */
+private fun toneOfScript(tone: String?): Tone? = when (tone) {
+    "success" -> Tone.Success
+    "warning" -> Tone.Warn
+    "danger" -> Tone.Danger
+    "info" -> Tone.Running
+    "muted" -> Tone.Muted
+    else -> null
+}
+
 /**
  * The handle a row is dragged by: three lines, and the pointer is taken only on it, so the row's own
  * tap, its switch and its actions keep working while the list is reorderable.
  */
 @Composable
 private fun DragHandle(drag: DragSpec, words: RenderWords, tag: String) {
-    val tokens = AppTheme
-    Column(
+    Box(
         modifier = Modifier
-            .padding(start = 4.dp)
-            .clip(RoundedCornerShape(tokens.radius))
-            .background(if (drag.active) tokens.muted.copy(alpha = 0.18f) else Color.Transparent)
-            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .size(44.dp)
+            .clip(Kit.shapes.md)
+            .background(if (drag.active) Kit.colors.muted else Color.Transparent)
             .semantics { contentDescription = words.reorder }
             .testTag(tag)
             .pointerInput(drag.onEnd) {
@@ -327,11 +415,9 @@ private fun DragHandle(drag: DragSpec, words: RenderWords, tag: String) {
                     },
                 )
             },
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        repeat(3) {
-            Box(modifier = Modifier.size(width = 14.dp, height = 2.dp).background(tokens.muted, RoundedCornerShape(1.dp)))
-        }
+        Icon(Lucide.GripVertical, contentDescription = null, size = 18.dp, tint = Kit.colors.mutedForeground)
     }
 }
 
@@ -354,11 +440,7 @@ private fun ScriptFieldView(node: ScriptNode, instance: ScriptAppInstance, tag: 
         sent = fromScript
     }
 
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        node.title?.let { Text(text = it, style = AppTheme.footnote, color = AppTheme.muted) }
+    val field: @Composable () -> Unit = {
         Input(
             value = typed,
             onValueChange = { value ->
@@ -367,47 +449,29 @@ private fun ScriptFieldView(node: ScriptNode, instance: ScriptAppInstance, tag: 
                 node.onChange?.let { instance.handle(it, JsonPrimitive(value)) }
             },
             placeholder = node.placeholder ?: node.title.orEmpty(),
+            label = node.title ?: node.placeholder.orEmpty(),
             modifier = Modifier.fillMaxWidth().testTag("$tag:field-$key"),
         )
     }
+    val title = node.title
+    if (title != null) Field(title) { field() } else field()
 }
 
-/** One of a list, picked in a sheet — the shape the point switcher has. */
+/** One of a list: the kit's select — a dropdown on a wide window, a sheet on a phone. */
 @Composable
-private fun ScriptSelectView(node: ScriptNode, instance: ScriptAppInstance, words: RenderWords, tag: String) {
+private fun ScriptSelectView(node: ScriptNode, instance: ScriptAppInstance, own: ScriptWords, tag: String) {
     val key = node.id ?: tag
-    var open by remember(key) { mutableStateOf(false) }
-    val chosen = node.options.firstOrNull { it.value == node.value }
-
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        node.title?.let { Text(text = it, style = AppTheme.footnote, color = AppTheme.muted) }
-        Button(
-            text = chosen?.title ?: node.value ?: node.placeholder.orEmpty(),
-            onClick = { open = true },
-            variant = ButtonVariant.Outline,
-            size = ButtonSize.Lg,
+    val select: @Composable () -> Unit = {
+        Select(
+            value = node.value ?: node.placeholder.orEmpty(),
+            options = node.options.map { SelectOption(it.value, it.title, it.subtitle) },
+            onSelect = { value -> node.onChange?.let { instance.handle(it, JsonPrimitive(value)) } },
+            title = node.title ?: own.choose,
             modifier = Modifier.fillMaxWidth().testTag("$tag:select-$key"),
         )
     }
-    if (open) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            ChoiceSheet(
-                visible = true,
-                title = node.title ?: words.set,
-                choices = node.options.map { SheetChoice(it.value, it.title, it.subtitle) },
-                selected = node.value,
-                onDismiss = { open = false },
-                onPick = { value ->
-                    open = false
-                    node.onChange?.let { instance.handle(it, JsonPrimitive(value)) }
-                },
-                tag = "$tag:sheet-$key",
-            )
-        }
-    }
+    val title = node.title
+    if (title != null) Field(title) { select() } else select()
 }
 
 /** A tap: either an action the host performs itself, or a handler back in the script. */

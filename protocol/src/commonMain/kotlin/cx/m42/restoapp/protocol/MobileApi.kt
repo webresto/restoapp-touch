@@ -117,6 +117,11 @@ public data class Open(
     val place: String? = null,
     val title: String? = null,
     val url: String? = null,
+    /**
+     * P9: a server of this Resto Cloud account by its resource id — «Открыть управление»: the client opens that
+     * server in the app (it is one of the account's servers in the switcher), not a screen of this one.
+     */
+    @Serializable(with = LenientString::class) val server: String? = null,
 )
 
 /** A line of a card that leads somewhere: «Применения · 12 →». */
@@ -125,6 +130,8 @@ public data class RecordLink(
     val title: String,
     val meta: String? = null,
     val open: Open,
+    /** P9: a by-the-way line — the web admin of a service: a small grey link at the foot of the card, not a button. */
+    @Serializable(with = LenientBoolean::class) val quiet: Boolean? = null,
 )
 
 /** `{items, nextCursor, counts, total}` — the envelope of every list. */
@@ -133,6 +140,8 @@ public data class ListPage(
     val nextCursor: String?,
     val counts: Map<String, Int>,
     val total: Int?,
+    /** The line under the list's title: «Ленина, 5 · сегодня 24 заказа, 7 в работе». */
+    val description: String? = null,
 ) {
     public companion object {
         public fun of(result: JsonElement): ListPage {
@@ -143,6 +152,7 @@ public data class ListPage(
                 nextCursor = (body["nextCursor"] as? JsonPrimitive)?.contentOrNull,
                 counts = (body["counts"] as? JsonObject)?.mapNotNull { (key, value) -> (value as? JsonPrimitive)?.intOrNull?.let { key to it } }?.toMap().orEmpty(),
                 total = (body["total"] as? JsonPrimitive)?.intOrNull,
+                description = (body["description"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { it.isNotBlank() },
             )
         }
     }

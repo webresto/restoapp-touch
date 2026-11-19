@@ -48,29 +48,17 @@ class AssistantWalkTest {
 
     private fun ComposeUiTest.shot(name: String) {
         waitForIdle()
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(out, "$name.png"))
+        // The whole scene: a dialog is a popup — a second root — and onRoot() refuses two.
+        ImageIO.write(((this as? androidx.compose.ui.test.SkikoComposeUiTest)?.captureToImage() ?: onRoot().captureToImage()).toAwtImage(), "png", File(out, "$name.png"))
     }
 
     private fun ComposeUiTest.exists(tag: String) = onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
 
     private fun ComposeUiTest.hasText(text: String) = onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
 
-    private fun ComposeUiTest.openMenu() {
-        onNode(hasContentDescription("Открыть меню")).performClick()
-        waitForIdle()
-    }
-
     private fun ComposeUiTest.openAssistant() {
-        // From another app: «Главная» of the drawer; on Home already the drawer is not opened at all.
-        if (!exists("home:tile-assistant")) {
-            openMenu()
-            onAllNodesWithText("Главная").onFirst().performClick()
-        }
-        waitUntil(timeoutMillis = 10_000L) { exists("home:tile-assistant") }
-        // The last tile of a long Home: scrolled to «Добавить» after it, so the whole tile is on screen.
-        onNodeWithTag("home:add").performScrollTo()
-        waitForIdle()
-        onNodeWithTag("home:tile-assistant").performClick()
+        // From anywhere: the bottom bar, or «Ещё» when it did not fit there.
+        openApp("assistant")
         waitUntil(timeoutMillis = 20_000L) { exists("assistant:welcome") || exists("assistant:messages") || exists("assistant:setup") }
     }
 
@@ -95,7 +83,7 @@ class AssistantWalkTest {
     @Test
     fun theDemoServerHasItsAssistant() = runComposeUiTest {
         val host = host(Files.createTempDirectory("restoapp-assistant").toFile())
-        setContent { RestoApp(host) }
+        setContent { OnAPhone { RestoApp(host) } }
         waitUntil(timeoutMillis = 10_000L) { host.active.value.superizer.registry.get(AppId("assistant")) != null }
         assertTrue(host.active.value.superizer.registry.get(AppId("assistant")) is AssistantApp)
         openAssistant()
@@ -113,14 +101,11 @@ class AssistantWalkTest {
         }
         val host = host(Files.createTempDirectory("restoapp-assistant-cloud").toFile(), base)
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
-            openMenu()
-            onNodeWithTag("context:row").performClick()
-            waitForIdle()
-            onNodeWithTag("context:add").performClick()
-            waitForIdle()
-            onNodeWithTag("servers:add-cloud").performClick()
+            openContexts()
+            // «Подключить облачный аккаунт» — the switcher's second "+" row: straight to the cloud's sign-in.
+            onNodeWithTag("context:add-add-cloud").performClick()
             waitUntil(timeoutMillis = 15_000L) { exists("servers:login") }
             onNodeWithTag("servers:login").performTextInput(login)
             onNodeWithTag("servers:password").performTextInput(password)

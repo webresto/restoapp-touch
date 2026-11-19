@@ -55,6 +55,15 @@ public interface RestoServer {
      */
     public suspend fun call(method: String, params: JsonObject): JsonElement
 
+    /**
+     * P9 `open.server`: may a server of this Resto Cloud account, by its resource id, be opened in the app right
+     * now — it is one of the account's servers and it runs. False for a RestoApp and for a host that cannot.
+     */
+    public fun canOpenServer(id: String): Boolean = false
+
+    /** Opens that server in the app — the host switches to it and signs in through the cloud. False when it cannot. */
+    public fun openServer(id: String): Boolean = false
+
     public companion object {
         public val Key: ServiceKey<RestoServer> = ServiceKey("restoapp-server")
     }

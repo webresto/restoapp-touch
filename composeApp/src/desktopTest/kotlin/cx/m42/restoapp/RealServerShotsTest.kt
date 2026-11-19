@@ -66,7 +66,8 @@ class RealServerShotsTest {
 
     private fun ComposeUiTest.shot(name: String) {
         waitForIdle()
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(out, "$name.png"))
+        // The whole scene: a dialog is a popup — a second root — and onRoot() refuses two.
+        ImageIO.write(((this as? androidx.compose.ui.test.SkikoComposeUiTest)?.captureToImage() ?: onRoot().captureToImage()).toAwtImage(), "png", File(out, "$name.png"))
     }
 
     private fun ComposeUiTest.exists(tag: String) = runCatching { onNodeWithTag(tag).assertExists() }.isSuccess
@@ -112,10 +113,10 @@ class RealServerShotsTest {
             setContent { RestoApp(host) }
             waitForIdle()
 
-            signIn(address, "admin", "home:tile-system")
-            shot("system-01-home-tiles")
+            signIn(host, address, "admin", "system")
+            shot("system-01-home")
 
-            onNodeWithTag("home:tile-system").performScrollTo().performClick()
+            openApp("system")
             waitUntil(timeoutMillis = 30_000L) { exists("system:detail") }
             shot("system-02-server-card")
 
@@ -168,12 +169,12 @@ class RealServerShotsTest {
             }
 
             // The right is the door: the same server, a stock manager, and no «Система» on Home.
-            signIn(address, "stock", "home:tile-dishes")
+            signIn(host, address, "stock", "dishes")
             shot("system-09-no-system-for-stock")
 
             // The refusal of the restart: the card of the server, and no button on it.
-            signIn(address, "settler", "home:tile-system")
-            onNodeWithTag("home:tile-system").performScrollTo().performClick()
+            signIn(host, address, "settler", "system")
+            openApp("system")
             waitUntil(timeoutMillis = 30_000L) { exists("system:detail") }
             shot("system-12-no-restart-for-settings")
             println("screenshots in ${out.absolutePath}")
@@ -202,8 +203,8 @@ class RealServerShotsTest {
             runDesktopComposeUiTest(width = 420, height = 820) {
                 setContent { RestoApp(host) }
                 waitForIdle()
-                signIn(address, "admin", "home:tile-system")
-                onNodeWithTag("home:tile-system").performScrollTo().performClick()
+                signIn(host, address, "admin", "system")
+                openApp("system")
                 waitUntil(timeoutMillis = 30_000L) { exists("system:detail") }
                 onNodeWithTag("system:link-system.catalog").performScrollTo()
                 shot("extensions-01-home-link")
@@ -332,12 +333,12 @@ class RealServerShotsTest {
         shellBack()
     }
 
-    /** Adds the stand as a server of the client and signs in, as `theScreensOfTheRealServer` does. */
-    private fun ComposeUiTest.signIn(address: String, login: String, tile: String) {
-        onNode(hasContentDescription("Открыть меню")).performClick()
-        waitForIdle()
-        onNodeWithTag("context:row").performClick()
-        waitForIdle()
+    /**
+     * Adds the stand as a server of the client and signs in, as `theScreensOfTheRealServer` does, until the
+     * app [app] is the person's and «Главная» of the stand is drawn.
+     */
+    private fun ComposeUiTest.signIn(host: RestoAppHost, address: String, login: String, app: String) {
+        openContexts()
         onNodeWithTag("context:add").performClick()
         waitForIdle()
         onNodeWithTag("servers:add-custom").performClick()
@@ -350,7 +351,7 @@ class RealServerShotsTest {
         onNodeWithTag("servers:connect").performClick()
         waitUntil(timeoutMillis = 60_000L) {
             if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
-            exists(tile)
+            host.active.value.superizer.registry.get(AppId(app)) != null && exists("home:summary")
         }
         waitForIdle()
     }
@@ -377,10 +378,7 @@ class RealServerShotsTest {
             waitForIdle()
 
             // Connect the server by its address and sign in as the administrator.
-            onNode(hasContentDescription("Открыть меню")).performClick()
-            waitForIdle()
-            onNodeWithTag("context:row").performClick()
-            waitForIdle()
+            openContexts()
             onNodeWithTag("context:add").performClick()
             waitForIdle()
             onNodeWithTag("servers:add-custom").performClick()
@@ -395,14 +393,14 @@ class RealServerShotsTest {
             onNodeWithTag("servers:connect").performClick()
             waitUntil(timeoutMillis = 60_000L) {
                 if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
-                host.active.value.superizer.registry.get(AppId("dishes")) != null && exists("home:tile-dishes")
+                host.active.value.superizer.registry.get(AppId("dishes")) != null && exists("home:summary")
             }
             // Home: every app the server declared for this user, «Навигация» of the module among them.
             shot("03-home-real-server")
 
             // The app whose code came from the server as JS: its screen is drawn by the script.
-            if (exists("home:tile-navigation")) {
-                onNodeWithTag("home:tile-navigation").performScrollTo().performClick()
+            if (hasApp("navigation")) {
+                openApp("navigation")
                 // The bundle is downloaded, run, and the menus it asked the server for are drawn.
                 waitUntil(timeoutMillis = 60_000L) { hasText("Шапка") || hasText("Меню пока нет") || exists("script:error") }
                 shot("04-navigation-menus")
@@ -472,16 +470,17 @@ class RealServerShotsTest {
             }
 
             // And the apps the universal renderer draws, from the same server.
-            onNode(hasContentDescription("Открыть меню")).performClick()
-            waitForIdle()
-            shot("12-drawer-apps")
-            onAllNodesWithText("Блюда").onFirst().performClick()
+            openHome()
+            if (exists("shell:nav-more")) {
+                onNodeWithTag("shell:nav-more").performClick()
+                waitUntil(timeoutMillis = 10_000L) { exists("more:root") }
+            }
+            shot("12-more-apps")
+            openApp("dishes")
             waitUntil(timeoutMillis = 30_000L) { exists("dishes:list") }
             shot("13-dishes")
 
-            onNode(hasContentDescription("Открыть меню")).performClick()
-            waitForIdle()
-            onAllNodesWithText("Клиенты").onFirst().performClick()
+            openApp("clients")
             waitUntil(timeoutMillis = 30_000L) { exists("clients:list") || exists("clients:empty") }
             shot("14-clients")
             println("screenshots in ${out.absolutePath}")
@@ -517,10 +516,7 @@ class RealServerShotsTest {
             setContent { RestoApp(host) }
             waitForIdle()
 
-            onNode(hasContentDescription("Открыть меню")).performClick()
-            waitForIdle()
-            onNodeWithTag("context:row").performClick()
-            waitForIdle()
+            openContexts()
             onNodeWithTag("context:add").performClick()
             waitForIdle()
             onNodeWithTag("servers:add-custom").performClick()
@@ -534,11 +530,11 @@ class RealServerShotsTest {
             onNodeWithTag("servers:connect").performClick()
             waitUntil(timeoutMillis = 60_000L) {
                 if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
-                host.active.value.superizer.registry.get(AppId("channels")) != null && exists("home:tile-channels")
+                host.active.value.superizer.registry.get(AppId("channels")) != null && exists("home:summary")
             }
             shot("20-channels-home")
 
-            onNodeWithTag("home:tile-channels").performScrollTo().performClick()
+            openApp("channels")
             waitUntil(timeoutMillis = 30_000L) { exists("channels:list") }
             // The list: the badge of each channel and, under it, why it works or does not.
             shot("21-channels-list")

@@ -5,6 +5,8 @@ import cx.m42.restoapp.protocol.ProtocolJson
 import cx.m42.restoapp.render.RestoServer
 import cx.m42.superizer.app.AppChrome
 import cx.m42.superizer.app.AppInstance
+import cx.m42.superizer.app.AppLayout
+import cx.m42.superizer.app.AppWidth
 import cx.m42.superizer.runtime.InstanceRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -118,6 +120,11 @@ public class PosInstance(
     private val _chrome = MutableStateFlow(AppChrome())
     override val chrome: StateFlow<AppChrome> get() = _chrome.asStateFlow()
 
+    // As wide as the window: the till lays itself out by the window class (catalog and receipt side by
+    // side), and says where its "back" leads.
+    private val _layout = MutableStateFlow(AppLayout(AppWidth.Adaptive))
+    override val layout: StateFlow<AppLayout> get() = _layout.asStateFlow()
+
     private var started = false
     private var loadJob: Job? = null
     private var searchJob: Job? = null
@@ -139,6 +146,19 @@ public class PosInstance(
                     title = state.order?.let { "№ ${it.number}" },
                     subtitle = place?.title,
                     canGoBack = state.order != null,
+                )
+            }
+        }
+        runtime.scope.launch {
+            combine(runtime.locale.langTag, _state) { lang, state -> lang to state }.collect { (lang, state) ->
+                val words = PosWords(lang)
+                _layout.value = AppLayout(
+                    AppWidth.Adaptive,
+                    upTitle = when {
+                        state.order != null && state.catalog != null -> words.receiptTab
+                        state.order != null || state.placed != null -> words.receiptsTab
+                        else -> null
+                    },
                 )
             }
         }

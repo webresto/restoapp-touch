@@ -7,11 +7,16 @@ import cx.m42.superizer.app.AppIcon
 import cx.m42.superizer.app.AppId
 import cx.m42.superizer.app.AppInstance
 import cx.m42.superizer.app.AppManifest
+import cx.m42.superizer.app.AppSetupContext
 import cx.m42.superizer.app.AppMetadata
 import cx.m42.superizer.app.SuperizerApp
 import cx.m42.superizer.app.localized
 import cx.m42.superizer.runtime.InstanceRuntime
 import cx.m42.superizer.runtime.require
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
 /** Nothing to configure: what the POS shows is the order the server counted. */
@@ -51,6 +56,21 @@ public class PosApp(private val declared: DeclaredApp, private val lang: String)
 
     override val configSpec: AppConfigSpec<PosConfig> = AppConfigSpec(PosConfig.serializer(), PosConfig())
 
-    override fun launch(runtime: InstanceRuntime, config: PosConfig): AppInstance =
-        PosInstance(runtime, runtime.require(RestoServer.Key))
+    /**
+     * The open receipts of the point, beside the app in the host's menu: counted here from the list
+     * the till already reads, not asked of the server. Null — none, and no mark.
+     */
+    private val openReceipts = MutableStateFlow<String?>(null)
+
+    override fun setup(ctx: AppSetupContext) {
+        ctx.badge(openReceipts)
+    }
+
+    override fun launch(runtime: InstanceRuntime, config: PosConfig): AppInstance {
+        val instance = PosInstance(runtime, runtime.require(RestoServer.Key))
+        runtime.scope.launch {
+            instance.state.map { it.drafts.size.takeIf { count -> count > 0 }?.toString() }.distinctUntilChanged().collect { openReceipts.value = it }
+        }
+        return instance
+    }
 }

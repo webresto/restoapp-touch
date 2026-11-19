@@ -2,7 +2,10 @@
 
 package cx.m42.restoapp.pos
 
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
@@ -44,6 +47,18 @@ class PosAppTest {
         runCatching { node(tag).performScrollTo() }
         idle()
         click(tag)
+    }
+
+    /**
+     * The «+» of a kit `QtyStepper` inside the node tagged [tag]: the kit's stepper has no tags of its
+     * own, its buttons say «+» and «−» to a screen reader.
+     */
+    private fun AppTestScope<*>.plus(tag: String) {
+        val button = ui.onNode(hasContentDescription("+") and hasAnyAncestor(hasTestTag(tag)))
+        runCatching { button.performScrollTo() }
+        idle()
+        button.performClick()
+        idle()
     }
 
     private fun pos(
@@ -105,6 +120,8 @@ class PosAppTest {
     fun droppingADraftAsksAndThenRemovesIt() = pos {
         tap("pos:new")
         val id = assertNotNull(screen.state.value.order).id
+        // «Бросить заказ» is in the receipt's ⋯.
+        tap("pos:more")
         tap("pos:drop")
         // The first tap asks; the receipt is still there until the question is answered.
         assertShown("pos:drop:confirm")
@@ -157,14 +174,13 @@ class PosAppTest {
         assertEquals(1, screen.state.value.order?.lines?.size)
         // The catalog says how many of it the receipt already has, without leaving the catalog.
         assertShown("pos:product-${product.id}:in-order")
-        click("pos:catalog-back")
-        click("pos:catalog-back")
+        click("pos:to-receipt")
         assertShown("pos:receipt")
 
         // − and + in the receipt are the server's answer, not arithmetic on the device.
         val lineId = assertNotNull(screen.state.value.order?.lines?.firstOrNull()?.lineId)
-        tap("pos:line-$lineId:amount:plus")
-        tap("pos:line-$lineId:amount:plus")
+        plus("pos:line-$lineId:amount")
+        plus("pos:line-$lineId:amount")
         idle()
         assertEquals(3, screen.state.value.order?.lines?.firstOrNull()?.amount)
         assertEquals(product.price * 3, screen.state.value.order?.total)
@@ -192,8 +208,8 @@ class PosAppTest {
         assertEquals("CHECKOUT", screen.state.value.order?.state)
         assertEquals(true, screen.state.value.order?.canPlace)
 
+        // Checked, the same button places it: the check was the question.
         tap("pos:place-order")
-        tap("pos:place-order:yes")
         idle()
         // Placed: the «accepted» screen, and the draft is gone from the point.
         assertShown("pos:placed")
@@ -224,10 +240,10 @@ class PosAppTest {
         assertNull(assertNotNull(screen.state.value.chooser).chosen["o-thin"])
 
         // A group that takes several is counted, and the server's ceiling is kept.
-        click("pos:option-o-cheese:amount:plus")
-        click("pos:option-o-cheese:amount:plus")
-        click("pos:option-o-cheese:amount:plus")
-        click("pos:option-o-cheese:amount:plus")
+        plus("pos:option-o-cheese:amount")
+        plus("pos:option-o-cheese:amount")
+        plus("pos:option-o-cheese:amount")
+        plus("pos:option-o-cheese:amount")
         idle()
         assertEquals(3, assertNotNull(screen.state.value.chooser).chosen["o-cheese"])
 
@@ -240,8 +256,7 @@ class PosAppTest {
         assertEquals(pizza.price + 60.0 + 160.0, line.price)
 
         // The same chooser from the receipt, and the sauce changed on the line that is already in it.
-        click("pos:catalog-back")
-        click("pos:catalog-back")
+        click("pos:to-receipt")
         assertShown("pos:receipt")
         tap("pos:line-${line.lineId}:options")
         idle()
@@ -336,8 +351,7 @@ class PosAppTest {
         click("pos:group-Супы")
         val soup = assertNotNull(screen.state.value.catalog?.catalog?.items?.firstOrNull())
         click("pos:product-${soup.id}:add")
-        click("pos:catalog-back")
-        click("pos:catalog-back")
+        click("pos:to-receipt")
         idle()
         val order = assertNotNull(screen.state.value.order)
         assertEquals(soup.price + order.deliveryCost, order.total)

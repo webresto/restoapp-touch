@@ -1,5 +1,10 @@
 package cx.m42.restoapp
 
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Modifier
+import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -15,7 +20,6 @@ import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
-import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.v2.runComposeUiTest
 import cx.m42.restoapp.demo.DemoRole
 import cx.m42.superizer.app.AppId
@@ -68,57 +72,56 @@ class RestoAppTest {
     @Test
     fun aFreshInstallOpensTheDemoRestaurantWithTheAppsItDeclares() = runComposeUiTest {
         val host = restoApp()
-        setContent { RestoApp(host) }
+        setContent { OnAPhone { RestoApp(host) } }
         waitUntil(timeoutMillis = 5_000L) { host.registered() == setOf("dishes", "orders") }
         waitForIdle()
 
         onNodeWithText("Демо-ресторан").assertIsDisplayed()
-        onNodeWithTag("home:tile-dishes").assertIsDisplayed()
-        onNodeWithTag("home:tile-orders").assertIsDisplayed()
+        onNodeWithTag("home:summary").assertIsDisplayed()
+        onNodeWithTag("shell:nav-dishes").assertIsDisplayed()
+        onNodeWithTag("shell:nav-orders").assertIsDisplayed()
         onNodeWithTag("home:demo").assertIsDisplayed()
         assertEquals(listOf("demo-restaurant", "demo-point"), host.contexts.value.map { it.id })
     }
 
+    /** A phone has no drawer any more: the server is the line of the top bar, the apps are the bottom bar. */
     @Test
-    fun swipingInFromTheLeftEdgeShowsTheServerAtTheTopOfTheDrawer() = runComposeUiTest {
-        setContent { RestoApp(restoApp()) }
-        waitForIdle()
-
-        onRoot().performTouchInput { swipeRight(startX = 1f, endX = centerX) }
+    fun aPhoneShowsTheServerInTheTopBarAndTheAppsInTheBottomBar() = runComposeUiTest {
+        setContent { OnAPhone { RestoApp(restoApp()) } }
         waitForIdle()
 
         onNodeWithTag("context:row").assertIsDisplayed()
+        onNodeWithTag("shell:bar").assertIsDisplayed()
+        onNodeWithTag("shell:nav-home").assertIsDisplayed()
+        onNodeWithContentDescription("Открыть меню").assertDoesNotExist()
     }
 
     /** With a mouse, which is what a desktop window delivers, rather than a finger. */
     @Test
-    fun clickingTheBurgerWithAMouseOpensTheDrawer() = runComposeUiTest {
-        setContent { RestoApp(restoApp()) }
+    fun clickingTheServerLineWithAMouseOpensTheListOfServers() = runComposeUiTest {
+        setContent { OnAPhone { RestoApp(restoApp()) } }
         waitForIdle()
 
-        onNodeWithContentDescription("Открыть меню").performMouseInput { click() }
+        onNodeWithTag("context:row").performMouseInput { click() }
         waitForIdle()
 
-        onNodeWithTag("context:row").assertIsDisplayed()
+        onNodeWithTag("context:add").assertIsDisplayed()
     }
 
     @Test
     fun pickingAnotherServerSwitchesTheMenuAndHome() = runComposeUiTest {
         val host = restoApp()
-        setContent { RestoApp(host) }
+        setContent { OnAPhone { RestoApp(host) } }
         waitForIdle()
 
-        onNodeWithContentDescription("Открыть меню").performClick()
-        waitForIdle()
-        onNodeWithTag("context:row").performClick()
-        waitForIdle()
+        openContexts()
         onNodeWithTag("context:item-demo-point").performClick()
         waitUntil(timeoutMillis = 5_000L) { host.current.value?.id == "demo-point" && host.registered() == setOf("dishes") }
         waitForIdle()
 
         onNodeWithText("Демо-точка").assertIsDisplayed()
-        onNodeWithTag("home:tile-dishes").assertIsDisplayed()
-        onNodeWithTag("home:tile-orders").assertDoesNotExist()
+        assertApp("dishes")
+        assertNoApp("orders")
         // The language follows the person, not the server.
         assertEquals("ru", host.active.value.superizer.settings.langTag.value)
     }
@@ -142,13 +145,10 @@ class RestoAppTest {
     @Test
     fun aDemoServerFromTheSheetIsAddedAndOpened() = runComposeUiTest {
         val host = restoApp()
-        setContent { RestoApp(host) }
+        setContent { OnAPhone { RestoApp(host) } }
         waitForIdle()
 
-        onNodeWithContentDescription("Открыть меню").performClick()
-        waitForIdle()
-        onNodeWithTag("context:row").performClick()
-        waitForIdle()
+        openContexts()
         onNodeWithTag("context:add").performClick()
         waitForIdle()
         onNodeWithTag("servers:add-demo").performClick()
@@ -157,7 +157,7 @@ class RestoAppTest {
 
         assertEquals(3, host.contexts.value.size)
         onNodeWithText("Демо-сервер 2").assertIsDisplayed()
-        onNodeWithTag("home:tile-orders").assertIsDisplayed()
+        assertApp("orders")
     }
 
     private fun androidx.compose.ui.test.ComposeUiTest.has(tag: String) =
@@ -167,7 +167,7 @@ class RestoAppTest {
     private fun androidx.compose.ui.test.ComposeUiTest.openClients(host: RestoAppHost) {
         waitUntil(timeoutMillis = 5_000L) { "clients" in host.allRegistered() }
         waitForIdle()
-        onNodeWithTag("home:tile-clients").performClick()
+        openApp("clients")
         waitUntil(timeoutMillis = 5_000L) { has("clients:list") }
     }
 
@@ -185,24 +185,28 @@ class RestoAppTest {
         waitForIdle()
     }
 
-    /** The bug itself: the arrow of the top bar dropped to the menu from any depth. */
+    /**
+     * The bug itself: the arrow of the top bar dropped to the menu from any depth. Under the bottom bar the
+     * app's first screen is a destination of the bar, with no arrow at all: «Главная» of the bar leads home.
+     */
     @Test
     fun theArrowWalksBackThroughTheScreensAndOnlyThenToTheMenu() = runComposeUiTest {
         val host = restoApp()
-        setContent { RestoApp(host) }
+        setContent { OnAPhone { RestoApp(host) } }
         openClients(host)
         toCard()
         arrow()
         waitUntil(timeoutMillis = 5_000L) { has("clients:list") }
         onNodeWithTag("clients:detail").assertDoesNotExist()
-        arrow()
-        waitUntil(timeoutMillis = 5_000L) { has("home:tile-clients") }
+        onNodeWithContentDescription("Назад").assertDoesNotExist()
+        openHome()
+        waitUntil(timeoutMillis = 5_000L) { has("home:summary") }
     }
 
     @Test
     fun theSwipeFromTheRightEdgeGoesBackOneScreen() = runComposeUiTest {
         val host = restoApp()
-        setContent { RestoApp(host) }
+        setContent { OnAPhone { RestoApp(host) } }
         openClients(host)
         toCard()
         onRoot().performTouchInput { swipe(Offset(right - 2f, centerY), Offset(left + 2f, centerY), durationMillis = 300) }
@@ -215,7 +219,7 @@ class RestoAppTest {
     @Test
     fun halfASwipeShowsTheCardShrunkOverThePreviousScreen() = runComposeUiTest {
         val host = restoApp()
-        setContent { RestoApp(host) }
+        setContent { OnAPhone { RestoApp(host) } }
         openClients(host)
         toCard()
         waitForIdle()
@@ -235,7 +239,7 @@ class RestoAppTest {
     @Test
     fun theArrowAsksAboutAFilledFormInsteadOfLosingIt() = runComposeUiTest {
         val host = restoApp()
-        setContent { RestoApp(host) }
+        setContent { OnAPhone { RestoApp(host) } }
         openClients(host)
         onNodeWithTag("clients:add").performClick()
         waitForIdle()
@@ -253,28 +257,30 @@ class RestoAppTest {
     @Test
     fun theMenuAsksAboutAFilledFormToo() = runComposeUiTest {
         val host = restoApp()
-        setContent { RestoApp(host) }
+        setContent { OnAPhone { RestoApp(host) } }
         openClients(host)
         onNodeWithTag("clients:add").performClick()
         waitForIdle()
         onNodeWithTag("clients:form:name").performTextInput("Сергей Крылов")
         waitForIdle()
-        onNodeWithContentDescription("Открыть меню").performClick()
+        // The form of the list is a dialog (03-render.md): the bottom bar is under its dim, and a tap there is a
+        // tap outside the dialog — which asks the same question, with the same «save». The shell's own question
+        // (`onCloseRequested` / `saveBeforeClose`) is `ClientsScreenTest.theHostsQuestionCanSaveToo`.
+        onNodeWithTag("shell:nav-home").performClick()
         waitForIdle()
-        onNodeWithText("Главная").performClick()
-        waitForIdle()
-        onNodeWithTag("shell:close-dialog").assertExists()
-        onNodeWithTag("shell:close-dialog:save").assertExists()
+        onNodeWithTag("unsaved:question").assertExists()
+        onNodeWithTag("unsaved:save").assertExists()
+        onNodeWithTag("home:summary").assertDoesNotExist()
     }
 
     @Test
     fun aRoleOnTheDemoIsAnotherMenuAndTheOpenAppComesBack() = runComposeUiTest {
         val host = restoApp()
-        setContent { RestoApp(host) }
+        setContent { OnAPhone { RestoApp(host) } }
         waitUntil(timeoutMillis = 5_000L) { host.registered() == setOf("dishes", "orders") }
         waitForIdle()
 
-        onNodeWithTag("home:tile-dishes").performClick()
+        openApp("dishes")
         waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("dishes:list").assertExists() }.isSuccess }
         val before = host.active.value
 
@@ -291,15 +297,16 @@ class RestoAppTest {
     @Test
     fun aPointPickedInOneAppIsWhereTheOtherOpens() = runComposeUiTest {
         val host = restoApp()
-        setContent { RestoApp(host) }
+        setContent { OnAPhone { RestoApp(host) } }
         waitUntil(timeoutMillis = 5_000L) { host.registered() == setOf("dishes", "orders") }
         waitForIdle()
 
-        onNodeWithTag("home:tile-orders").performClick()
-        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("orders:place").assertExists() }.isSuccess }
-        onNodeWithTag("orders:place").performClick()
+        openApp("orders")
+        // The point is the shell's, chosen in its bar for every app at once.
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("shell:point").assertExists() }.isSuccess }
+        onNodeWithTag("shell:point").performClick()
         waitForIdle()
-        onNodeWithTag("orders:places:item-p2").performClick()
+        onNodeWithTag("shell:point:item-p2").performClick()
         waitForIdle()
         assertEquals("p2", host.active.value.session.bind("orders").place.value?.id)
 
@@ -314,14 +321,14 @@ class RestoAppTest {
     @Test
     fun theDeclaredPosIsDrawnByTheNativeApp() = runComposeUiTest {
         val host = restoApp()
-        setContent { RestoApp(host) }
+        setContent { OnAPhone { RestoApp(host) } }
         waitUntil(timeoutMillis = 5_000L) { host.allRegistered() == setOf("dishes", "orders", "clients", "pos") }
         waitForIdle()
 
         assertTrue(host.active.value.superizer.registry.get(AppId("pos")) is cx.m42.restoapp.pos.PosApp)
         assertTrue(host.active.value.superizer.registry.get(AppId("clients")) is cx.m42.restoapp.render.ServerApp)
 
-        onNodeWithTag("home:tile-pos").performClick()
+        openApp("pos")
         // The POS screen, not the renderer's «needs a newer version» tile.
         waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("pos").assertExists() }.isSuccess }
         onNodeWithTag("pos:needs-update").assertDoesNotExist()
@@ -338,4 +345,22 @@ class RestoAppTest {
         assertEquals(listOf("demo-restaurant"), host.servers.value.map { it.id })
         assertNull(DesktopServerStore(dir).read("demo-point", "demo.json"))
     }
+
+    @Test
+    fun aDesktopWindowShowsTheServersAppsInASidebarWithoutABurger() = runComposeUiTest {
+        val host = restoApp()
+        setContent { Box(Modifier.size(1280.dp, 820.dp)) { RestoApp(host) } }
+        waitForIdle()
+        onNodeWithTag("shell:sidebar").assertExists()
+        onNodeWithContentDescription("Открыть меню").assertDoesNotExist()
+    }
+}
+
+/**
+ * These tests walk a phone's flows — the burger, the drawer, the swipe back — so they run in a phone's
+ * window: the shell is adaptive (ui-port.plan.md §7), and the test window is a desktop's.
+ */
+@Composable
+internal fun OnAPhone(content: @Composable () -> Unit) {
+    Box(Modifier.size(420.dp, 820.dp)) { content() }
 }

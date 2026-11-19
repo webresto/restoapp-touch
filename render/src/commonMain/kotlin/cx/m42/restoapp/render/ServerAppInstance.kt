@@ -17,6 +17,8 @@ import cx.m42.restoapp.protocol.recordOf
 import cx.m42.superizer.app.AppChrome
 import cx.m42.superizer.app.AppId
 import cx.m42.superizer.app.AppInstance
+import cx.m42.superizer.app.AppLayout
+import cx.m42.superizer.app.AppWidth
 import cx.m42.superizer.app.asConfig
 import cx.m42.superizer.runtime.InstanceRuntime
 import kotlinx.coroutines.CancellationException
@@ -50,6 +52,7 @@ internal data class ListState(
     val nextCursor: String? = null,
     val counts: Map<String, Int> = emptyMap(),
     val total: Int? = null,
+    val description: String? = null,
     val loading: Boolean = false,
     val loaded: Boolean = false,
     val loadingMore: Boolean = false,
@@ -96,6 +99,8 @@ internal class ServerAppInstance(
     private val runtime: InstanceRuntime,
     internal val server: RestoServer,
     private val target: Open? = null,
+    /** After each mutation of this app that the server took: the mark in the menu asks again (P4). */
+    private val mutated: () -> Unit = {},
 ) : AppInstance() {
 
     private val _frames = MutableStateFlow<List<Frame>>(emptyList())
@@ -134,6 +139,13 @@ internal class ServerAppInstance(
     private val _chrome = MutableStateFlow(AppChrome())
     override val chrome: StateFlow<AppChrome> get() = _chrome.asStateFlow()
 
+    /**
+     * As wide as the window: every screen here is a `Page` that keeps its own width. «Back» says where
+     * it leads — the frame under the top one.
+     */
+    private val _layout = MutableStateFlow(AppLayout(AppWidth.Adaptive))
+    override val layout: StateFlow<AppLayout> get() = _layout.asStateFlow()
+
     private var started = false
     private var loadJob: Job? = null
     private var searchJob: Job? = null
@@ -164,6 +176,7 @@ internal class ServerAppInstance(
                     subtitle = if (app?.byPlace == true) place?.title else null,
                     canGoBack = frames.size > 1,
                 )
+                _layout.value = AppLayout(AppWidth.Adaptive, upTitle = frames.getOrNull(frames.size - 2)?.let { titleAt(app, frames, frames.size - 2) })
             }
         }
         runtime.analytics.screen("server-app")
@@ -180,6 +193,14 @@ internal class ServerAppInstance(
         }
         return method?.title?.takeIf { it.isNotEmpty() }
     }
+
+    /**
+     * The words of frame [index] in the way back: the app's own name for the bottom one, which is the app;
+     * the bar's words for any other.
+     */
+    internal fun titleAt(app: DeclaredApp?, frames: List<Frame>, index: Int): String? =
+        if (index == 0) app?.title?.takeIf { it.isNotEmpty() } ?: frames.getOrNull(0)?.let { titleOf(app, it) }
+        else frames.getOrNull(index)?.let { titleOf(app, it) }
 
     /** After [restore], from the first frame: reads the stack, and the screen on top of it. */
     fun start() {
@@ -335,7 +356,7 @@ internal class ServerAppInstance(
                         if (top?.method == frame.method) {
                             updateList {
                                 it.copy(
-                                    items = page.items, nextCursor = page.nextCursor, counts = page.counts, total = page.total,
+                                    items = page.items, nextCursor = page.nextCursor, counts = page.counts, total = page.total, description = page.description,
                                     loading = false, loaded = true, pages = 1,
                                 )
                             }
@@ -388,7 +409,7 @@ internal class ServerAppInstance(
                         if (top?.method != frame.method) return@launch
                         updateList { state ->
                             if (state.pages <= 1) {
-                                state.copy(items = page.items, nextCursor = page.nextCursor, counts = page.counts, total = page.total, loaded = true, pages = 1)
+                                state.copy(items = page.items, nextCursor = page.nextCursor, counts = page.counts, total = page.total, description = page.description, loaded = true, pages = 1)
                             } else {
                                 // Pages the person scrolled to stay; the records the first page brings are refreshed.
                                 val fresh = page.items.associateBy { it.id() }
@@ -467,7 +488,7 @@ internal class ServerAppInstance(
                 val page = ListPage.of(server.call(method.name, params(frame, cursor)))
                 updateList {
                     it.copy(
-                        items = it.items + page.items, nextCursor = page.nextCursor, counts = page.counts, total = page.total,
+                        items = it.items + page.items, nextCursor = page.nextCursor, counts = page.counts, total = page.total, description = page.description,
                         loadingMore = false, pages = it.pages + 1,
                     )
                 }
@@ -539,6 +560,11 @@ internal class ServerAppInstance(
             if (address == null || !runtime.navigation.openUrl(address)) {
                 _notice.value = RenderWords(runtime.locale.langTag.value).linkNotOpened
             }
+            return
+        }
+        // P9: a server of this cloud account — the host opens it in the app, the way its switcher does.
+        open.server?.let { id ->
+            if (!server.openServer(id)) _notice.value = RenderWords(runtime.locale.langTag.value).serverNotOpened
             return
         }
         val method = open.method ?: run {
@@ -662,6 +688,31 @@ internal class ServerAppInstance(
         startPolling()
     }
 
+    /**
+     * A section of the app (P5): its method's screen at the bottom of the stack, everything above it gone — the
+     * way a tab of the home screen is. Asks first when there are edits on screen.
+     */
+    fun openSection(method: String) {
+        val section = app?.method(method) ?: return
+        if (_frames.value.size == 1 && _frames.value.single().method == section.name) return
+        leave {
+            loadJob?.cancel()
+            searchJob?.cancel()
+            quietJob?.cancel()
+            pollJob?.cancel()
+            pollJob = null
+            _error.value = null
+            setFrames(listOf(Frame(section.name, loading = section.ui?.view == Views.DETAIL)))
+            loadTop()
+            startPolling()
+        }
+    }
+
+    /** Back to the frame a crumb stands for: the stack keeps its [size] bottom frames. */
+    fun backTo(size: Int) {
+        while (_frames.value.size > maxOf(size, 1)) back()
+    }
+
     // ---- actions ----
 
     /**
@@ -696,6 +747,7 @@ internal class ServerAppInstance(
                 val updated = recordOf(server.call(method.name, params))
                 if (updated != null) replace(updated)
                 _error.value = null
+                mutated()
                 onDone()
                 quietReload(delayMs = QUIET_RELOAD_MS)
             } catch (cancelled: CancellationException) {
@@ -722,6 +774,7 @@ internal class ServerAppInstance(
             try {
                 val created = recordOf(server.call(method.name, params))
                 _error.value = null
+                mutated()
                 onDone()
                 quietReload()
                 // Straight to the card of what was just made: that is what the person is after.

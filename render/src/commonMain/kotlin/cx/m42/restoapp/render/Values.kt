@@ -1,5 +1,6 @@
 package cx.m42.restoapp.render
 
+import cx.m42.restoapp.protocol.CreditRate
 import cx.m42.restoapp.protocol.Field
 import cx.m42.restoapp.protocol.Formats
 import cx.m42.restoapp.protocol.ServerFacts
@@ -44,12 +45,14 @@ internal fun specialOf(value: JsonElement?, specials: List<Special>): Special? {
  * declare (a computed one): then it is text.
  */
 public fun showValue(value: JsonElement?, field: Field?, facts: ServerFacts?, words: RenderWords, now: Long): Shown {
-    if (field != null) specialOf(value, field.specials)?.let { return Shown(it.title, it.tone) }
+    if (field != null) specialOf(value, field.specials)?.let { return Shown(it.title, it.tone ?: field.toneOf(enumKey(value)).takeIf { field.format == Formats.ENUM }) }
     if (value.isMissing()) return Shown(NO_VALUE)
     val format = field?.format ?: Formats.TEXT
     val primitive = value as? JsonPrimitive
     val text = when (format) {
-        Formats.MONEY -> primitive?.doubleOrNull?.let { money(it, facts?.currency) }
+        // A cloud that says `money` in `CR` (P10 cloud before P11) — credits all the same.
+        Formats.MONEY -> primitive?.doubleOrNull?.let { if (facts?.currency == ServerFacts.CREDITS) credits(it, words.lang) else money(it, facts?.currency) }
+        Formats.CREDITS -> primitive?.doubleOrNull?.let { credits(it, words.lang) }
         Formats.NUMBER -> primitive?.doubleOrNull?.let(::number)
         Formats.PERCENT -> primitive?.doubleOrNull?.let { percent(it) }
         Formats.BOOLEAN -> primitive?.booleanOrNull?.let { if (it) words.yes else words.no }
@@ -63,8 +66,12 @@ public fun showValue(value: JsonElement?, field: Field?, facts: ServerFacts?, wo
         Formats.IMAGE -> null
         else -> null
     } ?: plain(value)
-    return Shown(text)
+    // P2: the tone of an enum's value from the field's `x-tones` — the same everywhere the value is shown.
+    return Shown(text, if (format == Formats.ENUM) field?.toneOf(enumKey(value)) else null)
 }
+
+/** The key of an enum value in `x-titles` / `x-tones`: the value as a string. */
+internal fun enumKey(value: JsonElement?): String? = (value as? JsonPrimitive)?.takeIf { it !is JsonNull }?.contentOrNull
 
 /** Any JSON as one line of text: what an unknown format, or a value of the wrong shape, reads as. */
 internal fun plain(value: JsonElement?): String = when (value) {
@@ -111,8 +118,24 @@ public fun money(value: Double, currency: String?): String {
     return number(value) + " " + sign
 }
 
+/** P11: 1234.5 credits → "1 234,5 кр" ("cr" in English) — the unit of every amount of the cloud. */
+public fun credits(value: Double, lang: String): String = number(value) + "\u00A0" + if (lang.startsWith("ru")) "кр" else "cr"
+
+/** P11: credits as money of the display currency at the system rate, rounded to its decimals: "12,35 $", "$12,35". */
+public fun creditsAsMoney(credits: Double, rate: CreditRate): String {
+    val digits = rate.decimals.coerceIn(0, 6)
+    var factor = 1.0
+    repeat(digits) { factor *= 10 }
+    val amount = kotlin.math.round(credits * rate.perCredit * factor) / factor
+    val text = if (digits == 0) number(kotlin.math.round(amount)) else number(amount)
+    return if (rate.signBefore) (if (amount < 0) "−" + rate.sign + text.removePrefix("−") else rate.sign + text) else text + "\u00A0" + rate.sign
+}
+
+/** P11: "≈ 12,35 $" next to an amount of credits — display only. */
+public fun approxMoney(credits: Double, rate: CreditRate): String = "≈\u00A0" + creditsAsMoney(credits, rate)
+
 /** Tone of a value of [field], from its specials; null when the value has none. */
-internal fun toneOf(value: JsonElement?, field: Field?): String? = field?.let { specialOf(value, it.specials)?.tone }
+internal fun toneOf(value: JsonElement?, field: Field?): String? = field?.let { specialOf(value, it.specials)?.tone ?: it.toneOf(enumKey(value)) }
 
 /**
  * Time in the server's zone, in the person's language. Platform code: the JVM's java.time.

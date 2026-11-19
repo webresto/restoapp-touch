@@ -35,6 +35,9 @@ kotlin {
     jvm("desktop")
     iosArm64()
     iosSimulatorArm64()
+    // The web build (`:composeApp:wasmJsBrowser…`): the same screens in a browser tab.
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    wasmJs { browser() }
 
     sourceSets {
         commonMain.dependencies {

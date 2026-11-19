@@ -78,6 +78,15 @@ kotlin {
      * The iPhone app: a static framework that `iosApp/` links, as in Unitool. Only the klibs build
      * without Xcode; linking this framework takes a Mac with it (README, «iPhone»).
      */
+    // The web build: `./gradlew :composeApp:wasmJsBrowserDevelopmentExecutableDistribution`, then any static server
+    // over `build/dist/wasmJs/developmentExecutable`.
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    wasmJs {
+        outputModuleName.set("composeApp")
+        browser { commonWebpackConfig { outputFileName = "composeApp.js" } }
+        binaries.executable()
+    }
+
     listOf(
         iosArm64(),
         iosSimulatorArm64(),
@@ -131,6 +140,9 @@ kotlin {
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
         }
+        wasmJsMain.dependencies {
+            implementation(libs.kotlinx.browser)
+        }
         desktopTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.compose.ui.test)
@@ -151,6 +163,9 @@ tasks.withType<Test>().configureEach {
         ?: rootProject.file("../restoapp-dev")
     systemProperty("restoapp.dev", dev.absolutePath)
     systemProperty("restoapp.tools", rootProject.file("tools").absolutePath)
+    // runDesktopComposeUiTest wraps its body in a runTest of the default minute: a walk of a whole live server
+    // (LiveShotsTest) takes longer.
+    systemProperty("kotlinx.coroutines.test.default_timeout", "10m")
     (findProperty("restoapp.serverUrl") as String?)?.let { systemProperty("restoapp.serverUrl", it) }
     // CloudServerTest: the cloud panel (cloud-panel, layers/app-mobile-api) — `-Pcloud.url=http://localhost:17280`
     // and an account of it, `-Pcloud.login=user2 -Pcloud.password=user2` (a second one: `-Pcloud.login2/password2`).

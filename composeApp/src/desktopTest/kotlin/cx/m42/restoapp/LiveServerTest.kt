@@ -1,6 +1,9 @@
 package cx.m42.restoapp
 
+import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
@@ -99,12 +102,10 @@ class LiveServerTest {
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
 
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
             // "Подключить сервер" → «Свой сервер» → the address → server.about.
-            onNodeWithContentDescriptionOpenMenu()
-            onNodeWithTag("context:row").performClick()
-            waitForIdle()
+            openContexts()
             onNodeWithTag("context:add").performClick()
             waitForIdle()
             onNodeWithTag("servers:add-custom").performClick()
@@ -126,7 +127,7 @@ class LiveServerTest {
             assertTrue(Files.readString(session).contains("\"login\":\"stock\""))
 
             // «Блюда», drawn from the declaration: the three dishes of the fake catalog at «Ленина, 5».
-            onNodeWithTag("home:tile-dishes").performClick()
+            openApp("dishes")
             waitUntil(timeoutMillis = 15_000L) { runCatching { onNodeWithTag("dishes:list").assertExists() }.isSuccess }
             onNodeWithTag("dishes:chip-all").performClick()
             waitUntil(timeoutMillis = 15_000L) { runCatching { onNodeWithTag("dishes:row-d3").assertExists() }.isSuccess }
@@ -141,7 +142,7 @@ class LiveServerTest {
 
         // Back on Home: the banner, the login screen, the new password.
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("home:sign-in").assertExists() }.isSuccess }
             onNodeWithTag("home:sign-in:action").performClick()
             waitForIdle()
@@ -151,11 +152,6 @@ class LiveServerTest {
             waitForIdle()
             onNodeWithTag("home:sign-in").assertDoesNotExist()
         }
-    }
-
-    private fun androidx.compose.ui.test.ComposeUiTest.onNodeWithContentDescriptionOpenMenu() {
-        onNode(androidx.compose.ui.test.hasContentDescription("Открыть меню")).performClick()
-        waitForIdle()
     }
 
     /**
@@ -183,14 +179,14 @@ class LiveServerTest {
         runCatching { control(base, "channel-status", """{"status": "needs_setup", "message": "Не задан токен бота", "enabled": false}""") }
 
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
             signIn(base, "channeler")
             // On the live server: the demo the host starts on has this app too.
             waitUntil(timeoutMillis = 30_000L) { host.current.value?.id == slug(base) && host.active.value.superizer.registry.get(AppId("channels")) != null }
             waitForIdle()
 
-            onNodeWithTag("home:tile-channels").performClick()
+            openApp("channels")
             waitUntil(timeoutMillis = 15_000L) { exists("channels:list") }
 
             // A channel whose provider module is not installed says so on its own row, with the appId
@@ -220,7 +216,12 @@ class LiveServerTest {
             // The last row of the whole list leads to the catalog of types, on what is recommended here.
             onNodeWithTag("channels:row-channel-types").performScrollTo().performClick()
             // What is recommended depends on which channels the server already has: the chips are what is common.
-            waitUntil(timeoutMillis = 15_000L) { exists("channels:chip-recommended") }
+            runCatching { waitUntil(timeoutMillis = 15_000L) { exists("channels:chip-recommended") } }.onFailure {
+                // What was on screen instead: the catalog of types did not open, or opened without its chips.
+                val out = File("build/screenshots-live").apply { mkdirs() }
+                javax.imageio.ImageIO.write(((this as? androidx.compose.ui.test.SkikoComposeUiTest)?.captureToImage() ?: onRoot().captureToImage()).toAwtImage(), "png", File(out, "failed-channel-types.png"))
+                throw it
+            }
             onNodeWithTag("channels:chip-all").performClick()
             waitUntil(timeoutMillis = 15_000L) { onAllNodesWithText("Self-order kiosk").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag("channels:row-telegram-bot").performScrollTo().performClick()
@@ -239,11 +240,11 @@ class LiveServerTest {
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
 
         runComposeUiTest {
-            setContent { RestoApp(reader) }
+            setContent { OnAPhone { RestoApp(reader) } }
             waitForIdle()
             signIn(base, "channelview")
             waitUntil(timeoutMillis = 30_000L) { reader.current.value?.id == slug(base) && reader.active.value.superizer.registry.get(AppId("channels")) != null }
-            onNodeWithTag("home:tile-channels").performClick()
+            openApp("channels")
             waitUntil(timeoutMillis = 15_000L) { exists("channels:list") }
             onAllNodesWithText("Бот", substring = true).onFirst().performClick()
             waitUntil(timeoutMillis = 15_000L) { exists("channels:detail") }
@@ -259,9 +260,7 @@ class LiveServerTest {
 
     /** Connect the server by its address and sign in — the CAPTCHA solved by the Kotlin solver. */
     private fun androidx.compose.ui.test.ComposeUiTest.signIn(base: String, login: String) {
-        onNodeWithContentDescriptionOpenMenu()
-        onNodeWithTag("context:row").performClick()
-        waitForIdle()
+        openContexts()
         onNodeWithTag("context:add").performClick()
         waitForIdle()
         onNodeWithTag("servers:add-custom").performClick()

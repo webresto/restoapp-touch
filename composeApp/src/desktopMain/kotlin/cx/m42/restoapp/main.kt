@@ -1,5 +1,6 @@
 package cx.m42.restoapp
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -55,10 +56,13 @@ fun main(args: Array<String>) {
 
         Window(
             onCloseRequest = ::exitApplication,
-            state = rememberWindowState(width = 420.dp, height = 820.dp),
+            // A desktop window, not a phone's: the shell lays itself out by the window's width (a sidebar
+            // here, the drawer if it is dragged narrow).
+            state = rememberWindowState(width = 1280.dp, height = 820.dp),
             title = "RestoApp — ${connection.profile.name}",
             onPreviewKeyEvent = { event -> serverHotkey(event, host) },
         ) {
+            LaunchedEffect(Unit) { window.minimumSize = java.awt.Dimension(360, 560) }
             RestoApp(host)
         }
     }

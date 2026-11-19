@@ -40,6 +40,17 @@ internal class SettingsWords(val lang: String) {
         t("Это значение уже изменено и ждёт перезапуска сервера", "This value has been changed and is waiting for the server to restart")
 
     val required: String = t("Обязательная настройка", "A required setting")
+    val unsaved: String = t("Не сохранено", "Not saved")
+    val unsavedChanges: String = t("Есть несохранённые изменения", "There are unsaved changes")
+    val noChanges: String = t("Изменений нет", "No changes")
+    val cannotSave: String = t("Так сохранить нельзя", "This cannot be saved")
+    val serverRefused: String = t("Сервер не принял значение", "The server refused the value")
+    val pinned: String = t("Задано окружением", "Set by the environment")
+    val appOwned: String = t("Ведёт приложение", "Kept by the application")
+    val secret: String = t("Секрет", "Secret")
+    val waitsRestart: String = t("Ждёт перезапуска", "Waits for a restart")
+    val restartTitle: String = t("Нужен перезапуск сервера", "The server needs a restart")
+    val revert: String = t("Вернуть", "Revert")
 
     // ---- the transfer ----
     val transfer: String = t("Экспорт и импорт", "Export and import")
@@ -60,6 +71,22 @@ internal class SettingsWords(val lang: String) {
     val failed: String = t("Ошибка", "Error")
     val current: String = t("Сейчас", "Now")
     val incoming: String = t("Станет", "Becomes")
+
+    val transferHint: String = t("Перенесите настройки на другой сервер. Секреты не выгружаются.", "Carry the settings to another server. Secrets are not exported.")
+    val pasteTitle: String = t("Вставьте выгрузку", "Paste a dump")
+    val pasteHint: String =
+        t(
+            "Скопируйте JSON на другом сервере и вставьте его сюда — покажем, что изменится, прежде чем применить.",
+            "Copy the JSON on another server and paste it here — you will see what changes before anything is applied.",
+        )
+    val selectAll: String = t("Выбрать все", "Select all")
+    val onlyChanged: String = t("Только изменённые", "Only the changed ones")
+    val tickToApply: String = t("Отметьте, что применить", "Tick what to apply")
+    val report: String = t("Что получилось", "What happened")
+    val pasteAnother: String = t("Вставить другую", "Paste another")
+    val secretShown: String = "••••••••"
+
+    fun copyCount(count: Int): String = t("Скопировать JSON · $count", "Copy the JSON · $count")
 
     fun exportCount(count: Int): String =
         t("$count настроек, секреты не включены", "$count settings, secrets are not included")

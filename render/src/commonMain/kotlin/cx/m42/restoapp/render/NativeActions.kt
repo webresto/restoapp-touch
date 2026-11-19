@@ -59,18 +59,41 @@ public class NativeActionScope(
     public val hold: (UnsavedWork?) -> Unit = {},
 )
 
+/** How a native screen of an action stands to the page it was opened from. */
+public enum class NativePresentation {
+    /** Instead of the page: the screen fills the frame and has its own way back. */
+    Screen,
+
+    /**
+     * Over the page: the record's card (or the list) stays drawn underneath, and the screen presents itself
+     * as the kit's `Dialog` or `SideSheet` — what it composes is laid over the frame, not in place of it.
+     */
+    Overlay,
+}
+
 /** The screens this build has. The host registers them at startup, as it registers its native apps. */
 public object NativeActions {
     private val screens = mutableMapOf<String, NativeActionContent>()
+    private val overlays = mutableSetOf<String>()
 
     public fun register(screen: String, content: NativeActionContent) {
+        register(screen, NativePresentation.Screen, content)
+    }
+
+    public fun register(screen: String, presentation: NativePresentation, content: NativeActionContent) {
         screens[screen] = content
+        if (presentation == NativePresentation.Overlay) overlays += screen else overlays -= screen
     }
 
     public fun of(screen: String?): NativeActionContent? = screen?.let { screens[it] }
 
+    /** How [screen] presents itself; [NativePresentation.Screen] for one registered without saying. */
+    public fun presentationOf(screen: String?): NativePresentation =
+        if (screen != null && screen in overlays) NativePresentation.Overlay else NativePresentation.Screen
+
     /** For tests: nothing registered is the state of a client that does not know the screen. */
     public fun clear() {
         screens.clear()
+        overlays.clear()
     }
 }

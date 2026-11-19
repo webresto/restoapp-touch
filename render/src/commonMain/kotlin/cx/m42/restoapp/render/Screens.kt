@@ -1,86 +1,114 @@
 package cx.m42.restoapp.render
 
-import androidx.compose.foundation.background
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import cx.m42.superizer.kit.ActionBar
+import cx.m42.superizer.kit.Dialog
+import cx.m42.superizer.kit.Menu
+import cx.m42.superizer.kit.MenuItem
+import cx.m42.superizer.kit.MenuLabel
+import cx.m42.superizer.kit.MenuSeparator
+import cx.m42.superizer.kit.Pill
+import cx.m42.superizer.kit.Tone
+import com.composables.icons.lucide.Ellipsis
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
+import cx.m42.superizer.kit.color
+import cx.m42.superizer.kit.palette
+import com.composables.icons.lucide.LayoutDashboard
+import com.composables.icons.lucide.ArrowUpRight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import cx.m42.superizer.kit.Text
+import com.composables.icons.lucide.ChevronLeft
+import com.composables.icons.lucide.Download
+import com.composables.icons.lucide.Inbox
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.MapPin
+import com.composables.icons.lucide.Minus
+import com.composables.icons.lucide.Plus
+import com.composables.icons.lucide.Search
+import com.composables.icons.lucide.SearchX
 import cx.m42.restoapp.protocol.Controls
 import cx.m42.restoapp.protocol.DeclaredApp
 import cx.m42.restoapp.protocol.DeclaredMethod
 import cx.m42.restoapp.protocol.Field
+import cx.m42.restoapp.protocol.Formats
 import cx.m42.restoapp.protocol.ItemUi
 import cx.m42.restoapp.protocol.MobileApiException
-import cx.m42.restoapp.protocol.Open
 import cx.m42.restoapp.protocol.RecordAction
 import cx.m42.restoapp.protocol.RecordLink
 import cx.m42.restoapp.protocol.ServerFacts
 import cx.m42.restoapp.protocol.Tones
 import cx.m42.restoapp.protocol.Views
+import cx.m42.restoapp.protocol.actions
+import cx.m42.restoapp.protocol.defaultString
+import cx.m42.restoapp.protocol.enumValues
+import cx.m42.restoapp.protocol.id
+import cx.m42.restoapp.protocol.links
+import cx.m42.restoapp.protocol.open
+import cx.m42.restoapp.protocol.property
 import cx.m42.restoapp.protocol.propertyNames
 import cx.m42.restoapp.protocol.requiredNames
 import cx.m42.restoapp.protocol.schemaFormat
 import cx.m42.restoapp.protocol.schemaTitle
 import cx.m42.restoapp.protocol.schemaType
-import cx.m42.restoapp.protocol.actions
-import cx.m42.restoapp.protocol.enumValues
-import cx.m42.restoapp.protocol.defaultString
-import cx.m42.restoapp.protocol.id
-import cx.m42.restoapp.protocol.links
-import cx.m42.restoapp.protocol.open
-import cx.m42.restoapp.protocol.property
 import cx.m42.restoapp.protocol.titles
-import cx.m42.superizer.runtime.LocalAppRuntime
-import cx.m42.superizer.theme.AppTheme
-import com.composables.icons.lucide.ChevronLeft
-import com.composables.icons.lucide.Lucide
-import com.composables.icons.lucide.Minus
-import com.composables.icons.lucide.Plus
 import cx.m42.superizer.kit.Button
 import cx.m42.superizer.kit.ButtonSize
 import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.superizer.kit.Crumb
+import cx.m42.superizer.kit.Icon
 import cx.m42.superizer.kit.IconButton
 import cx.m42.superizer.kit.Input
 import cx.m42.superizer.kit.Kit
-import cx.m42.superizer.kit.Spinner
+import cx.m42.superizer.kit.LocalWindowClass
+import cx.m42.superizer.kit.Page
+import cx.m42.superizer.kit.PageHeader
+import cx.m42.superizer.kit.Panel
+import cx.m42.superizer.kit.Skeleton
 import cx.m42.superizer.kit.SwitchItem
+import cx.m42.superizer.kit.Text
 import cx.m42.superizer.kit.TextVariant
+import cx.m42.superizer.kit.WindowClass
+import cx.m42.superizer.kit.kitClickable
+import cx.m42.superizer.kit.textColor
+import cx.m42.superizer.kit.textStyles
+import cx.m42.superizer.runtime.LocalAppRuntime
 import cx.m42.superizer.ui.platform.ScreenSteps
-import cx.m42.superizer.ui.platform.hostDrawsBack
 import cx.m42.superizer.ui.platform.SystemBackHandler
+import cx.m42.superizer.ui.platform.hostDrawsBack
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
 
 /** Everything a screen needs to turn a record into text, in one place. */
 internal class RenderContext(
@@ -109,6 +137,12 @@ internal class RenderContext(
         }
 }
 
+/*
+ * Every frame is a kit `Page` (03-render.md): the page keeps the gutters and the width, the shell keeps the
+ * background. The header is the kit's `PageHeader`: the app or the record, its state, its point, its main
+ * actions, and — wider than a phone, where an adaptive shell draws no bar — the crumbs of the stack.
+ */
+
 @Composable
 internal fun ServerAppScreen(instance: ServerAppInstance) {
     val runtime = LocalAppRuntime.current
@@ -120,16 +154,16 @@ internal fun ServerAppScreen(instance: ServerAppInstance) {
     LaunchedEffect(instance) { instance.start() }
 
     val declared = app
-    val tokens = AppTheme
-    Box(modifier = Modifier.fillMaxSize().background(tokens.pageBackground)) {
+    // No background of its own: the frame is the shell's, and a page of another grey on it is a stripe.
+    Box(modifier = Modifier.fillMaxSize()) {
         when {
-            declared == null -> EmptyState(words.gone, null, null, null, "server-app:gone")
+            declared == null -> StatePage(Lucide.Inbox, words.gone, words.goneHint, "server-app:gone")
             // Either the app comes as JS, or it asks for a native screen this build does not have:
             // the universal renderer cannot draw either, and the host only lands here when nothing
             // else can (order-entry.plan.md, «Контракт»).
             declared.script != null || declared.client != null ->
-                EmptyState(words.needsNewerApp, words.needsNewerAppHint, null, null, "${declared.id}:needs-update")
-            declared.byPlace && places.isEmpty() -> EmptyState(words.noPlaces, null, null, null, "${declared.id}:no-places")
+                StatePage(Lucide.Download, words.needsNewerApp, words.needsNewerAppHint, "${declared.id}:needs-update")
+            declared.byPlace && places.isEmpty() -> StatePage(Lucide.MapPin, words.noPlaces, words.noPlacesHint, "${declared.id}:no-places")
             else -> {
                 val context = RenderContext(declared, facts, words, runtime.clock.now())
                 val frames by instance.frames.collectAsState()
@@ -138,25 +172,48 @@ internal fun ServerAppScreen(instance: ServerAppInstance) {
                 ScreenSteps(frames.size - 1 + if (native != null) 1 else 0)
                 val frame = frames.lastOrNull()
                 val view = frame?.let { declared.method(it.method)?.ui?.view }
+                val crumbs = crumbsOf(instance, context, frames)
+                // A screen of the client's own that presents itself as a dialog or a side sheet is laid over
+                // the frame, which stays drawn under it; any other one takes the frame's place.
+                val overlay = native != null &&
+                    NativeActions.presentationOf(native.second.method.ui?.control?.screen) == NativePresentation.Overlay
+                // P5: the sections of the app — a bar at the bottom of a phone, tabs under the header wider. Wider,
+                // only over the section's own screen: a record opened from it has its crumbs for the way back.
+                val sections = remember(declared) { sectionsOf(declared) }
+                val bottomMethod = frames.firstOrNull()?.method
+                val inSections = sections.isNotEmpty() && (native == null || overlay) &&
+                    sections.any { it.name == bottomMethod } && (compact || frames.size == 1)
+                SectionsFrame(
+                    sections = if (inSections) sections else emptyList(),
+                    // A section reached by a link from another one («Промокоды» from the summary) is the one lit.
+                    selected = frames.lastOrNull { f -> sections.any { it.name == f.method } }?.method ?: bottomMethod,
+                    onSelect = instance::openSection,
+                ) {
                 when {
                     // A screen of the client's own, over everything: it has its own way back.
-                    native != null -> {
+                    native != null && !overlay -> {
                         SystemBackHandler(enabled = true) { instance.leave(instance::closeNative) }
                         NativeActionScreen(instance, context, native.second, native.first)
                     }
-                    frame == null -> EmptyState(words.unknownView, null, null, null, "${declared.id}:unknown")
+                    frame == null -> StatePage(Lucide.Inbox, words.unknownView, null, "${declared.id}:unknown")
                     // `:nested` — a frame standing on another one, which the way back returns from.
                     frames.size > 1 -> Box(Modifier.fillMaxSize().testTag("${declared.id}:nested")) {
                         SystemBackHandler(enabled = true) { instance.leave(instance::back) }
                         when (view) {
-                            Views.LIST -> ListScreen(instance, context, frame, bottom = false)
-                            Views.DETAIL -> DetailScreen(instance, context, frame)
-                            else -> EmptyState(words.unknownView, null, null, null, "${declared.id}:unknown")
+                            Views.LIST -> ListScreen(instance, context, frame, crumbs, bottom = false)
+                            Views.DETAIL -> DetailScreen(instance, context, frame, crumbs)
+                            else -> StatePage(Lucide.Inbox, words.unknownView, null, "${declared.id}:unknown")
                         }
                     }
-                    view == Views.LIST -> ListScreen(instance, context, frame, bottom = true)
+                    view == Views.LIST -> ListScreen(instance, context, frame, crumbs, bottom = true)
                     view == Views.DETAIL -> HomeRecordScreen(instance, context, frame)
-                    else -> EmptyState(words.unknownView, null, null, null, "${declared.id}:unknown")
+                    else -> StatePage(Lucide.Inbox, words.unknownView, null, "${declared.id}:unknown")
+                }
+                }
+                if (native != null && overlay) {
+                    // After the frame, so its way back is the one claimed last — the one back takes.
+                    SystemBackHandler(enabled = true) { instance.leave(instance::closeNative) }
+                    NativeActionScreen(instance, context, native.second, native.first)
                 }
             }
         }
@@ -174,10 +231,42 @@ internal fun ServerAppScreen(instance: ServerAppInstance) {
     }
 }
 
+/** The kit's `AppSections` around [content] when there are [sections]; [content] alone when there are none. */
+@Composable
+private fun SectionsFrame(sections: List<DeclaredMethod>, selected: String?, onSelect: (String) -> Unit, content: @Composable () -> Unit) {
+    if (sections.isEmpty()) {
+        content()
+        return
+    }
+    val items = sections.mapIndexed { index, method -> sectionItem(method, home = index == 0) }
+    cx.m42.superizer.kit.AppSections(items = items, selected = selected ?: items.first().id, onSelect = onSelect, content = content)
+}
+
+/** A page that is only a state: the app is gone, needs a newer client, has no points, or a view it cannot draw. */
+@Composable
+private fun StatePage(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, hint: String?, tag: String) {
+    Page(width = cx.m42.superizer.kit.PageWidth.Narrow) {
+        Box(Modifier.height(24.dp))
+        EmptyBlock(icon, title, hint.orEmpty(), tag)
+    }
+}
+
+/**
+ * The stack as crumbs: the app, then each frame by the words of the link that opened it, the last one —
+ * where you are — without a click. One frame is no path; the header then has none.
+ */
+private fun crumbsOf(instance: ServerAppInstance, context: RenderContext, frames: List<Frame>): List<Crumb> {
+    if (frames.size < 2) return emptyList()
+    return frames.indices.map { index ->
+        val label = instance.titleAt(context.app, frames, index).orEmpty()
+        Crumb(label, if (index == frames.lastIndex) null else ({ instance.leave { instance.backTo(index + 1) } }))
+    }
+}
+
 /**
  * «‹ Назад» of a frame that stands on another one — only where nothing else offers the way back. Inside
- * the shell its arrow does (it goes through the same `SystemBackHandler`), and a second «Назад» on the
- * screen would be one too many.
+ * the shell its arrow or the crumbs do (both go through the same `SystemBackHandler`), and a second
+ * «Назад» on the screen would be one too many.
  */
 @Composable
 private fun BackLine(instance: ServerAppInstance, context: RenderContext) {
@@ -186,9 +275,9 @@ private fun BackLine(instance: ServerAppInstance, context: RenderContext) {
         onClick = { instance.leave(instance::back) },
         variant = ButtonVariant.Ghost,
         size = ButtonSize.Sm,
-        modifier = Modifier.padding(start = 8.dp, top = 4.dp).testTag("${context.tag}:back"),
+        modifier = Modifier.testTag("${context.tag}:back"),
     ) {
-        cx.m42.superizer.kit.Icon(Lucide.ChevronLeft, contentDescription = null, size = 16.dp)
+        Icon(Lucide.ChevronLeft, contentDescription = null, size = 16.dp)
         Text(context.words.back, variant = TextVariant.Small)
     }
 }
@@ -242,7 +331,7 @@ private fun submitNative(instance: ServerAppInstance, request: NativeRequest, pa
     }
 }
 
-/** The connection, the host's notice and the last error, as lines across the top. */
+/** The connection, the host's notice and the last error, as lines under the header. */
 @Composable
 private fun TopNotices(instance: ServerAppInstance, context: RenderContext) {
     val words = context.words
@@ -252,59 +341,89 @@ private fun TopNotices(instance: ServerAppInstance, context: RenderContext) {
     val notice by instance.notice.collectAsState()
     val tag = context.tag
     when (status) {
-        ServerStatus.Offline -> Notice(words.offline, Tones.WARNING, words.retry, instance::retry, "$tag:offline")
-        ServerStatus.SignedOut -> Notice(words.signedOut + ". " + words.signedOutHint, Tones.DANGER, words.toHome, {
+        ServerStatus.Offline -> NoticeBar(words.offline, Tones.WARNING, words.retry, instance::retry, "$tag:offline")
+        ServerStatus.SignedOut -> NoticeBar(words.signedOut + ". " + words.signedOutHint, Tones.DANGER, words.toHome, {
             runtime.scope.launch { runtime.navigation.close() }
         }, "$tag:signed-out")
-        ServerStatus.UpdateRequired -> Notice(words.updateRequired, Tones.DANGER, null, null, "$tag:update")
+        ServerStatus.UpdateRequired -> NoticeBar(words.updateRequired, Tones.DANGER, null, null, "$tag:update")
         ServerStatus.Online -> Unit
     }
-    notice?.let { Notice(it, Tones.INFO, "OK", instance::dismissNotice, "$tag:notice") }
+    notice?.let { NoticeBar(it, Tones.INFO, "OK", instance::dismissNotice, "$tag:notice") }
+    // A failed re-read is a line over the list; what was on screen stays under it.
     error?.takeIf { it.text.isNotEmpty() && it.code != MobileApiException.NETWORK }?.let {
-        Notice(it.text, Tones.DANGER, words.retry, instance::retry, "$tag:error")
+        NoticeBar(it.text, Tones.DANGER, words.retry, instance::retry, "$tag:error")
     }
 }
 
+/**
+ * The point of an app by points, in its header (В3): the choice when there is one — a frame standing on
+ * another one does not offer it, the point belongs to the app, not to a screen of it — and only its name
+ * when there is not.
+ */
 @Composable
-private fun PlaceSwitch(
-    instance: ServerAppInstance,
-    context: RenderContext,
-    enabled: Boolean = true,
-    content: @Composable ColumnScope.() -> Unit,
-) {
+private fun RowScope.PlaceMeta(instance: ServerAppInstance, context: RenderContext, choosable: Boolean) {
+    if (!context.app.byPlace) return
     val places by instance.server.places.collectAsState()
     val place by instance.server.place.collectAsState()
-    var choosing by remember { mutableStateOf(false) }
-    val tag = context.tag
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // One point: nothing to choose, and its name is in the bar already. A frame standing on another
-            // one does not offer the switch either: the point belongs to the app, not to a screen of it.
-            if (enabled && context.app.byPlace && places.size > 1) {
-                place?.let { PlaceLine(it.title, it.address, { choosing = true }, "$tag:place") }
-            }
-            content()
-        }
-        ChoiceSheet(
-            visible = choosing,
-            title = context.words.places,
-            choices = places.map { SheetChoice(it.id, it.title, it.address) },
+    if (choosable && places.size > 1) {
+        TaggedSelect(
+            choices = places.map { PickChoice(it.id, it.title, it.address) },
             selected = place?.id,
-            onDismiss = { choosing = false },
-            onPick = { id ->
-                choosing = false
-                instance.server.selectPlace(id)
-            },
-            tag = "$tag:places",
+            title = context.words.places,
+            onPick = instance.server::selectPlace,
+            tag = "${context.tag}:place",
+            itemTag = { "${context.tag}:places:item-$it" },
+            sheetTag = "${context.tag}:places",
+            leadingIcon = Lucide.MapPin,
+            small = true,
         )
+    } else {
+        place?.let {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Lucide.MapPin, contentDescription = null, size = 14.dp, tint = Kit.colors.mutedForeground)
+                Text(it.title, variant = TextVariant.Muted, maxLines = 1)
+            }
+        }
     }
 }
 
+private val compact: Boolean
+    @Composable get() = LocalWindowClass.current == WindowClass.Compact
+
+/** What the shell's bar says over the top frame: the app's name over the first one, the frame's words over the rest. */
 @Composable
-private fun ListScreen(instance: ServerAppInstance, context: RenderContext, frame: Frame, bottom: Boolean) {
+private fun barTitle(instance: ServerAppInstance, context: RenderContext): String? {
+    val frames by instance.frames.collectAsState()
+    return if (frames.size > 1) instance.titleAt(context.app, frames, frames.lastIndex) else context.app.title
+}
+
+/**
+ * The kit's `PageHeader`: the title, the line under it, the state, the point and the actions. [bar] is what the
+ * shell's bar says over the frame — kept for the callers, the page draws its title regardless.
+ */
+@Composable
+private fun Header(
+    title: String,
+    @Suppress("UNUSED_PARAMETER") bar: String?,
+    description: String? = null,
+    crumbs: List<Crumb> = emptyList(),
+    badge: (@Composable () -> Unit)? = null,
+    meta: (@Composable RowScope.() -> Unit)? = null,
+    actions: (@Composable RowScope.() -> Unit)? = null,
+) {
+    // The shell's bar over an app says the server and the way back, not the app's name (_plan/07): the page
+    // has its own title, as the prototype's.
+    PageHeader(title = title, description = description, crumbs = crumbs, badge = badge, meta = meta, actions = actions)
+}
+
+// ───────────────────────────── a list ─────────────────────────────
+
+@Composable
+private fun ListScreen(instance: ServerAppInstance, context: RenderContext, frame: Frame, crumbs: List<Crumb>, bottom: Boolean) {
     val method = context.app.method(frame.method) ?: return
     val state = frame.list
     val busy by instance.busy.collectAsState()
+    val frames by instance.frames.collectAsState()
     val ui = method.ui!!
     val words = context.words
     val tag = context.tag
@@ -320,101 +439,253 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, fram
     val nativeList = listAction
         ?.takeIf { it.ui?.control?.type == Controls.NATIVE }
         ?.let { action -> NativeActions.of(action.ui?.control?.screen)?.let { action } }
+    val startAdding: (() -> Unit)? = listAction?.let { action ->
+        {
+            if (nativeList != null) instance.openNative(JsonObject(emptyMap()), RecordAction(action.name), action)
+            else adding = true
+        }
+    }
 
-    PlaceSwitch(instance, context, enabled = bottom) {
+    // P6: a board on a wide window when the records are on it; a list with tabs of its values on a phone.
+    val board = boardOf(context, method)
+    val onBoard = board?.let { (b, _) -> state.items.filter { enumKey(it[b.field]) in b.order } }.orEmpty()
+    val boardShown = board != null && !compact && onBoard.isNotEmpty()
+    var boardTab by remember(frame.method, board?.first) { mutableStateOf<String?>(null) }
+
+    Page(width = if (boardShown) cx.m42.superizer.kit.PageWidth.Wide else cx.m42.superizer.kit.PageWidth.Default, modifier = Modifier.testTag("$tag:list")) {
         if (!bottom) BackLine(instance, context)
-        TopNotices(instance, context)
-        listAction?.let { action ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 10.dp),
-                horizontalArrangement = Arrangement.End,
-            ) {
+        Header(
+            title = if (bottom) context.app.title else instance.titleAt(context.app, frames, frames.lastIndex) ?: method.title,
+            bar = barTitle(instance, context),
+            description = state.description,
+            crumbs = crumbs,
+            // Inside the shell the point is chosen in its bar, for every app at once (_plan/07, item 7).
+            meta = if (context.app.byPlace && bottom && !hostDrawsBack) ({ PlaceMeta(instance, context, choosable = true) }) else null,
+            actions = if (listAction == null) null else ({
                 Button(
-                    text = if (adding) words.cancel else action.title,
-                    onClick = {
-                        if (nativeList != null) instance.openNative(JsonObject(emptyMap()), RecordAction(action.name), action)
-                        else if (adding) instance.leave { adding = false }
-                        else adding = true
-                    },
-                    variant = if (adding) ButtonVariant.Ghost else ButtonVariant.Default,
-                    leadingIcon = if (adding) null else Lucide.Plus,
+                    text = listAction.title,
+                    onClick = { startAdding?.invoke() },
+                    leadingIcon = Lucide.Plus,
                     modifier = Modifier.testTag("$tag:add"),
                 )
-            }
-            if (adding && nativeList == null) {
-                FormCard(
-                    title = action.title,
-                    fields = formFields(action),
-                    submit = action.title,
-                    busy = "list:${action.name}" in busy,
-                    words = words,
-                    onSubmit = { values, saved ->
-                        instance.actOnList(action, JsonObject(values)) {
-                            adding = false
-                            saved()
-                        }
-                    },
-                    onCancel = { instance.leave { adding = false } },
-                    hold = instance::hold,
-                    tag = "$tag:form",
-                )
+            }),
+        )
+        TopNotices(instance, context)
+        // The form of the list's action is a dialog over the list — a sheet on a phone — as the prototype's.
+        if (listAction != null && adding && nativeList == null) {
+            ListActionDialog(instance, context, listAction, busy = "list:${listAction.name}" in busy, onClose = { adding = false })
+        }
+        FilterRow(instance, context, method, state)
+
+        val item = ui.item ?: ItemUi()
+        when {
+            !state.loaded && state.loading -> SkeletonRows("$tag:loading")
+            state.loaded && state.items.isEmpty() -> if (state.query.isNotBlank()) {
+                EmptyBlock(Lucide.SearchX, words.nothingFound, words.nothingFoundHint, "$tag:empty", words.resetSearch, { instance.search("") })
+            } else {
+                EmptyBlock(Lucide.Inbox, ui.empty ?: words.nothingFound, words.emptyHint, "$tag:empty", listAction?.title, startAdding, primary = true)
             }
         }
-        ui.search?.let { SearchBox(state.query, words.search, instance::search, "$tag:search") }
-        FrameChips(instance, context, method, state.counts)
-        Column(modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(top = 4.dp).testTag("$tag:list")) {
-            when {
-                !state.loaded && state.loading -> Row(
-                    modifier = Modifier.fillMaxWidth().padding(24.dp).testTag("$tag:loading"),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Spinner(size = 18.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text(words.loading, variant = TextVariant.Muted)
+        if (board != null && compact && state.items.isNotEmpty()) {
+            BoardTabs(context, board.first, board.second, state.items, boardTab) { boardTab = it }
+        }
+        val listed = when {
+            board == null || !compact -> state.items
+            boardTab == null -> state.items
+            else -> state.items.filter { enumKey(it[board.first.field]) == boardTab }
+        }
+        if (boardShown && board != null) {
+            val (b, field) = board
+            val cards = onBoard.mapNotNull { record -> rowOf(context, method, item, record)?.let { record to it } }
+                .groupBy({ (record, _) -> enumKey(record[b.field]).orEmpty() }) { (_, row) ->
+                    BoardCard(
+                        tag = row.tag,
+                        title = row.title,
+                        subtitle = row.subtitle,
+                        meta = row.meta,
+                        value = row.value,
+                        onClick = if (row.opens) ({ instance.openRow(row.record) }) else null,
+                        detail = row.detail,
+                        note = row.note,
+                    )
                 }
-                state.loaded && state.items.isEmpty() -> EmptyState(
-                    text = if (state.query.isNotBlank()) words.nothingFound else ui.empty ?: words.nothingFound,
-                    hint = null, action = null, onAction = null, tag = "$tag:empty",
-                )
+            BoardView(tag, field, b.order, cards)
+        }
+        // One panel per group when the list is grouped, its name as the panel's title.
+        val groups = (if (boardShown) emptyList() else listed).fold(mutableListOf<Pair<String?, MutableList<JsonObject>>>()) { acc, record ->
+            val groupTitle = ui.groupBy?.let { plain(record[it]) }
+            if (acc.isEmpty() || acc.last().first != groupTitle) acc += groupTitle to mutableListOf(record)
+            else acc.last().second += record
+            acc
+        }
+        val rows = groups.map { (title, records) -> title to records.mapNotNull { rowOf(context, method, item, it) } }
+        if (compact && board != null) {
+            // The records of a board on a phone are its cards, one under another, each with its column's stripe.
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                rows.flatMap { it.second }.forEach { row ->
+                    BoardCardView(
+                        BoardCard(
+                            tag = row.tag,
+                            title = row.title,
+                            subtitle = row.subtitle,
+                            meta = row.meta,
+                            value = row.value,
+                            onClick = if (row.opens) ({ instance.openRow(row.record) }) else null,
+                            detail = row.detail,
+                            note = row.note,
+                            state = enumKey(row.record[board.first.field])?.let { boardTitle(board.second, it) },
+                        ),
+                        toneKit(boardTone(board.second, enumKey(row.record[board.first.field]).orEmpty())),
+                    )
+                }
             }
-            // The rows in white blocks on the grey page — one block per group when the list is grouped,
-            // its name above it, as a phone's lists are.
-            val item = ui.item ?: ItemUi()
-            val groups = state.items.fold(mutableListOf<Pair<String?, MutableList<JsonObject>>>()) { acc, record ->
-                val groupTitle = ui.groupBy?.let { plain(record[it]) }
-                if (acc.isEmpty() || acc.last().first != groupTitle) acc += groupTitle to mutableListOf(record)
-                else acc.last().second += record
-                acc
+        } else if (item.series != null && LocalWindowClass.current != WindowClass.Expanded && rows.any { it.second.isNotEmpty() }) {
+            // P8 on a phone and a tablet: the prototype's cards — who it is, the shape of its load, its state and price.
+            rows.forEach { (groupTitle, models) ->
+                if (groupTitle != null) cx.m42.superizer.kit.SectionTitle(groupTitle)
+                cx.m42.superizer.kit.Grid(columns = if (compact) 1 else 2, gap = if (compact) 12.dp else 16.dp) {
+                    models.forEach { row -> SeriesCard(instance, context, row, busy) }
+                }
             }
-            groups.forEach { (groupTitle, records) ->
-                Group(title = groupTitle) {
-                    records.forEachIndexed { index, record ->
-                        if (index > 0) RowLine()
-                        RecordRow(instance, context, method, item, record, busy)
+        } else if (compact) {
+            rows.forEach { (groupTitle, models) ->
+                Panel(title = groupTitle, flush = true) {
+                    models.forEachIndexed { index, row ->
+                        if (index > 0) Hairline()
+                        CompactRow(instance, context, row, busy)
                     }
                 }
             }
-            if (state.nextCursor != null) {
-                Button(
-                    text = if (state.loadingMore) words.loading else words.more,
-                    onClick = instance::more,
-                    enabled = !state.loadingMore,
-                    loading = state.loadingMore,
-                    variant = ButtonVariant.Outline,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter).testTag("$tag:more"),
-                )
+        } else {
+            val (columns, headed) = tableColumns(instance, context, method, item, rows.flatMap { it.second }, busy)
+            rows.forEach { (groupTitle, models) ->
+                Panel(title = groupTitle, flush = true) {
+                    RecordTable(
+                        rows = models,
+                        columns = columns,
+                        tag = { it.tag },
+                        onRow = { if (it.opens) instance.openRow(it.record) },
+                        opens = { it.opens },
+                        headed = headed,
+                    )
+                }
             }
-            val total = state.total
-            if (total != null && total > state.items.size) {
-                Text(
-                    text = words.shownOf(state.items.size, total),
-                    variant = TextVariant.Muted,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter, vertical = 8.dp).testTag("$tag:shown"),
-                )
+        }
+        if (state.nextCursor != null) {
+            Button(
+                text = if (state.loadingMore) words.loading else words.more,
+                onClick = instance::more,
+                enabled = !state.loadingMore,
+                loading = state.loadingMore,
+                variant = ButtonVariant.Outline,
+                modifier = (if (compact) Modifier.fillMaxWidth() else Modifier.align(Alignment.CenterHorizontally)).testTag("$tag:more"),
+            )
+        }
+        val total = state.total
+        if (total != null && total > state.items.size) {
+            Text(
+                text = words.shownOf(state.items.size, total),
+                variant = TextVariant.Muted,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().testTag("$tag:shown"),
+            )
+        }
+    }
+}
+
+/**
+ * The form of an action of the list («+ Новый клиент») in the kit's dialog: its fields, «Отмена» and the
+ * action's own button in the footer. Closing it with something typed asks first, as leaving a page does.
+ */
+@Composable
+private fun ListActionDialog(instance: ServerAppInstance, context: RenderContext, action: DeclaredMethod, busy: Boolean, onClose: () -> Unit) {
+    val tag = "${context.tag}:form"
+    val form = remember(action.name) { FormState(formFields(action), tag) }
+    val cancel = { instance.leave(onClose) }
+    fun send(saved: () -> Unit) = instance.actOnList(action, JsonObject(form.collect())) {
+        onClose()
+        saved()
+    }
+    HoldUnsaved(form.dirty, instance::hold) { saved -> if (form.filled && !busy) send(saved) }
+    SystemBackHandler(enabled = true, onBack = cancel)
+    Dialog(
+        onDismiss = cancel,
+        title = action.title,
+        width = 520.dp,
+        footer = {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                FormButtons(form, action.title, busy, context.words, onSubmit = { send {} }, onCancel = cancel, fill = compact)
             }
-            Spacer(Modifier.height(24.dp))
+        },
+    ) {
+        Column(Modifier.fillMaxWidth().testTag(tag), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            FormFields(form, busy, context.words)
+        }
+    }
+}
+
+/** The tabs of a board on a phone (P6): «Все» and a chip per value of its order, with the count of each and its tone's dot. */
+@Composable
+private fun BoardTabs(
+    context: RenderContext,
+    board: cx.m42.restoapp.protocol.Board,
+    field: Field,
+    items: List<JsonObject>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+) {
+    val tag = "${context.tag}:board-tab"
+    val counts = items.groupingBy { enumKey(it[board.field]) }.eachCount()
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("${context.tag}:board-tabs"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        cx.m42.superizer.kit.Chip(
+            text = context.words.all,
+            selected = selected == null,
+            onClick = { onSelect(null) },
+            count = items.size,
+            modifier = Modifier.testTag("$tag-all"),
+        )
+        board.order.forEach { value ->
+            cx.m42.superizer.kit.Chip(
+                text = boardTitle(field, value),
+                selected = selected == value,
+                onClick = { onSelect(value) },
+                count = counts[value] ?: 0,
+                dot = toneKit(boardTone(field, value)),
+                modifier = Modifier.testTag("$tag-$value"),
+            )
+        }
+    }
+}
+
+/** The search and the chips of a list, always in view: one line on a wide window, two on a phone. */
+@Composable
+private fun FilterRow(instance: ServerAppInstance, context: RenderContext, method: DeclaredMethod, state: ListState) {
+    val ui = method.ui ?: return
+    val hasChips = ui.chips?.let { method.input.property(it) } != null
+    if (ui.search == null && !hasChips) return
+    val tag = context.tag
+    val search: @Composable (Modifier) -> Unit = { modifier ->
+        Input(
+            value = state.query,
+            onValueChange = instance::search,
+            placeholder = context.words.search,
+            leadingIcon = Lucide.Search,
+            modifier = modifier.testTag("$tag:search"),
+        )
+    }
+    if (compact) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (ui.search != null) search(Modifier)
+            FrameChips(instance, context, method, state.counts)
+        }
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (ui.search != null) search(Modifier.width(320.dp))
+            Box(Modifier.weight(1f)) { FrameChips(instance, context, method, state.counts) }
         }
     }
 }
@@ -424,7 +695,7 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, fram
 private fun FrameChips(instance: ServerAppInstance, context: RenderContext, method: DeclaredMethod, counts: Map<String, Int>) {
     val chips = method.ui?.chips ?: return
     val schema = method.input.property(chips) ?: return
-    Chips(
+    ChipsRow(
         values = schema.enumValues(),
         titles = schema.titles(),
         counts = counts,
@@ -434,64 +705,376 @@ private fun FrameChips(instance: ServerAppInstance, context: RenderContext, meth
     )
 }
 
-@Composable
-private fun RecordRow(
-    instance: ServerAppInstance,
-    context: RenderContext,
-    method: DeclaredMethod,
-    item: ItemUi,
-    record: JsonObject,
-    busy: Set<String>,
-) {
-    val id = record.id() ?: return
-    val model = method.model
-    val tag = "${context.tag}:row-$id"
-    val actions = context.actions(record, "row")
-    val stepper = actions.firstOrNull { it.second.ui?.control?.type == Controls.STEPPER }
-    val value = context.show(record, model, item.value)
-    val badge = context.show(record, model, item.badge)
-    // The row's own link beats the default one of the list (`client-lookup.plan.md`): a mixed list leads
-    // each of its rows where that row belongs.
-    val opens = record.open() != null || method.ui?.open?.let { context.app.method(it) } != null
+/** One record of a list as the screen shows it, whatever the window: what is in its row, and what it does. */
+private class RowModel(
+    val record: JsonObject,
+    val item: ItemUi,
+    val id: String,
+    val tag: String,
+    val title: String,
+    val subtitle: String?,
+    val meta: String?,
+    val value: Shown?,
+    val badge: Shown?,
+    val opens: Boolean,
+    val controls: List<Pair<RecordAction, DeclaredMethod>>,
+    /** The row's buttons (`buttons` placed on `row`): behind its `⋯`, a row has no room for them. */
+    val menu: List<Pair<RecordAction, DeclaredMethod>>,
+    /** True when a stepper in the row draws the value between its − and +. */
+    val stepped: Boolean,
+    val detail: String? = null,
+    val note: String? = null,
+    /** P8: the numbers of the record's `item.series` field — a sparkline in its card and its row; null without the key. */
+    val series: List<Float>? = null,
+)
 
-    ListRow(
+/** P8: the array of numbers in [field] of [record]; anything that is not a number in it is dropped. */
+internal fun seriesValues(record: JsonObject, field: String?): List<Float>? {
+    val array = field?.let { record[it] } as? kotlinx.serialization.json.JsonArray ?: return null
+    return array.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> !p.isString }?.content?.toFloatOrNull() }
+}
+
+private fun rowOf(context: RenderContext, method: DeclaredMethod, item: ItemUi, record: JsonObject): RowModel? {
+    val id = record.id() ?: return null
+    val model = method.model
+    val controls = context.actions(record, "row").filter { it.second.ui?.control?.type in setOf(Controls.STEPPER, Controls.TOGGLE) }
+    val stepper = controls.firstOrNull { it.second.ui?.control?.type == Controls.STEPPER }
+    val menu = context.actions(record, "row").filter { it.second.ui?.control?.type == Controls.BUTTONS }
+    return RowModel(
+        record = record,
+        item = item,
+        id = id,
+        tag = "${context.tag}:row-$id",
         title = item.title?.let { plain(record[it]) } ?: id,
         // Under a group's heading its name would only repeat it.
         subtitle = item.subtitle?.takeIf { it != method.ui?.groupBy }?.let { context.show(record, model, it)?.text },
         meta = context.show(record, model, item.meta)?.text,
-        // A stepper in the row draws the value between its − and +.
-        value = if (stepper != null && stepBase(record, stepper, item) != null) null else value?.text,
-        valueTone = value?.tone,
-        badge = badge?.text,
-        badgeTone = badge?.tone,
-        tag = tag,
-        onClick = if (opens) ({ instance.openRow(record) }) else null,
-    ) {
-        actions.forEach { (action, method) ->
-            val control = method.ui?.control ?: return@forEach
-            val waiting = "$id:${method.name}" in busy
-            when (control.type) {
-                Controls.STEPPER -> stepBase(record, action to method, item)?.let { base ->
-                    val range = stepRange(action, method)
-                    StepperRow(
-                        display = value?.text ?: base.toString(),
-                        tone = value?.tone,
-                        onMinus = (base - 1).takeIf { it in range }?.let { next -> { instance.act(record, action, method, JsonPrimitive(next)) } },
-                        onPlus = (base + 1).takeIf { it in range }?.let { next -> { instance.act(record, action, method, JsonPrimitive(next)) } },
-                        enabled = !waiting,
-                        tag = "$tag:${method.name}",
-                    )
+        value = context.show(record, model, item.value),
+        badge = context.show(record, model, item.badge),
+        // The row's own link beats the default one of the list (`client-lookup.plan.md`): a mixed list leads
+        // each of its rows where that row belongs.
+        opens = record.open() != null || method.ui?.open?.let { context.app.method(it) } != null,
+        controls = controls,
+        menu = menu,
+        stepped = stepper != null && stepBase(record, stepper, item) != null,
+        detail = item.detail?.let { context.show(record, model, it)?.text },
+        note = item.note?.let { context.show(record, model, it)?.text },
+        series = seriesValues(record, item.series),
+    )
+}
+
+/**
+ * A row on a phone: title and state, a line under it, the value at the end. A row with controls takes two
+ * lines, as the prototype's stop-list does — the switch beside the title, the state and the stepper under
+ * it — so a tap on the row's middle opens it rather than hitting a «−».
+ */
+@Composable
+private fun CompactRow(instance: ServerAppInstance, context: RenderContext, row: RowModel, busy: Set<String>) {
+    if (row.controls.isNotEmpty()) {
+        val stepper = row.controls.any { it.second.ui?.control?.type == Controls.STEPPER } && row.stepped
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .then(if (row.opens) Modifier.kitClickable { instance.openRow(row.record) } else Modifier)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .testTag(row.tag),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(row.title, Modifier.weight(1f, fill = false), style = Kit.textStyles.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (!stepper) row.badge?.let { Badge(it.text, it.tone, Modifier.testTag("${row.tag}:badge")) }
+                    }
+                    val second = listOfNotNull(row.subtitle, row.meta).filter { it.isNotBlank() }.joinToString(" · ")
+                    if (second.isNotEmpty()) Text(second, variant = TextVariant.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Controls.TOGGLE -> {
-                    val checked = (record[control.bind ?: ""] as? JsonPrimitive)?.booleanOrNull ?: false
-                    SwitchControl(checked, method.title, enabled = !waiting, onChange = { on ->
-                        instance.act(record, action, method, JsonPrimitive(on))
-                    }, tag = "$tag:${method.name}")
+                if (!stepper && !row.stepped) row.value?.let { ValueText(it.text, it.tone, Modifier.padding(start = 12.dp).testTag("${row.tag}:value")) }
+                RowControls(instance, context, row, busy, Controls.TOGGLE)
+                RowMenu(instance, context, row, busy)
+            }
+            if (stepper) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { row.badge?.let { Badge(it.text, it.tone, Modifier.testTag("${row.tag}:badge")) } }
+                    RowControls(instance, context, row, busy, Controls.STEPPER)
                 }
-                // Buttons and forms need room: they live on the card.
-                else -> Unit
             }
         }
+        return
+    }
+    ListRow(
+        title = row.title,
+        subtitle = row.subtitle,
+        meta = row.meta,
+        value = if (row.stepped) null else row.value?.text,
+        valueTone = row.value?.tone,
+        badge = row.badge?.text,
+        badgeTone = row.badge?.tone,
+        tag = row.tag,
+        onClick = if (row.opens) ({ instance.openRow(row.record) }) else null,
+        chevron = false,
+    ) {
+        RowControls(instance, context, row, busy)
+        RowMenu(instance, context, row, busy)
+    }
+}
+
+/**
+ * A record of a list with `item.series` (P8) as the prototype's service card: its mark, title and line, the
+ * sparkline of its numbers (a dashed baseline when it has none), then its state, its meta and its value.
+ */
+@Composable
+private fun SeriesCard(instance: ServerAppInstance, context: RenderContext, row: RowModel, busy: Set<String>) {
+    val muted = row.badge?.tone == Tones.MUTED
+    Panel(
+        modifier = Modifier.testTag(row.tag),
+        onClick = if (row.opens) ({ instance.openRow(row.record) }) else null,
+        gap = 14.dp,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            cx.m42.superizer.kit.NameMark(row.title, 40.dp, dimmed = muted)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(row.title, style = Kit.textStyles.label.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                row.subtitle?.takeIf { it.isNotBlank() }?.let { Text(it, style = Kit.textStyles.caption, color = Kit.colors.mutedForeground, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+            RowMenu(instance, context, row, busy)
+        }
+        cx.m42.superizer.kit.Sparkline(
+            row.series.orEmpty(),
+            Modifier.fillMaxWidth().height(40.dp).testTag("${row.tag}:series"),
+            color = if (row.series.isNullOrEmpty()) Kit.colors.mutedForeground else Kit.palette.brand,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            row.badge?.let { Badge(it.text, it.tone, Modifier.testTag("${row.tag}:badge")) }
+            row.meta?.takeIf { it.isNotBlank() }?.let { Pill(it, Tone.Neutral) }
+            androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+            row.value?.let { ValueText(it.text, it.tone, Modifier.testTag("${row.tag}:value")) }
+        }
+    }
+}
+
+/** The columns of a list on a wide window, from what its rows show: the name, the state, the line, the value, the controls. */
+@Composable
+private fun tableColumns(
+    instance: ServerAppInstance,
+    context: RenderContext,
+    method: DeclaredMethod,
+    item: ItemUi,
+    rows: List<RowModel>,
+    busy: Set<String>,
+): Pair<List<RecordColumn<RowModel>>, Boolean> {
+    val model = method.model
+    val words = context.words
+    // A column is never headed by nothing: the field's title, or — where the server gave the field none —
+    // what the column holds. The first one is the list's noun, the title of the record the rows open.
+    fun header(name: String?, fallback: String) = context.field(model, name)?.title?.takeIf { it.isNotBlank() } ?: fallback
+    fun declared(name: String?) = !context.field(model, name)?.title.isNullOrBlank()
+    val noun = method.ui?.open?.let { context.app.method(it)?.title }?.takeIf { it.isNotBlank() && it.length <= 24 } ?: words.name
+    val columns = mutableListOf<RecordColumn<RowModel>>()
+    columns += RecordColumn(header(item.title, noun), weight = 2.4f) { row ->
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(row.title, style = Kit.textStyles.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            row.subtitle?.takeIf { it.isNotBlank() }?.let { Text(it, style = Kit.textStyles.caption, color = Kit.colors.mutedForeground, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+    }
+    // P1: the server's columns after the title — those its model declares, in its order. None of them
+    // declared: the columns of `item`, as without the key.
+    val declaredColumns = method.ui?.columns.orEmpty()
+        .filter { it.field != item.title && context.field(model, it.field) != null }
+        .distinctBy { it.field }
+    if (declaredColumns.isNotEmpty()) {
+        declaredColumns.forEach { column ->
+            val field = context.field(model, column.field)!!
+            val numeric = field.format in setOf(Formats.MONEY, Formats.CREDITS, Formats.NUMBER, Formats.PERCENT)
+            val end = when (column.align) {
+                cx.m42.restoapp.protocol.Column.Align.END -> true
+                cx.m42.restoapp.protocol.Column.Align.START -> false
+                else -> numeric
+            }
+            val weight = when (column.width) {
+                cx.m42.restoapp.protocol.Column.Width.NARROW -> 0.8f
+                cx.m42.restoapp.protocol.Column.Width.WIDE -> 2.2f
+                else -> 1.2f
+            }
+            // A stepped value is the stepper's: the controls' column draws it between − and +.
+            val stepped = column.field == item.value
+            // A badge is never cut: its column is as wide as its longest pill, the rest goes to the others.
+            val badges = if (field.format == Formats.ENUM) rows.mapNotNull { row -> context.show(row.record, model, column.field)?.takeIf { it.tone != null || column.field == item.badge }?.text } else emptyList()
+            val fixed = if (badges.isNotEmpty()) badgeColumnWidth(badges, field.title.ifBlank { column.field }) else null
+            columns += RecordColumn(field.title.ifBlank { column.field }, weight = weight, width = fixed, alignEnd = end) { row ->
+                if (stepped && row.stepped) return@RecordColumn
+                val shown = context.show(row.record, model, column.field) ?: return@RecordColumn
+                val cellTag = Modifier.testTag("${row.tag}:col-${column.field}")
+                when {
+                    field.format == Formats.ENUM && (shown.tone != null || column.field == item.badge) -> Badge(shown.text, shown.tone, cellTag)
+                    numeric -> ValueText(shown.text, shown.tone, cellTag)
+                    else -> Text(
+                        shown.text,
+                        cellTag,
+                        variant = TextVariant.P,
+                        color = toneOf(shown.tone) ?: androidx.compose.ui.graphics.Color.Unspecified,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+    if (declaredColumns.isEmpty() && rows.any { it.badge != null }) {
+        val title = header(item.badge, words.status)
+        columns += RecordColumn(title, width = badgeColumnWidth(rows.mapNotNull { it.badge?.text }, title)) { row ->
+            row.badge?.let { Badge(it.text, it.tone, Modifier.testTag("${row.tag}:badge")) }
+        }
+    }
+    if (declaredColumns.isEmpty() && rows.any { !it.meta.isNullOrBlank() }) {
+        columns += RecordColumn(header(item.meta, words.info), weight = 1.5f) { row ->
+            row.meta?.let { Text(it, variant = TextVariant.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+    }
+    if (declaredColumns.isEmpty() && rows.any { it.value != null && !it.stepped }) {
+        columns += RecordColumn(header(item.value, words.value), weight = 1.1f, alignEnd = true) { row ->
+            if (!row.stepped) row.value?.let { ValueText(it.text, it.tone, Modifier.testTag("${row.tag}:value")) }
+        }
+    }
+    // P8: the shape of the record's numbers, after its columns, in the tone of its state.
+    if (item.series != null && rows.any { it.series != null }) {
+        columns += RecordColumn(header(item.series, words.trend), weight = 1.2f) { row ->
+            val values = row.series
+            if (values.isNullOrEmpty()) Text("—", variant = TextVariant.Muted)
+            else cx.m42.superizer.kit.Sparkline(
+                values, Modifier.width(110.dp).height(26.dp).testTag("${row.tag}:series"),
+                color = row.badge?.tone?.let { toneKit(it).color() } ?: Kit.palette.brand,
+            )
+        }
+    }
+    val controlled = rows.filter { it.controls.isNotEmpty() }
+    if (controlled.isNotEmpty()) {
+        // The controls' own names: «Изменить остаток · Продаётся на точке».
+        val names = controlled.flatMap { row -> row.controls.map { it.second.title } }.distinct().filter { it.isNotBlank() }
+        columns += RecordColumn(names.joinToString(" · ").ifEmpty { words.actions }, weight = 1.4f, alignEnd = true) { row ->
+            Row(verticalAlignment = Alignment.CenterVertically) { RowControls(instance, context, row, busy) }
+        }
+    }
+    if (rows.any { it.menu.isNotEmpty() }) {
+        // `⋯` needs no words over it, but a column without a head reads as a gap: a narrow one, said for a reader.
+        columns += RecordColumn("", width = 56.dp, alignEnd = true) { row ->
+            Row(verticalAlignment = Alignment.CenterVertically) { RowMenu(instance, context, row, busy) }
+        }
+    }
+    // A list whose columns besides the name the server titled none of — a stop-list under its groups — has
+    // no head: the rows say all a head would.
+    val headed = declaredColumns.isNotEmpty() || listOf(item.badge, item.meta, item.value).any(::declared)
+    return columns to headed
+}
+
+/**
+ * The width of a column of [Badge]s: the widest pill of [texts] (or the column's [title]), its dot and padding,
+ * and the cell's own padding — measured in the badge's style, so a long state («Запланирован») is not cut.
+ */
+@Composable
+private fun badgeColumnWidth(texts: List<String>, title: String): androidx.compose.ui.unit.Dp {
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val pill = Kit.textStyles.caption.copy(fontWeight = FontWeight.Medium)
+    val head = Kit.textStyles.caption.copy(fontWeight = FontWeight.Medium)
+    val widest = with(density) {
+        maxOf(
+            texts.distinct().maxOfOrNull { measurer.measure(it, pill, maxLines = 1).size.width.toDp() + 27.dp } ?: 0.dp,
+            measurer.measure(title, head, maxLines = 1).size.width.toDp(),
+        )
+    }
+    return widest + 20.dp + 2.dp
+}
+
+/** The stepper and the switch of a row; buttons and forms need room and live on the record's page. */
+@Composable
+private fun RowScope.RowControls(instance: ServerAppInstance, context: RenderContext, row: RowModel, busy: Set<String>, only: String? = null) {
+    val item = row.item
+    row.controls.forEach { (action, method) ->
+        val control = method.ui?.control ?: return@forEach
+        if (only != null && control.type != only) return@forEach
+        val waiting = "${row.id}:${method.name}" in busy
+        when (control.type) {
+            Controls.STEPPER -> stepBase(row.record, action to method, item)?.let { base ->
+                val range = stepRange(action, method)
+                StepperRow(
+                    display = row.value?.text ?: base.toString(),
+                    tone = row.value?.tone,
+                    onMinus = (base - 1).takeIf { it in range }?.let { next -> { instance.act(row.record, action, method, JsonPrimitive(next)) } },
+                    onPlus = (base + 1).takeIf { it in range }?.let { next -> { instance.act(row.record, action, method, JsonPrimitive(next)) } },
+                    enabled = !waiting,
+                    tag = "${row.tag}:${method.name}",
+                )
+            }
+            Controls.TOGGLE -> {
+                val checked = (row.record[control.bind ?: ""] as? JsonPrimitive)?.booleanOrNull ?: false
+                SwitchControl(checked, method.title, enabled = !waiting, onChange = { on ->
+                    instance.act(row.record, action, method, JsonPrimitive(on))
+                }, tag = "${row.tag}:${method.name}")
+            }
+            else -> Unit
+        }
+    }
+}
+
+/**
+ * The row's buttons behind its `⋯` (`<row>:more`): the kit's menu, one line per allowed value
+ * (`<row>:<method>-<value>`), the dangerous ones in red and asked about first, as on the record's page.
+ */
+@Composable
+private fun RowMenu(instance: ServerAppInstance, context: RenderContext, row: RowModel, busy: Set<String>) {
+    if (row.menu.isEmpty()) return
+    var open by remember(row.id) { mutableStateOf(false) }
+    var asking by remember(row.id) { mutableStateOf<Triple<RecordAction, DeclaredMethod, String>?>(null) }
+    val waiting = row.menu.any { "${row.id}:${it.second.name}" in busy }
+    Box {
+        IconButton(
+            Lucide.Ellipsis,
+            contentDescription = context.words.moreActions,
+            onClick = { open = true },
+            enabled = !waiting,
+            size = ButtonSize.Sm,
+            modifier = Modifier.padding(start = 4.dp).testTag("${row.tag}:more"),
+        )
+        Menu(open, { open = false }, width = 240.dp) {
+            row.menu.forEachIndexed { index, (action, method) ->
+                val control = method.ui?.control ?: return@forEachIndexed
+                val schema = (action.input ?: method.input).property(control.param ?: "") ?: return@forEachIndexed
+                val titles = schema.titles()
+                if (index > 0) MenuSeparator()
+                if (row.menu.size > 1) MenuLabel(method.title)
+                schema.enumValues().sortedBy { if (control.tones[it] == Tones.DANGER) 1 else 0 }.forEach { value ->
+                    val danger = control.tones[value] == Tones.DANGER
+                    Box(Modifier.testTag("${row.tag}:${method.name}-$value")) {
+                        MenuItem(
+                            text = titles[value] ?: value,
+                            onClick = {
+                                open = false
+                                if (danger && method.ui?.confirm != null) asking = Triple(action, method, value)
+                                else instance.act(row.record, action, method, JsonPrimitive(value))
+                            },
+                            destructive = danger,
+                        )
+                    }
+                }
+            }
+        }
+    }
+    asking?.let { (action, method, value) ->
+        val schema = (action.input ?: method.input).property(method.ui?.control?.param ?: "")
+        AskDialog(
+            question = method.ui?.confirm.orEmpty(),
+            confirm = schema?.titles()?.get(value) ?: value,
+            cancel = context.words.cancel,
+            destructive = true,
+            onConfirm = {
+                asking = null
+                instance.act(row.record, action, method, JsonPrimitive(value))
+            },
+            onDismiss = { asking = null },
+            tag = "${row.tag}:${method.name}-$value:confirm",
+            answers = "${row.tag}:${method.name}-$value",
+        )
     }
 }
 
@@ -517,23 +1100,81 @@ private fun stepRange(action: RecordAction, method: DeclaredMethod): IntRange {
     return maxOf(min, 0)..max
 }
 
+// ───────────────────────────── a record ─────────────────────────────
+
+/** A form of a record open for editing: which action, and what is typed into it. */
+private class Editing(val action: RecordAction, val method: DeclaredMethod, val form: FormState)
+
+/**
+ * The frame of a record: its page, and — on a phone, while a form of it is open — the kit's `ActionBar`
+ * under the page with the form's «Отмена» and «Сохранить», where a thumb is. Wider, the two are in the header.
+ */
+@Composable
+private fun RecordFrame(
+    instance: ServerAppInstance,
+    context: RenderContext,
+    record: JsonObject?,
+    page: @Composable ColumnScope.(MutableState<Editing?>) -> Unit,
+) {
+    val editing = remember(record?.id()) { mutableStateOf<Editing?>(null) }
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            Page(modifier = Modifier.testTag("${context.tag}:detail")) { page(editing) }
+        }
+        val open = editing.value
+        if (compact && open != null && record != null) {
+            ActionBar { EditButtons(instance, context, record, open, editing, fill = true) }
+        }
+    }
+}
+
+/** «Отмена» and «Сохранить» of the record's open form. */
+@Composable
+private fun EditButtons(instance: ServerAppInstance, context: RenderContext, record: JsonObject, open: Editing, editing: MutableState<Editing?>, fill: Boolean) {
+    val busy by instance.busy.collectAsState()
+    val waiting = "${record.id()}:${open.method.name}" in busy
+    FormButtons(
+        form = open.form,
+        submit = context.words.save,
+        busy = waiting,
+        words = context.words,
+        onSubmit = { submitEdit(instance, record, open, editing) {} },
+        onCancel = { instance.leave { editing.value = null } },
+        fill = fill,
+    )
+}
+
+/** Sends the record's form: its id, when the method takes one, and what was typed. */
+private fun submitEdit(instance: ServerAppInstance, record: JsonObject, open: Editing, editing: MutableState<Editing?>, saved: () -> Unit) {
+    val input = open.action.input ?: open.method.input
+    val params = buildJsonObject {
+        if (input.property("id") != null) record.id()?.let { put("id", JsonPrimitive(it)) }
+        open.form.collect().forEach { (key, value) -> put(key, value) }
+    }
+    instance.actWith(record, open.action, open.method, params) {
+        editing.value = null
+        saved()
+    }
+}
+
 /** A record opened from a list: its header, its actions, its fields by section, and where it leads next. */
 @Composable
-private fun DetailScreen(instance: ServerAppInstance, context: RenderContext, frame: Frame) {
+private fun DetailScreen(instance: ServerAppInstance, context: RenderContext, frame: Frame, crumbs: List<Crumb>) {
     val method = context.app.method(frame.method)
     val record = frame.record
-    val tag = context.tag
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("$tag:detail")) {
+    val frames by instance.frames.collectAsState()
+    RecordFrame(instance, context, record) { editing ->
         BackLine(instance, context)
-        TopNotices(instance, context)
         if (record == null) {
-            Text(text = context.words.loading, variant = TextVariant.Muted, modifier = Modifier.padding(20.dp))
-            return@Column
+            Header(title = instance.titleAt(context.app, frames, frames.lastIndex).orEmpty(), bar = barTitle(instance, context), crumbs = crumbs)
+            TopNotices(instance, context)
+            Skeleton(Modifier.fillMaxWidth().height(220.dp), androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+            return@RecordFrame
         }
         // `frame.loading`: the card is drawn from the row of the list while the full record is being
         // read. A screen of the client's own is built from that record — the editor of a setting from
         // the JSON Schema in it — so it must not open on half of one.
-        RecordCard(instance, context, method?.model, method?.ui?.item ?: ItemUi(), record, settled = !frame.loading)
+        RecordPage(instance, context, method?.model, method?.ui?.item ?: ItemUi(), record, crumbs, settled = !frame.loading, home = null, editing = editing, summary = method?.ui?.summary.orEmpty())
     }
 }
 
@@ -541,133 +1182,275 @@ private fun DetailScreen(instance: ServerAppInstance, context: RenderContext, fr
 @Composable
 private fun HomeRecordScreen(instance: ServerAppInstance, context: RenderContext, frame: Frame) {
     val method = context.app.method(frame.method) ?: return
-    PlaceSwitch(instance, context) {
-        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("${context.tag}:detail")) {
+    val record = frame.record
+    RecordFrame(instance, context, record) { editing ->
+        if (record == null) {
+            Header(title = context.app.title, bar = barTitle(instance, context), meta = if (context.app.byPlace) ({ PlaceMeta(instance, context, choosable = true) }) else null)
             TopNotices(instance, context)
             FrameChips(instance, context, method, emptyMap())
-            frame.record?.let { RecordCard(instance, context, method.model, method.ui?.item ?: ItemUi(), it, settled = !frame.loading) }
+            return@RecordFrame
         }
+        RecordPage(instance, context, method.model, method.ui?.item ?: ItemUi(), record, emptyList(), settled = !frame.loading, home = method, editing = editing, summary = method.ui?.summary.orEmpty())
     }
 }
 
+/**
+ * A record as a page: the header (its name, its state, its one number, its main actions), and under it
+ * the body — on a wide window in two columns, the main one and a rail with its dates and its links.
+ */
 @Composable
-private fun RecordCard(
+private fun ColumnScope.RecordPage(
     instance: ServerAppInstance,
     context: RenderContext,
     model: String?,
     item: ItemUi,
     record: JsonObject,
+    crumbs: List<Crumb>,
     /** False while this record is still being re-read: an action that reads the record waits for it. */
-    settled: Boolean = true,
+    settled: Boolean,
+    /** The home method, when the record is the app's own screen: its chips go under the header, its point in it. */
+    home: DeclaredMethod?,
+    /** The record's form open for editing, if any: its buttons take the header's place wider than a phone. */
+    editing: MutableState<Editing?>,
+    /** P7: the blocks over the card; empty — the card as it is. */
+    summary: List<cx.m42.restoapp.protocol.SummaryBlock> = emptyList(),
 ) {
     val busy by instance.busy.collectAsState()
     val id = record.id().orEmpty()
     val tag = context.tag
-
-    // The head: what the record is, its state, and the one number it is about — the way an issue
-    // opens on GitHub, before any of its fields.
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(start = PageGutter + 4.dp, end = PageGutter, top = 12.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            text = item.title?.let { plain(record[it]) } ?: id,
-            variant = TextVariant.H2,
-            modifier = Modifier.testTag("$tag:title"),
-        )
-        val subtitle = context.show(record, model, item.subtitle)
-        val badge = context.show(record, model, item.badge)
-        if (subtitle != null || badge != null) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                badge?.let { Badge(it.text, it.tone, Modifier.testTag("$tag:badge")) }
-                subtitle?.let { Text(text = it.text, variant = TextVariant.Muted, modifier = Modifier.weight(1f, fill = false)) }
-            }
-        }
-        context.show(record, model, item.value)?.let {
-            Text(
-                text = it.text,
-                variant = TextVariant.H3,
-                color = toneOf(it.tone) ?: Kit.colors.foreground,
-                modifier = Modifier.padding(top = 4.dp).testTag("$tag:value"),
-            )
-        }
+    val window = LocalWindowClass.current
+    val actions = context.actions(record, "detail")
+    // P3: the record's main action — the first one marked; null when none is, and every action looks as before.
+    val primary = actions.firstOrNull { it.second.ui?.primary == true }?.second?.name
+    // P9: «Открыть управление» — a server of the account the host can open now is the record's main button, and
+    // the record's own actions step back; one it cannot (not running) is not drawn at all.
+    val allLinks = record.links()
+    val serverLinks = allLinks.filter { link -> link.open.server?.let { instance.server.canOpenServer(it) } == true }
+    fun emphasis(method: DeclaredMethod): Boolean? = if (serverLinks.isNotEmpty()) false else primary?.let { it == method.name }
+    // Wider than a phone the buttons of a record's flow and its own screens sit in the header, the way an
+    // issue's buttons do on GitHub; on a phone they are a block of their own under it, where a thumb is.
+    val inHeader = window != WindowClass.Compact
+    // On a phone the record's main flow is right under its title (the prototype's order): «Готовить» and «⋯».
+    val phoneFlow = if (inHeader) null else actions.firstOrNull { (_, method) ->
+        method.ui?.control?.type == Controls.BUTTONS && (primary == null || primary == method.name)
     }
-
-    context.actions(record, "detail").forEach { (action, method) ->
-        val waiting = "$id:${method.name}" in busy
+    val headerActions = actions.filter { (_, method) ->
         when (method.ui?.control?.type) {
-            Controls.NATIVE -> if (NativeActions.of(method.ui?.control?.screen) != null) {
-                Button(
-                    text = method.title,
-                    onClick = { instance.openNative(record, action, method) },
-                    enabled = !waiting && settled,
-                    loading = waiting,
-                    size = ButtonSize.Lg,
-                    modifier = Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 20.dp).testTag("$tag:${method.name}"),
-                )
-            }
-            Controls.STEPPER -> StepperCard(instance, context, model, record, action, method, waiting)
-            Controls.TOGGLE -> Group {
-                val control = method.ui?.control
-                SwitchItem(
-                    title = method.title,
-                    checked = (record[control?.bind ?: ""] as? JsonPrimitive)?.booleanOrNull ?: false,
-                    onCheckedChange = { on -> instance.act(record, action, method, JsonPrimitive(on)) },
-                    enabled = !waiting,
-                    modifier = Modifier.testTag("$tag:${method.name}"),
-                )
-            }
-            Controls.BUTTONS -> ButtonsCard(instance, context, record, action, method, waiting)
-            // A form on a record — «Настройки» of a service: a button, and under it the fields of the record's own
-            // schema (`_actions` input), which start with the record's values (`default`).
-            Controls.FORM -> RecordFormCard(instance, context, record, action, method, waiting)
-            // Unknown controls are not drawn (plan section 4).
-            else -> Unit
+            Controls.BUTTONS -> inHeader || (phoneFlow != null && method.name == phoneFlow.second.name)
+            Controls.NATIVE -> inHeader && NativeActions.of(method.ui?.control?.screen) != null
+            else -> false
         }
     }
+
+    val subtitle = context.show(record, model, item.subtitle)
+    val badge = context.show(record, model, item.badge)
+    val value = context.show(record, model, item.value)
+    val open = editing.value
+    Box(Modifier.testTag("$tag:title")) {
+        Header(
+            title = item.title?.let { plain(record[it]) } ?: id,
+            bar = barTitle(instance, context),
+            description = subtitle?.text,
+            crumbs = crumbs,
+            badge = badge?.let { { Badge(it.text, it.tone, Modifier.testTag("$tag:badge")) } },
+            meta = if (value != null || (home != null && context.app.byPlace)) ({
+                value?.let {
+                    // A sum says what it is by its ₽; a bare number («3») needs its field's name over it.
+                    val field = context.field(model, item.value)
+                    val label = field?.title?.takeIf { t -> t.isNotBlank() && field.format != Formats.MONEY && field.format != Formats.CREDITS }
+                    Column {
+                        label?.let { l -> Text(l, style = Kit.textStyles.caption, color = Kit.colors.mutedForeground, maxLines = 1) }
+                        Text(
+                            text = it.text,
+                            style = Kit.textStyles.metric,
+                            color = if (it.tone == null) Kit.colors.foreground else toneKit(it.tone).textColor(),
+                            modifier = Modifier.testTag("$tag:value"),
+                        )
+                    }
+                }
+                if (home != null) PlaceMeta(instance, context, choosable = true)
+            }) else null,
+            actions = if (open != null && !compact) ({
+                EditButtons(instance, context, record, open, editing, fill = false)
+            }) else if (headerActions.isEmpty() && serverLinks.isEmpty()) null else ({
+                headerActions.forEach { (action, method) ->
+                    val waiting = "$id:${method.name}" in busy
+                    when (method.ui?.control?.type) {
+                        Controls.BUTTONS -> FlowButtons(
+                            instance, context, record, action, method, waiting, stacked = false, menu = !inHeader, emphasis = emphasis(method),
+                            // A phone: «Открыть управление» across the width, the power behind «⋯».
+                            lead = if (!inHeader && serverLinks.isNotEmpty()) ({ ServerLinkButton(instance, serverLinks.first(), tag, Modifier.weight(1f)) }) else null,
+                        )
+                        Controls.NATIVE -> Button(
+                            text = method.title,
+                            onClick = { instance.openNative(record, action, method) },
+                            enabled = !waiting && settled,
+                            loading = waiting,
+                            variant = if (emphasis(method) == true) ButtonVariant.Default else ButtonVariant.Outline,
+                            modifier = Modifier.testTag("$tag:${method.name}"),
+                        )
+                    }
+                }
+                // Drawn by the flow's row on a phone when there is one; otherwise here.
+                if (inHeader || phoneFlow == null) serverLinks.forEachIndexed { index, link ->
+                    ServerLinkButton(instance, link, tag, if (compact) Modifier.weight(1f) else Modifier, index)
+                }
+            }),
+        )
+    }
+    TopNotices(instance, context)
+    home?.let { FrameChips(instance, context, it, emptyMap()) }
+    // The way of the record along its board — an order's «Заказан → Готовится → В пути → Выполнен».
+    if (home == null) context.app.methods.firstNotNullOfOrNull { m -> if (m.model == model) boardOf(context, m) else null }?.let { (board, field) ->
+        if (record.containsKey(board.field)) WayPanel(field, board.order, enumKey(record[board.field]), "$tag:way")
+    }
+    if (summary.isNotEmpty()) SummaryView(context, model, record, summary)
 
     // Fields by section, in the declaration's order; the title is the header already.
     //
     // A field the record does not carry at all is left out: a promotion has either a percentage or a flat
     // amount, and a «—» where the other one would be says something false. A field that is there and empty
     // (`null`) still shows «—» — that is a value nobody has set, which is worth seeing.
-    val shownFields = context.app.fields(model).filter { it.name != item.title && record.containsKey(it.name) }
-    shownFields.groupBy { it.section }.forEach { (section, fields) ->
-        val lines: @Composable ColumnScope.() -> Unit = {
-            fields.forEachIndexed { index, field ->
-                if (index > 0) RowLine()
-                val shown = showValue(record[field.name], field, context.facts, context.words, context.now)
-                FieldLine(field.title, shown.text, shown.tone, "$tag:field-${field.name}")
-            }
-        }
-        Group(title = section, content = lines)
-    }
+    val drawnAbove = summaryFields(summary)
+    val shownFields = context.app.fields(model).filter { it.name != item.title && it.name !in drawnAbove && record.containsKey(it.name) }
+    // The lines of the card: not the servers (a button above, or nothing) and not the quiet ones (at the foot).
+    val links = allLinks.filter { it.open.server == null && it.quiet != true }
+    val quietLinks = allLinks.filter { it.open.server == null && it.quiet == true }
+    // The rail of a wide window: when the record happened, and where it leads.
+    val twoColumns = window == WindowClass.Expanded
+    val railFields = if (twoColumns) shownFields.filter { it.format == Formats.DATETIME || it.format == Formats.RELATIVE } else emptyList()
+    val mainFields = shownFields - railFields.toSet()
+    val hasRail = railFields.isNotEmpty() || links.isNotEmpty()
 
-    // Where the card leads: the lines the server built, each of them a link it checked the rights for.
-    val links = record.links()
-    if (links.isNotEmpty()) {
-        Group {
-            links.forEachIndexed { index, link ->
-                if (index > 0) RowLine()
-                LinkRow(instance, context, link, index)
+    val main: @Composable ColumnScope.() -> Unit = {
+        actions.forEach { (action, method) ->
+            if (action to method in headerActions) return@forEach
+            val waiting = "$id:${method.name}" in busy
+            when (method.ui?.control?.type) {
+                Controls.NATIVE -> if (NativeActions.of(method.ui?.control?.screen) != null) {
+                    Button(
+                        text = method.title,
+                        onClick = { instance.openNative(record, action, method) },
+                        enabled = !waiting && settled,
+                        loading = waiting,
+                        size = ButtonSize.Lg,
+                        variant = if (emphasis(method) == false) ButtonVariant.Outline else ButtonVariant.Default,
+                        modifier = Modifier.fillMaxWidth().testTag("$tag:${method.name}"),
+                    )
+                }
+                Controls.STEPPER -> StepperCard(instance, context, model, record, action, method, waiting)
+                Controls.TOGGLE -> Panel(flush = true) {
+                    val control = method.ui?.control
+                    SwitchItem(
+                        title = method.title,
+                        checked = (record[control?.bind ?: ""] as? JsonPrimitive)?.booleanOrNull ?: false,
+                        onCheckedChange = { on -> instance.act(record, action, method, JsonPrimitive(on)) },
+                        enabled = !waiting,
+                        modifier = Modifier.testTag("$tag:${method.name}"),
+                    )
+                }
+                Controls.BUTTONS -> Panel(title = method.title) {
+                    FlowButtons(instance, context, record, action, method, waiting, stacked = true, emphasis = emphasis(method))
+                }
+                // A form on a record — «Настройки» of a service: a button, and under it the fields of the record's own
+                // schema (`_actions` input), which start with the record's values (`default`).
+                Controls.FORM -> RecordFormCard(instance, context, record, action, method, waiting, editing)
+                // Unknown controls are not drawn (plan section 4).
+                else -> Unit
             }
         }
+        FieldPanels(context, record, mainFields)
+        if (!twoColumns) LinksPanel(instance, context, links)
     }
-    Spacer(Modifier.height(24.dp))
+    if (twoColumns && hasRail) {
+        Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(24.dp), content = main)
+            Column(Modifier.width(340.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                if (railFields.isNotEmpty()) {
+                    Panel(title = context.words.details) {
+                        railFields.forEach { field -> FieldFact(context, record, field) }
+                    }
+                }
+                LinksPanel(instance, context, links)
+            }
+        }
+    } else {
+        main()
+    }
+    QuietLinks(instance, context, quietLinks)
 }
 
-/** One line of `_links`: its words, what it says about itself, and a «›» to say it opens. */
+/** P9: «Открыть управление» — the record's server, opened in the app by the host. */
 @Composable
-private fun LinkRow(instance: ServerAppInstance, context: RenderContext, link: RecordLink, index: Int) {
-    // A line that leaves the app says so: «↗» for the browser of the system, «›» for one more screen.
-    LinkLine(
-        title = link.title,
-        subtitle = link.meta,
-        external = link.open.url != null,
+private fun ServerLinkButton(instance: ServerAppInstance, link: RecordLink, tag: String, modifier: Modifier, index: Int = 0) {
+    Button(
+        text = link.title,
         onClick = { instance.openLink(link.open, link.title) },
-        tag = "${context.tag}:link-${link.open.method ?: "url-$index"}",
-        externalHint = context.words.opensInBrowser,
+        leadingIcon = Lucide.LayoutDashboard,
+        modifier = modifier.testTag("$tag:link-server" + if (index > 0) "-$index" else ""),
     )
+}
+
+/** P9: the by-the-way lines of a card — the web admin of a service: small grey links at its foot, not buttons. */
+@Composable
+private fun QuietLinks(instance: ServerAppInstance, context: RenderContext, links: List<RecordLink>) {
+    if (links.isEmpty()) return
+    Row(
+        Modifier.fillMaxWidth().padding(top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        links.forEachIndexed { index, link ->
+            Row(
+                Modifier
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                    .kitClickable(hover = false) { instance.openLink(link.open, link.title) }
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    .testTag("${context.tag}:link-quiet-$index"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(link.title, style = Kit.textStyles.caption, color = Kit.colors.mutedForeground, maxLines = 1)
+                if (link.open.url != null) Icon(Lucide.ArrowUpRight, contentDescription = context.words.opensInBrowser, size = 12.dp, tint = Kit.colors.mutedForeground)
+            }
+        }
+    }
+}
+
+/** The fields of a record, one panel per section. */
+@Composable
+private fun FieldPanels(context: RenderContext, record: JsonObject, fields: List<Field>) {
+    fields.groupBy { it.section }.forEach { (section, group) ->
+        Panel(title = section, gap = 12.dp) {
+            group.forEach { field -> FieldFact(context, record, field) }
+        }
+    }
+}
+
+@Composable
+private fun FieldFact(context: RenderContext, record: JsonObject, field: Field) {
+    val shown = showValue(record[field.name], field, context.facts, context.words, context.now)
+    FactLine(field.title, shown.text, shown.tone, "${context.tag}:field-${field.name}")
+}
+
+/** Where the record leads: the lines the server built, each of them a link it checked the rights for. */
+@Composable
+private fun LinksPanel(instance: ServerAppInstance, context: RenderContext, links: List<RecordLink>) {
+    if (links.isEmpty()) return
+    Panel(flush = true) {
+        links.forEachIndexed { index, link ->
+            if (index > 0) Hairline()
+            // A line that leaves the app says so: «↗» for the browser of the system, «›» for one more screen.
+            LinkItem(
+                title = link.title,
+                subtitle = link.meta,
+                external = link.open.url != null,
+                onClick = { instance.openLink(link.open, link.title) },
+                tag = "${context.tag}:link-${link.open.method ?: "url-$index"}",
+                externalHint = context.words.opensInBrowser,
+            )
+        }
+    }
 }
 
 /** The card form of a stepper: −, the number, +; a number typed in; and the specials by name. */
@@ -694,68 +1477,75 @@ private fun StepperCard(
     var typed by remember(record.id(), current) { mutableStateOf(current?.takeIf { it in range }?.toString().orEmpty()) }
     fun send(value: Int) = instance.act(record, action, method, JsonPrimitive(value))
 
-    Group(title = method.title, hint = boundField?.let { "${it.title}: ${shown.text}" }) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IconButton(
-                    Lucide.Minus,
-                    contentDescription = "−",
-                    onClick = { current?.let { send(it - 1) } },
-                    enabled = !waiting && current != null && (current - 1) in range,
-                    variant = ButtonVariant.Outline,
-                    modifier = Modifier.testTag("$tag:minus"),
-                )
-                Box(Modifier.weight(1f)) {
-                    Input(
-                        value = typed,
-                        onValueChange = { text -> typed = text.filter { it.isDigit() }.take(9) },
-                        placeholder = shown.text,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        textStyle = Kit.typography.p.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center),
-                        modifier = Modifier.testTag("$tag:field"),
-                    )
-                }
-                IconButton(
-                    Lucide.Plus,
-                    contentDescription = "+",
-                    onClick = { current?.let { send(it + 1) } },
-                    enabled = !waiting && current != null && (current + 1) in range,
-                    variant = ButtonVariant.Outline,
-                    modifier = Modifier.testTag("$tag:plus"),
+    Panel(title = method.title, description = boundField?.let { "${it.title}: ${shown.text}" }) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IconButton(
+                Lucide.Minus,
+                contentDescription = "−",
+                onClick = { current?.let { send(it - 1) } },
+                enabled = !waiting && current != null && (current - 1) in range,
+                variant = ButtonVariant.Outline,
+                modifier = Modifier.testTag("$tag:minus"),
+            )
+            Box(if (compact) Modifier.weight(1f) else Modifier.width(160.dp)) {
+                Input(
+                    value = typed,
+                    onValueChange = { text -> typed = text.filter { it.isDigit() }.take(9) },
+                    placeholder = shown.text,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    textStyle = Kit.typography.p.copy(textAlign = TextAlign.Center),
+                    modifier = Modifier.testTag("$tag:field"),
                 )
             }
-            val number = typed.toIntOrNull()
-            Button(
-                text = context.words.set,
-                onClick = { number?.let(::send) },
-                enabled = !waiting && number != null && number in min..max && number != current,
-                loading = waiting,
-                modifier = Modifier.fillMaxWidth().testTag("$tag:set"),
+            IconButton(
+                Lucide.Plus,
+                contentDescription = "+",
+                onClick = { current?.let { send(it + 1) } },
+                enabled = !waiting && current != null && (current + 1) in range,
+                variant = ButtonVariant.Outline,
+                modifier = Modifier.testTag("$tag:plus"),
             )
-            val specials = control.specials.mapNotNull { special -> special.value.intOrNull?.takeIf { it in min..max }?.let { it to special } }
-            if (specials.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    specials.forEach { (value, special) ->
-                        // A named value is a shortcut, not the main action: outlined, a dangerous one in red words.
-                        ConfirmButton(
-                            text = special.title,
-                            tone = special.tone,
-                            confirm = null,
-                            enabled = !waiting && value != current,
-                            words = context.words,
-                            onClick = { send(value) },
-                            tag = "$tag:special-$value",
-                            modifier = Modifier.weight(1f),
-                            variant = ButtonVariant.Outline,
-                        )
-                    }
+            if (!compact) SetButton(context, typed, current, min, max, waiting, tag, Modifier, ::send)
+        }
+        if (compact) SetButton(context, typed, current, min, max, waiting, tag, Modifier.fillMaxWidth(), ::send)
+        val specials = control.specials.mapNotNull { special -> special.value.intOrNull?.takeIf { it in min..max }?.let { it to special } }
+        if (specials.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                specials.forEach { (value, special) ->
+                    // A named value is a shortcut, not the main action: outlined, a dangerous one in red words.
+                    AskFirstButton(
+                        text = special.title,
+                        tone = special.tone,
+                        confirm = null,
+                        enabled = !waiting && value != current,
+                        words = context.words,
+                        onClick = { send(value) },
+                        tag = "$tag:special-$value",
+                        modifier = if (compact) Modifier.weight(1f) else Modifier,
+                        variant = ButtonVariant.Outline,
+                    )
                 }
             }
         }
     }
 }
 
-/** A form of one record: closed it is a button, open — the fields, filled with what the record has now. */
+@Composable
+private fun SetButton(context: RenderContext, typed: String, current: Int?, min: Int, max: Int, waiting: Boolean, tag: String, modifier: Modifier, send: (Int) -> Unit) {
+    val number = typed.toIntOrNull()
+    Button(
+        text = context.words.set,
+        onClick = { number?.let(send) },
+        enabled = !waiting && number != null && number in min..max && number != current,
+        loading = waiting,
+        modifier = modifier.testTag("$tag:set"),
+    )
+}
+
+/**
+ * A form of one record: closed it is a row that opens it; open — the fields, filled with what the record
+ * has now. Its buttons are the page's: in the header, or in the `ActionBar` of a phone ([RecordFrame]).
+ */
 @Composable
 private fun RecordFormCard(
     instance: ServerAppInstance,
@@ -764,57 +1554,65 @@ private fun RecordFormCard(
     action: RecordAction,
     method: DeclaredMethod,
     waiting: Boolean,
+    editing: MutableState<Editing?>,
 ) {
-    val id = record.id() ?: return
+    record.id() ?: return
     val tag = "${context.tag}:${method.name}"
-    var open by remember(id, method.name) { mutableStateOf(false) }
-    if (!open) {
-        Group {
+    val open = editing.value?.takeIf { it.method.name == method.name }
+    if (open == null) {
+        Panel(flush = true) {
             ListRow(
                 title = method.title,
                 subtitle = null, meta = null, value = null, valueTone = null, badge = null, badgeTone = null,
                 tag = tag,
-                onClick = if (waiting) null else ({ open = true }),
+                onClick = if (waiting) null else ({
+                    editing.value = Editing(action, method, FormState(formFields(method, action.input ?: method.input), "$tag:form"))
+                }),
             )
         }
         return
     }
-    val input = action.input ?: method.input
-    FormCard(
+    val form = open.form
+    HoldUnsaved(form.dirty, instance::hold) { saved -> if (form.filled && !waiting) submitEdit(instance, record, open, editing, saved) }
+    // Filled in, the form is a step of its own: back closes it, not the screen under it.
+    SystemBackHandler(enabled = form.dirty) { instance.leave { editing.value = null } }
+    Panel(
+        modifier = Modifier.fillMaxWidth().testTag(form.tag),
         title = method.title,
-        fields = formFields(method, input),
-        submit = context.words.save,
-        busy = waiting,
-        words = context.words,
-        onSubmit = { values, saved ->
-            val params = buildJsonObject {
-                if (input.property("id") != null) put("id", JsonPrimitive(id))
-                values.forEach { (key, value) -> put(key, value) }
-            }
-            instance.actWith(record, action, method, params) {
-                open = false
-                saved()
-            }
-        },
-        onCancel = { instance.leave { open = false } },
-        hold = instance::hold,
-        tag = "$tag:form",
-    )
+        action = if (form.dirty) ({ Pill(context.words.unsaved, Tone.Warn) }) else null,
+        gap = 14.dp,
+    ) {
+        FormFields(form, waiting, context.words)
+    }
 }
 
 /**
  * One button per allowed value — the record's own list when the server narrowed it (`_actions`
  * input), the method's otherwise. `confirm` is asked before a `danger` value: REJECT asks, COOKING
  * does not.
+ *
+ * One main step, the rest quieter, the dangerous one last and apart: four equal buttons make a person
+ * read all four; this makes the usual next step the obvious one. [stacked] — a block of full-width
+ * buttons under the header of a phone; otherwise a row in the header, the main step last, at the edge.
  */
 @Composable
-private fun ButtonsCard(
+private fun FlowButtons(
     instance: ServerAppInstance,
     context: RenderContext,
     record: JsonObject,
     action: RecordAction,
     method: DeclaredMethod,
     waiting: Boolean,
+    stacked: Boolean,
+    /** On a phone: the main step as a wide button, the other values in the menu of «⋯». */
+    menu: Boolean = false,
+    /**
+     * P3: null — no action of the record is the main one, and the usual next step of this one is filled; true —
+     * this is the main action, its first value filled; false — another one is, nothing of this one is filled.
+     */
+    emphasis: Boolean? = null,
+    /** On a phone, the button that takes the main step's place across the width — «Открыть управление»; all values go behind «⋯». */
+    lead: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val control = method.ui?.control ?: return
     val schema = (action.input ?: method.input).property(control.param ?: "") ?: return
@@ -822,34 +1620,97 @@ private fun ButtonsCard(
     if (values.isEmpty()) return
     val titles = schema.titles()
     val tag = "${context.tag}:${method.name}"
-    // One main step, the rest quieter, the dangerous one last and apart: four equal buttons make a
-    // person read all four; this makes the usual next step the obvious one.
     // The server lists the values in the order of the flow, so the first that is not a refusal is the
     // usual next step — «Готовить» for a new order, not «Выполнен».
-    val main = values.firstOrNull { control.tones[it] != Tones.DANGER }
+    val main = mainValueOf(values, control.tones, emphasis)
     val ordered = values.sortedBy { if (control.tones[it] == Tones.DANGER) 1 else 0 }
-    Group(title = method.title) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ordered.forEach { value ->
-                val tone = control.tones[value]
-                ConfirmButton(
-                    text = titles[value] ?: value,
-                    tone = tone,
-                    confirm = method.ui?.confirm?.takeIf { tone == Tones.DANGER },
+    @Composable
+    fun one(value: String, modifier: Modifier) {
+        val tone = control.tones[value]
+        AskFirstButton(
+            text = titles[value] ?: value,
+            tone = tone,
+            confirm = method.ui?.confirm?.takeIf { tone == Tones.DANGER },
+            enabled = !waiting,
+            words = context.words,
+            onClick = { instance.act(record, action, method, JsonPrimitive(value)) },
+            tag = "$tag-$value",
+            modifier = modifier,
+            variant = when {
+                value == main -> ButtonVariant.Default
+                tone == Tones.DANGER -> ButtonVariant.Ghost
+                else -> ButtonVariant.Outline
+            },
+        )
+    }
+    if (menu && (main != null || lead != null)) {
+        // A phone, as the prototype's order: the next step across the width, the rest behind «⋯».
+        var open by remember(record.id(), method.name) { mutableStateOf(false) }
+        var asking by remember(record.id(), method.name) { mutableStateOf<String?>(null) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (lead != null) lead() else one(main!!, Modifier.weight(1f))
+            val rest = if (lead != null) ordered else ordered.filter { it != main }
+            if (rest.isNotEmpty()) Box {
+                IconButton(
+                    Lucide.Ellipsis,
+                    contentDescription = context.words.moreActions,
+                    onClick = { open = true },
                     enabled = !waiting,
-                    words = context.words,
-                    onClick = { instance.act(record, action, method, JsonPrimitive(value)) },
-                    tag = "$tag-$value",
-                    modifier = Modifier.fillMaxWidth().padding(top = if (tone == Tones.DANGER && value != ordered.first()) 6.dp else 0.dp),
-                    variant = when {
-                        tone == Tones.DANGER -> ButtonVariant.Ghost
-                        value == main -> ButtonVariant.Default
-                        else -> ButtonVariant.Outline
-                    },
+                    variant = ButtonVariant.Outline,
+                    modifier = Modifier.testTag("$tag:more"),
                 )
+                Menu(open, { open = false }, width = 240.dp) {
+                    rest.forEach { value ->
+                        val danger = control.tones[value] == Tones.DANGER
+                        if (danger && rest.first() != value) MenuSeparator()
+                        Box(Modifier.testTag("$tag-$value")) {
+                            MenuItem(
+                                text = titles[value] ?: value,
+                                onClick = {
+                                    open = false
+                                    if (danger && method.ui?.confirm != null) asking = value
+                                    else instance.act(record, action, method, JsonPrimitive(value))
+                                },
+                                destructive = danger,
+                            )
+                        }
+                    }
+                }
             }
         }
+        asking?.let { value ->
+            AskDialog(
+                question = method.ui?.confirm.orEmpty(),
+                confirm = titles[value] ?: value,
+                cancel = context.words.cancel,
+                destructive = true,
+                onConfirm = {
+                    asking = null
+                    instance.act(record, action, method, JsonPrimitive(value))
+                },
+                onDismiss = { asking = null },
+                tag = "$tag-$value:confirm",
+                answers = "$tag-$value",
+            )
+        }
+    } else if (stacked) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ordered.forEach { value -> one(value, Modifier.fillMaxWidth()) }
+        }
+    } else {
+        // Read left to right, a header ends with its main action: the refusal first, the main step last.
+        ordered.sortedBy { if (control.tones[it] == Tones.DANGER) 0 else if (it == main) 2 else 1 }.forEach { value -> one(value, Modifier) }
     }
+}
+
+/**
+ * The filled button of a `buttons` control (P3): without a main action on the record, the usual next step — the
+ * first value that is not a refusal; on the main action its first value; on any other action none.
+ */
+internal fun mainValueOf(values: List<String>, tones: Map<String, String>, emphasis: Boolean?): String? = when (emphasis) {
+    null -> values.firstOrNull { tones[it] != Tones.DANGER }
+    true -> values.firstOrNull()
+    false -> null
 }
 
 /**

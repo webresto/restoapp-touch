@@ -58,6 +58,8 @@ class DemoContractTest {
         // and the POS, which is by points and drawn by the client itself.
         assertEquals(
             mapOf(
+                // «Главная» — the day of a point, at the points of what it shows.
+                "home" to listOf("p1", "p2"),
                 "dishes" to listOf("p1", "p2"),
                 "orders" to listOf("p1", "p2"),
                 "clients" to emptyList(),
@@ -74,11 +76,11 @@ class DemoContractTest {
         assertEquals("assistant", admin.app("assistant")?.native)
         assertEquals(null, admin.app("orders")?.native)
         demo.setRole(DemoRole.Stock)
-        assertEquals(mapOf("dishes" to listOf("p1", "p2")), ids(demo.describe("demo", "ru").value))
+        assertEquals(mapOf("home" to listOf("p1", "p2"), "dishes" to listOf("p1", "p2")), ids(demo.describe("demo", "ru").value))
         demo.setRole(DemoRole.Operator)
         val operator = demo.describe("demo", "ru").value
         // An operator leads orders and looks customers up, but takes no orders: no POS.
-        assertEquals(mapOf("orders" to listOf("p1"), "clients" to emptyList()), ids(operator))
+        assertEquals(mapOf("home" to listOf("p1"), "orders" to listOf("p1"), "clients" to emptyList()), ids(operator))
         assertEquals(listOf("p1"), operator.places.map { it.id })
         val noPos = assertFailsWith<MobileApiException> { demo.call("demo", "pos.start", JsonObject(emptyMap()), "p1", "ru") }
         assertEquals(MobileApiException.FORBIDDEN, noPos.code)

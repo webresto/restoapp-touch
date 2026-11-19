@@ -356,7 +356,7 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
     val systemWord = words.t("Системная", "System")
     val disabled = words.t("Выключена", "Switched off")
 
-    fun job(name: String, title: String, on: String, confirm: String? = null) = DeclaredMethod(
+    fun job(name: String, title: String, on: String, confirm: String? = null, primary: Boolean? = null) = DeclaredMethod(
         name = name,
         kind = DeclaredMethod.KIND_MUTATION,
         title = title,
@@ -367,6 +367,7 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
             placement = listOf("detail"),
             control = Control(type = Controls.NATIVE, screen = "module-progress"),
             confirm = confirm,
+            primary = primary,
         ),
     )
 
@@ -449,7 +450,7 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
                 title = words.t("Этот сервер", "This server"),
                 model = "serverCard",
                 input = objectSchema(emptyList(), emptyMap()),
-                ui = Ui(view = Views.DETAIL, item = ItemUi(title = "title", subtitle = "subtitle")),
+                ui = Ui(view = Views.DETAIL, item = ItemUi(title = "title", subtitle = "subtitle"), section = words.t("Сервер", "Server")),
             ),
             DeclaredMethod(
                 name = "system.restart",
@@ -492,6 +493,7 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
                     chips = "kind",
                     open = "system.module",
                     empty = words.t("Программ нет", "No programs"),
+                    section = programs,
                 ),
             ),
             DeclaredMethod(
@@ -522,6 +524,7 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
                     search = "q",
                     open = "system.catalogItem",
                     empty = words.t("В маркетплейсе нет программ для установки", "The marketplace has no programs to install"),
+                    section = marketplace,
                 ),
             ),
             DeclaredMethod(
@@ -533,7 +536,8 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
                 ui = Ui(view = Views.DETAIL, item = ItemUi(title = "name", subtitle = "appId", badge = "stateText")),
             ),
             job("system.install", words.t("Установить", "Install"), "catalogItem"),
-            job("system.update", words.t("Обновить", "Update"), "module"),
+            // P3: an update is what a program's page is usually opened for.
+            job("system.update", words.t("Обновить", "Update"), "module", primary = true),
             job(
                 "system.remove", words.t("Удалить", "Remove"), "module",
                 confirm = words.t("Удалить программу? Её файлы и настройки будут удалены.", "Remove this program? Its files and settings will be deleted."),

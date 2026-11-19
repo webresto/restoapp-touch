@@ -44,7 +44,32 @@ public class RenderWords(public val lang: String) {
     /** The arrow of a line that leaves the app, for a screen reader. */
     public val opensInBrowser: String = t("Откроется в браузере", "Opens in the browser")
     public val linkGone: String = t("Этот переход сейчас недоступен", "This link cannot be followed now")
+    public val goneHint: String = t("Его убрали с сервера или у вас больше нет к нему доступа.", "It was removed from the server, or you no longer have access to it.")
+    public val noPlacesHint: String = t("Приложение работает по точкам, а у вас пока нет ни одной.", "This app works by points, and you have none yet.")
+    public val nothingFoundHint: String = t("Проверьте, что написано в поиске, или сбросьте его.", "Check what the search says, or clear it.")
+    public val emptyHint: String = t("Записи появятся здесь, как только они будут на сервере.", "Records show here as soon as the server has them.")
+    public val resetSearch: String = t("Сбросить поиск", "Clear the search")
+    /** The rail of a record on a wide window: its dates and the like. */
+    public val details: String = t("Сведения", "Details")
+    /** The mark of a form with edits the server has not got. */
+    public val unsaved: String = t("Не сохранено", "Not saved")
+    /** The head of a list's first column when the server gave its field no title. */
+    public val name: String = t("Название", "Name")
+    public val status: String = t("Статус", "Status")
+    public val info: String = t("Подробнее", "More")
+    public val value: String = t("Значение", "Value")
+    public val actions: String = t("Действия", "Actions")
+    /** The first tab of a board on a phone: every record of the list. */
+    public val all: String = t("Все", "All")
+    /** The `⋯` of a row, for a screen reader. */
+    public val moreActions: String = t("Ещё действия", "More actions")
+    /** A choice nobody has made yet. */
+    public val choose: String = t("Выберите", "Choose")
     public val linkNotOpened: String = t("Не удалось открыть ссылку", "The link could not be opened")
+    public val serverNotOpened: String = t("Сервер сейчас не работает — откройте его, когда он запустится", "The server is not running — open it once it is up")
+
+    /** The head of a table column of a sparkline whose field the model does not declare. */
+    public val trend: String = t("Нагрузка", "Load")
 
     public fun shownOf(shown: Int, total: Int): String = t("Показано $shown из $total", "$shown of $total shown")
 

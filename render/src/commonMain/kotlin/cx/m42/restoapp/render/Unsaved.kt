@@ -1,31 +1,17 @@
 package cx.m42.restoapp.render
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
-import cx.m42.superizer.kit.Button
-import cx.m42.superizer.kit.ButtonSize
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.TriangleAlert
 import cx.m42.superizer.kit.ButtonVariant
-import cx.m42.superizer.kit.Kit
-import cx.m42.superizer.kit.Text
-import cx.m42.superizer.kit.TextVariant
+import cx.m42.superizer.kit.Dialog
+import cx.m42.superizer.kit.Tone
 import cx.m42.superizer.ui.platform.SystemBackHandler
 
 /**
@@ -49,7 +35,10 @@ public fun HoldUnsaved(dirty: Boolean, hold: (UnsavedWork?) -> Unit, save: ((sav
     }
 }
 
-/** The one question before edits are lost, whichever way out was taken. */
+/**
+ * The one question before edits are lost, whichever way out was taken: the kit's dialog — a sheet on a
+ * phone, a card wider — with its three answers, saving first when there is a save to offer.
+ */
 @Composable
 internal fun UnsavedQuestion(
     words: RenderWords,
@@ -59,47 +48,22 @@ internal fun UnsavedQuestion(
     onStay: () -> Unit,
 ) {
     SystemBackHandler(enabled = true, onBack = onStay)
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Kit.colors.scrim)
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onStay)
-            .testTag("unsaved:question"),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            modifier = Modifier
-                .widthIn(max = 360.dp)
-                .padding(24.dp)
-                .clip(Kit.shapes.xl)
-                .background(Kit.colors.background)
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(text = words.unsavedTitle, variant = TextVariant.H4)
-            Text(text = words.unsavedHint, variant = TextVariant.Muted, modifier = Modifier.padding(bottom = 8.dp))
-            if (canSave) {
-                Button(
-                    text = words.saveAndLeave,
-                    onClick = onSave,
-                    size = ButtonSize.Lg,
-                    modifier = Modifier.fillMaxWidth().testTag("unsaved:save"),
+    Dialog(
+        onDismiss = onStay,
+        title = words.unsavedTitle,
+        description = words.unsavedHint,
+        icon = Lucide.TriangleAlert,
+        tone = Tone.Warn,
+        footer = {
+            Box(Modifier.testTag("unsaved:question")) {
+                DialogButtons(
+                    listOfNotNull(
+                        if (canSave) DialogButton(words.saveAndLeave, ButtonVariant.Default, "unsaved:save", onSave) else null,
+                        DialogButton(words.leaveWithoutSaving, ButtonVariant.Destructive, "unsaved:leave", onLeave),
+                        DialogButton(words.stay, ButtonVariant.Outline, "unsaved:stay", onStay),
+                    ),
                 )
             }
-            Button(
-                text = words.leaveWithoutSaving,
-                onClick = onLeave,
-                variant = ButtonVariant.Destructive,
-                size = ButtonSize.Lg,
-                modifier = Modifier.fillMaxWidth().testTag("unsaved:leave"),
-            )
-            Button(
-                text = words.stay,
-                onClick = onStay,
-                variant = ButtonVariant.Ghost,
-                size = ButtonSize.Lg,
-                modifier = Modifier.fillMaxWidth().testTag("unsaved:stay"),
-            )
-        }
-    }
+        },
+    )
 }

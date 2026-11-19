@@ -4,6 +4,8 @@ import androidx.compose.runtime.Composable
 import cx.m42.restoapp.protocol.MobileApiException
 import cx.m42.restoapp.render.RestoServer
 import cx.m42.superizer.app.AppChrome
+import cx.m42.superizer.app.AppLayout
+import cx.m42.superizer.app.AppWidth
 import cx.m42.superizer.app.AppInstance
 import cx.m42.superizer.runtime.InstanceRuntime
 import kotlinx.coroutines.CancellationException
@@ -48,6 +50,9 @@ internal class ScriptAppInstance(
 
     private val _chrome = MutableStateFlow(AppChrome())
     override val chrome: StateFlow<AppChrome> get() = _chrome.asStateFlow()
+
+    /** As wide as the window: the screen keeps itself readable in a narrow page of the kit. */
+    override val layout: StateFlow<AppLayout> = MutableStateFlow(AppLayout(width = AppWidth.Adaptive)).asStateFlow()
 
     private var script: ScriptRuntime? = null
     private var stack = listOf<ScriptFrame>()

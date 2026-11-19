@@ -53,6 +53,33 @@ internal class HostWords(lang: String) {
     val resetDemo = t("Сбросить демо-данные", "Reset demo data")
     val demoTitle = t("Демо-сервер", "Demo server")
 
+    // The focused flows: connecting a server, signing in again (02-host.md, the prototype's Auth.kt).
+    val addTitle = t("Подключить сервер", "Connect a server")
+    val addLead = t(
+        "RestoApp работает с вашим сервером: заказы, меню, касса и маркетинг. Или посмотрите всё на демо.",
+        "RestoApp works with your server: orders, the menu, the till and marketing. Or look around on the demo.",
+    )
+    val stepAddress = t("Адрес", "Address")
+    val stepSignIn = t("Вход", "Sign in")
+    val addressTitle = t("Адрес сервера", "The server's address")
+    val addressLead = t("Адрес, по которому открывается админка вашего RestoApp.", "Where the admin panel of your RestoApp opens.")
+    val checkServer = t("Проверить сервер", "Check the server")
+    val signInTitle = t("Вход на сервер", "Sign in to the server")
+    val signInLead = t("Логин и пароль от админки RestoApp.", "Your RestoApp admin panel's login and password.")
+    val changeAddress = t("Изменить адрес", "Change the address")
+    val version = t("Версия", "Version")
+    val cloudTitle = t("Вход в Resto Cloud", "Sign in to Resto Cloud")
+    val signUpTitle = t("Аккаунт Resto Cloud", "A Resto Cloud account")
+    val signInAgainLead = t("Сервер больше не узнаёт это устройство — войдите снова.", "The server no longer knows this device — sign in again.")
+    val brandTitle = t("Ресторан\nна любом экране", "Your restaurant\non any screen")
+    val brandLead = t(
+        "Заказы, меню, касса и маркетинг — с телефона, планшета и компьютера, на вашем сервере RestoApp или в облаке.",
+        "Orders, the menu, the till and marketing — from a phone, a tablet or a computer, on your RestoApp server or in the cloud.",
+    )
+    val brandOwn = t("Свой сервер — по адресу и логину админки", "Your own server — by its address and admin login")
+    val brandCloud = t("Resto Cloud — серверы, баланс и их запуск", "Resto Cloud — services, balance, starting them")
+    val brandSafe = t("Вход защищён задачей от роботов", "Sign-in guarded against robots")
+
     val connectCloud = t("Подключить облачный аккаунт", "Connect a cloud account")
     val viaCloud = t("Подключить через облако", "Connect via the cloud")
     val connectingViaCloud = t("Подключаемся к серверу через облако…", "Connecting to the server via the cloud…")

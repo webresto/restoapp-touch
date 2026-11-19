@@ -44,6 +44,9 @@ public data class Declaration(
     public fun app(id: String): DeclaredApp? = apps.firstOrNull { it.id == id }
 
     public fun place(id: String?): Place? = places.firstOrNull { it.id == id }
+
+    /** P10: the money left on this account — of the server, or of the person; null for a RestoApp. */
+    public val balance: AccountBalance? get() = server.balance ?: user.balance
 }
 
 /** Facts the client formats by: money in [currency], dates in [timezone]. */
@@ -54,7 +57,54 @@ public data class ServerFacts(
     val currency: String? = null,
     val timezone: String? = null,
     val locale: String? = null,
+    /** P10: the money left on a Resto Cloud account — the cloud's `server` (or `user`) says it; a RestoApp never does. */
+    @Serializable(with = LenientBalance::class) val balance: AccountBalance? = null,
+    /**
+     * P11 (Resto Cloud): every amount of this server is credits ([currency] is then [CREDITS]); this is the display
+     * currency of the account and the system rate — «≈ 12,35 $» next to credits, [CreditRate.note] behind an (i).
+     */
+    @Serializable(with = LenientCreditRate::class) val credits: CreditRate? = null,
+) {
+    public companion object {
+        /** `server.currency` of a server whose amounts are credits (the cloud): an older client says «999 CR». */
+        public const val CREDITS: String = "CR"
+    }
+
+    /** Facts of a Resto Cloud account: a cloud that does not say its currency (before P11) counts in credits all the same. */
+    public fun ofCloud(): ServerFacts = if (currency == null) copy(currency = CREDITS) else this
+}
+
+/**
+ * P11: the display currency of a cloud account and the system rate the administrator set — display only: the cloud
+ * charges, stores and sells credits. [perCredit] — how much of [currency] one credit is; [note] — what the (i) says.
+ */
+@Serializable
+public data class CreditRate(
+    val currency: String,
+    val sign: String,
+    val perCredit: Double,
+    val decimals: Int = 2,
+    val signBefore: Boolean = false,
+    val title: String? = null,
+    val rateUpdatedAt: String? = null,
+    val rateText: String? = null,
+    val note: String? = null,
 )
+
+/**
+ * P10: what is left on the account, in the account's money ([ServerFacts.currency]), how many days it lasts at
+ * today's spend, and how alarming that is — [Tones.WARNING] under a week, [Tones.DANGER] under three days or at
+ * nothing; null when there is nothing to say. A wrong shape is no balance, never a lost declaration.
+ */
+@Serializable
+public data class AccountBalance(
+    val amount: Double,
+    @Serializable(with = LenientInt::class) val daysLeft: Int? = null,
+    @Serializable(with = LenientString::class) val tone: String? = null,
+) {
+    /** [tone] when it is one of the two this client warns with. */
+    public val warning: String? get() = tone?.takeIf { it == Tones.WARNING || it == Tones.DANGER }
+}
 
 @Serializable
 public data class DeclaredUser(
@@ -63,6 +113,8 @@ public data class DeclaredUser(
     val login: String,
     val fullName: String? = null,
     val isAdministrator: Boolean = false,
+    /** P10, where the cloud puts it on the person rather than the server. */
+    @Serializable(with = LenientBalance::class) val balance: AccountBalance? = null,
 )
 
 /** A point: a kitchen, a pickup point. Apps by points work on one of them at a time. */
@@ -102,6 +154,11 @@ public data class DeclaredApp(
      * version", and neither crashes nor hides it.
      */
     val script: ScriptRef? = null,
+    /**
+     * P4: the method whose number is the mark beside the app in the menu — «Заказы · 8». A query with no
+     * required params (an app by points gets only its point); its answer is a number, and 0 is no mark.
+     */
+    @Serializable(with = LenientString::class) val badge: String? = null,
 ) {
     val byPlace: Boolean get() = scope == SCOPE_PLACE
 
@@ -184,7 +241,15 @@ public data class Field(
     val specials: List<Special> = emptyList(),
     /** Titles of the values of an `enum` field. */
     @SerialName("x-titles") val titles: Map<String, String> = emptyMap(),
-)
+    /**
+     * P2: the [Tones] of the values of an `enum` field — wherever the value shows as a badge, a dot or a column
+     * of a board. A value of another tone than the closed set is drawn as one without a tone.
+     */
+    @SerialName("x-tones") @Serializable(with = LenientStringMap::class) val tones: Map<String, String> = emptyMap(),
+) {
+    /** The tone of [value], when the server gave it one this client knows. */
+    public fun toneOf(value: String?): String? = value?.let { tones[it] }?.takeIf { it in Tones.ALL }
+}
 
 @Serializable
 public data class Special(
@@ -235,7 +300,68 @@ public data class Ui(
     val specials: List<Special> = emptyList(),
     val bind: String? = null,
     val param: String? = null,
+    /** P1: the columns of the table of a `list` on a wide window, in this order; without them — those of [item]. */
+    @Serializable(with = LenientColumns::class) val columns: List<Column>? = null,
+    /** P3: the main action of a record (one; of several, the first). The record's other actions are secondary. */
+    @Serializable(with = LenientBoolean::class) val primary: Boolean? = null,
+    /** P5: the name of the section of the app this query is, already in the language asked; two or more make sections. */
+    @Serializable(with = LenientString::class) val section: String? = null,
+    /** P6: a `list` drawn as a board on a wide window, a column per value of an `enum` field. */
+    @Serializable(with = LenientBoard::class) val board: Board? = null,
+    /** P7: blocks of numbers and charts over the card of a `detail`. A block of a type this client does not know is skipped. */
+    @Serializable(with = LenientSummary::class) val summary: List<SummaryBlock>? = null,
 )
+
+/** P1: one column of a list's table: a field of the model, [Align] and [Width] of the closed sets. */
+@Serializable
+public data class Column(
+    val field: String,
+    val align: String? = null,
+    val width: String? = null,
+) {
+    public object Align {
+        public const val START: String = "start"
+        public const val END: String = "end"
+    }
+
+    public object Width {
+        public const val NARROW: String = "narrow"
+        public const val WIDE: String = "wide"
+    }
+}
+
+/** P6: the board of a list — columns are the values of the enum field [field], in [order]. */
+@Serializable
+public data class Board(
+    val field: String,
+    val order: List<String> = emptyList(),
+)
+
+/**
+ * P7: one block of a summary. [type] is one of [SummaryBlock.METRIC], [SERIES], [LIST], [SHARE]; the arrays
+ * the last three read are fields of the record that the model does not declare — an older client shows none.
+ */
+@Serializable
+public data class SummaryBlock(
+    val type: String,
+    val field: String,
+    val title: String? = null,
+    val format: String? = null,
+    /** For a metric: the field with the change in percent; its sign is its tone. */
+    val delta: String? = null,
+    /** For a list: the field with the lines under it — «Блюда», «Промокод», «Итого». */
+    val totals: String? = null,
+    /** For a metric (Resto Cloud): the field of the record holding the tone of the number — `balanceTone` of «Баланс». */
+    @Serializable(with = LenientString::class) val tone: String? = null,
+) {
+    public companion object {
+        public const val METRIC: String = "metric"
+        public const val SERIES: String = "series"
+        public const val LIST: String = "list"
+        public const val SHARE: String = "share"
+        public val TYPES: Set<String> = setOf(METRIC, SERIES, LIST, SHARE)
+    }
+}
 
 /** Which fields of a record a row shows. */
 @Serializable
@@ -246,6 +372,16 @@ public data class ItemUi(
     val value: String? = null,
     val badge: String? = null,
     val image: String? = null,
+    /** A third line of a card: where the order goes — the address, «Самовывоз», the table. */
+    val detail: String? = null,
+    /** A note at the card's foot, before its value: «6 поз.». */
+    val note: String? = null,
+    /**
+     * P8: the field of the record with an array of numbers — the load of a service over the last hours; the
+     * client draws it as a sparkline in the card and the table. The array is not declared in the model, so an
+     * older client never shows it.
+     */
+    @Serializable(with = LenientString::class) val series: String? = null,
 )
 
 /** How an action is drawn. [param] is the input it sets, [bind] the field of the record it shows. */
@@ -287,6 +423,9 @@ public object Formats {
     public const val NUMBER: String = "number"
     public const val MONEY: String = "money"
 
+    /** P11 (Resto Cloud): a number of credits — «1 234,5 кр», with «≈ 12,35 $» where the server gave a rate. */
+    public const val CREDITS: String = "credits"
+
     /** A number of percent: 10 is "10 %". */
     public const val PERCENT: String = "percent"
     public const val DATETIME: String = "datetime"
@@ -303,6 +442,11 @@ public object Tones {
     public const val WARNING: String = "warning"
     public const val SUCCESS: String = "success"
     public const val DANGER: String = "danger"
+
+    /** Grey: done, cancelled, switched off. */
+    public const val MUTED: String = "muted"
+
+    public val ALL: Set<String> = setOf(INFO, WARNING, SUCCESS, DANGER, MUTED)
 }
 
 /**

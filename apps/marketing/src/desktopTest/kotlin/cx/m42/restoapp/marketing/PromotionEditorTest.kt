@@ -2,7 +2,13 @@
 
 package cx.m42.restoapp.marketing
 
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.onNodeWithText
@@ -148,18 +154,42 @@ class PromotionEditorTest {
         tap("marketing:editor-dishes")
         idle()
         assertShown("marketing:picker")
-        // The groups of the menu are doors here; a product is what is ticked.
+        // The groups of the menu unfold here; a product is what is ticked, and «Готово» applies the ticks.
         tap("marketing:picker-open-Пицца")
         idle()
         tap("marketing:picker-dish-d1")
         idle()
-        tap("marketing:picker-back")
+        ui.onNodeWithText("Выбрано: 1").assertExists()
+        ui.onNodeWithText("Готово").performClick()
         idle()
-        tap("marketing:picker-back")
-        idle()
+        assertAbsent("marketing:picker")
         assertShown("marketing:editor")
-        ui.onNodeWithText("Блюда · 1").assertExists()
+        // The chosen product is named on the field, as the catalog calls it.
+        ui.onNodeWithText("Пепперони 30 см").assertExists()
         node("marketing:editor-summary").assertTextEquals("−10% выбранные блюда и группы")
+    }
+
+    @Test
+    fun cancellingThePickerKeepsTheChoiceAsItWas() = editor {
+        tap("marketing:editor-groups")
+        idle()
+        tap("marketing:picker-group-Пицца")
+        idle()
+        ui.onNodeWithText("Отмена").performClick()
+        idle()
+        assertAbsent("marketing:picker")
+        assertAbsent("marketing:editor-unsaved")
+        node("marketing:editor-summary").assertTextEquals("−10% вся корзина")
+    }
+
+    @Test
+    fun anEditMarksTheFormNotSavedAndOnlyThenSaveIsOffered() = editor {
+        assertAbsent("marketing:editor-unsaved")
+        node("marketing:editor-save").assertIsNotEnabled()
+        retype("marketing:editor-amount", "15")
+        assertShown("marketing:editor-unsaved")
+        node("marketing:editor-save").assertIsEnabled()
+        node("marketing:editor-summary").assertTextEquals("−15% вся корзина")
     }
 
     /** core refuses a gift the guest could buy, and so does the screen: the rule is one (`validateGift`). */
@@ -186,7 +216,7 @@ class PromotionEditorTest {
         idle()
         assertAbsent("marketing:editor")
         assertShown("marketing:detail")
-        node("marketing:title").assertTextEquals("Летняя скидка")
+        node("marketing:title").assert(hasAnyDescendant(hasText("Летняя скидка")))
     }
 
     @Test
@@ -205,7 +235,7 @@ class PromotionEditorTest {
         tap("unsaved:save")
         idle()
         assertAbsent("marketing:editor")
-        node("marketing:title").assertTextEquals("Зимняя скидка")
+        node("marketing:title").assert(hasAnyDescendant(hasText("Зимняя скидка")))
     }
 
     @Test

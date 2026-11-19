@@ -35,7 +35,9 @@ class DemoSystemWalkTest {
 
     private fun ComposeUiTest.shot(name: String) {
         waitForIdle()
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(out, "demo-system-$name.png"))
+        // The whole scene, so the editor and the transfer (popups over the page — a second root) are in it.
+        val image = (this as? androidx.compose.ui.test.SkikoComposeUiTest)?.captureToImage() ?: onRoot().captureToImage()
+        ImageIO.write(image.toAwtImage(), "png", File(out, "demo-system-$name.png"))
     }
 
     private fun ComposeUiTest.exists(tag: String) = onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
@@ -53,15 +55,18 @@ class DemoSystemWalkTest {
 
     private fun ComposeUiTest.read(text: String) = waitUntil(timeoutMillis = 10_000L) { hasText(text) }
 
-    /** The chevron of the window: it walks the screens of the app, and from its first screen it goes Home. */
+    /**
+     * The chevron of the window: it walks the screens of the app; its first screen is a destination of the
+     * bottom bar, with no chevron — «Главная» of the bar goes Home from there.
+     */
     private fun ComposeUiTest.backHome() {
         var step = 0
-        while (!exists("home:tile-channels") && step++ < 8) {
-            onNodeWithContentDescription("Назад").performClick()
+        while (!exists("home:summary") && step++ < 8) {
+            if (exists("shell:back")) onNodeWithTag("shell:back").performClick() else openHome()
             mainClock.advanceTimeBy(600)
             waitForIdle()
         }
-        see("home:tile-channels")
+        see("home:summary")
     }
 
     private fun host() = RestoAppHost(
@@ -75,11 +80,13 @@ class DemoSystemWalkTest {
     fun theHomeOfTheSystemAndItsDoors() = runDesktopComposeUiTest(width = 420, height = 820) {
         val host = host()
         setContent { RestoApp(host) }
-        see("home:tile-system")
-        assertTrue(exists("home:tile-channels") && exists("home:tile-settings"))
+        see("home:summary")
+        assertApp("system")
+        assertApp("channels")
+        assertApp("settings")
         shot("01-home")
 
-        tap("home:tile-system")
+        openApp("system")
         see("system:detail")
         read("Демо-ресторан")
         shot("02-server-card")
@@ -119,7 +126,8 @@ class DemoSystemWalkTest {
     fun aChannelIsSetUpThroughTheSettings() = runDesktopComposeUiTest(width = 420, height = 820) {
         val host = host()
         setContent { RestoApp(host) }
-        tap("home:tile-channels")
+        see("home:summary")
+        openApp("channels")
         see("channels:row-ch-telegram")
         assertTrue(exists("channels:row-channel-types"))
         shot("10-channels")
@@ -153,7 +161,7 @@ class DemoSystemWalkTest {
         see("settings:row-SALES_CHANNEL_TELEGRAM_TOKEN")
         shot("16-provider-row-filled")
         backHome()
-        tap("home:tile-channels")
+        openApp("channels")
         tap("channels:row-ch-telegram")
         see("channels:detail")
         read("Работает")
@@ -169,7 +177,8 @@ class DemoSystemWalkTest {
     fun theScreensOfTheSettings() = runDesktopComposeUiTest(width = 420, height = 820) {
         val host = host()
         setContent { RestoApp(host) }
-        tap("home:tile-settings")
+        see("home:summary")
+        openApp("settings")
         see("settings:row-CITY")
         shot("20-settings")
 
@@ -204,7 +213,8 @@ class DemoSystemWalkTest {
     fun aMissingProviderIsInstalledFromItsChannel() = runDesktopComposeUiTest(width = 420, height = 820) {
         val host = host()
         setContent { RestoApp(host) }
-        tap("home:tile-channels")
+        see("home:summary")
+        openApp("channels")
         tap("channels:row-ch-vk")
         read("Не работает: провайдер не установлен")
         assertTrue(!exists("channels:channels.toggle"), "no live provider, no switch")
@@ -231,7 +241,7 @@ class DemoSystemWalkTest {
         assertTrue(!exists("system:system.install"), "what is installed has no button to install")
         shot("34-provider-installed")
         backHome()
-        tap("home:tile-channels")
+        openApp("channels")
         tap("channels:row-ch-vk")
         see("channels:detail")
         read("Требует настройки")

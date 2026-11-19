@@ -23,6 +23,10 @@ public data class ServerProfile(
     val cloudId: String? = null,
     /** The cloud's status of this server: online, starting, stopped, error… */
     val status: String? = null,
+    /** A cloud account: the money left on it (P10), as its `describe` last said — the switcher and the strip show it. */
+    val balance: cx.m42.restoapp.protocol.AccountBalance? = null,
+    /** A cloud account: the currency of [balance]. */
+    val currency: String? = null,
 ) {
     val isDemo: Boolean get() = address.startsWith(DEMO_SCHEME)
 
@@ -30,9 +34,12 @@ public data class ServerProfile(
         val ru = lang.startsWith("ru")
         return HostContext(
             id = id,
+            // «Resto Cloud · login» stays the title: it is what tells two accounts apart (CloudServerTest).
             title = name,
             subtitle = when {
-                isDemo -> null
+                isDemo -> if (ru) "Демо · данные только на этом устройстве" else "Demo · the data stays on this device"
+                // «1 840 ₽ · хватит на 42 дня» — what an account is about, once it said it.
+                cloud && balance != null -> balanceLine(balance, currency, ru)
                 cloud -> (if (ru) "Аккаунт облака · " else "Cloud account · ") + hostOf(address)
                 else -> hostOf(address)
             },

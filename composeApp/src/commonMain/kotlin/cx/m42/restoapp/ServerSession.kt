@@ -72,6 +72,9 @@ internal class ServerSession(
     lang: String,
     /** After a mutation went through — a cloud account re-reads its servers: one was just made, started or deleted. */
     private val afterMutation: () -> Unit = {},
+    /** P9: may a server of this cloud account be opened in the app now; and open it — the host's switch. */
+    private val canOpenServer: (String) -> Boolean = { false },
+    private val openServer: (String) -> Boolean = { false },
 ) {
     /** The language declarations are asked in: the person's, set by the host when they change it. */
     var lang: String = lang
@@ -94,6 +97,9 @@ internal class ServerSession(
 
     /** The point last picked by hand, on any app of this server. */
     private val lastPlace = MutableStateFlow(read(PLACE, StoredPlace.serializer())?.place)
+
+    /** The point picked by hand, for the host's own point field: the same one every app of this server follows. */
+    val pickedPlace: StateFlow<String?> get() = lastPlace.asStateFlow()
 
     private val refreshing = Mutex()
     private val bound = mutableMapOf<String, Bound>()
@@ -273,6 +279,10 @@ internal class ServerSession(
         scope.cancel()
     }
 
+    /** A cloud account's amounts are credits even when its (older) cloud does not say so — not «₽». */
+    private fun factsOf(declaration: Declaration?): ServerFacts? =
+        declaration?.server?.let { if (profile.cloud) it.ofCloud() else it }
+
     inner class Bound(private val appId: String) : RestoServer {
         /** What this server was connected by: a link of its own («/admin/…») is resolved against it. */
         override val address: String get() = profile.address
@@ -281,7 +291,7 @@ internal class ServerSession(
             _declaration.map { it?.app(appId) }.stateIn(scope, SharingStarted.Eagerly, _declaration.value?.app(appId))
 
         override val facts: StateFlow<ServerFacts?> =
-            _declaration.map { it?.server }.stateIn(scope, SharingStarted.Eagerly, _declaration.value?.server)
+            _declaration.map { factsOf(it) }.stateIn(scope, SharingStarted.Eagerly, factsOf(_declaration.value))
 
         override val places: StateFlow<List<Place>> =
             _declaration.map(::placesOf).stateIn(scope, SharingStarted.Eagerly, placesOf(_declaration.value))
@@ -301,9 +311,15 @@ internal class ServerSession(
 
         override suspend fun call(method: String, params: JsonObject): JsonElement = this@ServerSession.call(appId, method, params)
 
+        override fun canOpenServer(id: String): Boolean = this@ServerSession.canOpenServer(id)
+
+        override fun openServer(id: String): Boolean = this@ServerSession.openServer(id)
+
+        /** The points of this app, the person's main point first (`pointsByUse`), so every app opens on the same one. */
         private fun placesOf(declaration: Declaration?): List<Place> {
             val app = declaration?.app(appId)?.takeIf { it.byPlace } ?: return emptyList()
-            return app.places.mapNotNull { id -> declaration.place(id) }
+            val order = pointsByUse(declaration).map { it.id }
+            return app.places.mapNotNull { id -> declaration.place(id) }.sortedBy { order.indexOf(it.id).let { at -> if (at < 0) Int.MAX_VALUE else at } }
         }
     }
 
@@ -356,4 +372,15 @@ internal suspend fun signInTo(
             if (failure.code != MobileApiException.CAPTCHA_INVALID || attempt >= 2) throw failure
         }
     }
+}
+
+/**
+ * The points of the server the person has in any app, the one they can do most at first: the server lists its points
+ * by name, and «Без кухни» or a pickup counter is then the first — a place where the person has the orders and nothing
+ * else. Ties keep the order of the server. The shell's point field and every app open on the first of these.
+ */
+internal fun pointsByUse(declaration: Declaration?): List<Place> {
+    val apps = declaration?.apps.orEmpty().filter { it.byPlace }
+    val uses = apps.flatMap { it.places }.groupingBy { it }.eachCount()
+    return declaration?.places.orEmpty().filter { it.id in uses }.sortedByDescending { uses[it.id] ?: 0 }
 }

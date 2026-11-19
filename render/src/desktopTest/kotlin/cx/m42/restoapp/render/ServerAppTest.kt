@@ -207,6 +207,9 @@ class ServerAppTest {
         inner("orders:badge").assertTextEquals("Заказан")
         node("orders:orders.setState-COOKING").assertExists()
 
+        // On a phone the main step is the wide button and the others are behind «⋯».
+        tap("orders:orders.setState:more")
+        idle()
         tap("orders:orders.setState-REJECT")
         idle()
         assertShown("orders:orders.setState-REJECT:confirm")
@@ -218,6 +221,8 @@ class ServerAppTest {
         // From COOKING there is no way back to ORDER, and COOKING itself is gone.
         assertAbsent("orders:orders.setState-COOKING")
 
+        tap("orders:orders.setState:more")
+        idle()
         tap("orders:orders.setState-REJECT")
         idle()
         tap("orders:orders.setState-REJECT:yes")
@@ -257,9 +262,12 @@ class ServerAppTest {
         }
     }
 
-    /** How many rows show the «Готовится» badge: the screen's own account of what it was told. */
+    /** How many cards say they are «Готовится» (their stripe's state): the screen's own account of what it was told. */
     private fun AppTestScope<*>.cookingBadges(): Int =
-        ui.onAllNodesWithText("Готовится", useUnmergedTree = true).fetchSemanticsNodes().size
+        ui.onAllNodes(
+            androidx.compose.ui.test.SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "Готовится"),
+            useUnmergedTree = true,
+        ).fetchSemanticsNodes().size
 
     /** «Блюда» take no `since`: that screen is re-read on return, never polled. */
     @Test

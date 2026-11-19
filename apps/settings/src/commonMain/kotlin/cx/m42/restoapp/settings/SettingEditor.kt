@@ -3,13 +3,8 @@ package cx.m42.restoapp.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -18,14 +13,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.composeunstyled.Text
-import cx.m42.restoapp.protocol.Tones
+import com.composables.icons.lucide.CircleAlert
+import com.composables.icons.lucide.Lock
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.RotateCcw
+import com.composables.icons.lucide.RotateCw
+import com.composables.icons.lucide.TriangleAlert
 import cx.m42.restoapp.render.HoldUnsaved
 import cx.m42.restoapp.render.NativeActionScope
-import cx.m42.restoapp.render.Notice
 import cx.m42.restoapp.render.SchemaEditor
 import cx.m42.restoapp.render.SchemaNode
 import cx.m42.restoapp.render.SchemaWords
@@ -34,7 +31,23 @@ import cx.m42.restoapp.render.plainOf
 import cx.m42.restoapp.render.prettyJson
 import cx.m42.restoapp.render.problemOf
 import cx.m42.restoapp.render.schemaNodeOf
-import cx.m42.superizer.theme.AppTheme
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.Dialog
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
+import cx.m42.superizer.kit.Icon
+import cx.m42.superizer.kit.Kit
+import cx.m42.superizer.kit.LocalWindowClass
+import cx.m42.superizer.kit.Notice
+import cx.m42.superizer.kit.Pill
+import cx.m42.superizer.kit.Separator
+import cx.m42.superizer.kit.StatusBadge
+import cx.m42.superizer.kit.Text
+import cx.m42.superizer.kit.TextVariant
+import cx.m42.superizer.kit.Tone
+import cx.m42.superizer.kit.WindowClass
+import cx.m42.superizer.kit.textColor
+import cx.m42.superizer.kit.textStyles
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -43,10 +56,6 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
-import cx.m42.superizer.kit.Button
-import cx.m42.superizer.kit.ButtonSize
-import cx.m42.superizer.kit.ButtonVariant
-import cx.m42.restoapp.render.Group
 
 /**
  * The editor of one setting's value — the screen `control: {type: "native", screen: "setting-editor"}`
@@ -124,7 +133,6 @@ private fun hintOf(node: SchemaNode, patternHint: String?, words: SchemaWords): 
 internal fun SettingEditor(scope: NativeActionScope) {
     val words = remember(scope.lang) { SettingsWords(scope.lang) }
     val schemaWords = remember(scope.lang) { SchemaWords(scope.lang) }
-    val tokens = AppTheme
     val record = scope.record
 
     val key = record.text("key")
@@ -142,6 +150,7 @@ internal fun SettingEditor(scope: NativeActionScope) {
     val nothingTyped = secret && edited == null
     val dirty = touched && edited != stored
     val canSave = !scope.busy && problem == null && !nothingTyped
+    val compact = LocalWindowClass.current == WindowClass.Compact
 
     fun save(saved: () -> Unit) {
         scope.submitThen(buildJsonObject { put("id", key); put("value", edited ?: JsonNull) }) {
@@ -157,82 +166,127 @@ internal fun SettingEditor(scope: NativeActionScope) {
     // What is wrong with the value is on the screen already, under the field it is about.
     HoldUnsaved(dirty, scope.hold) { saved -> if (canSave) save(saved) }
 
-    Column(modifier = Modifier.fillMaxSize().testTag("settings:editor")) {
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(
-                text = words.cancel,
-                onClick = scope.leave,
-                variant = ButtonVariant.Ghost,
-                size = ButtonSize.Sm,
-                modifier = Modifier.testTag("settings:editor-cancel"),
-            )
-            Text(
-                text = key,
-                style = tokens.subtitle,
-                color = tokens.foreground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 8.dp).weight(1f),
-            )
-            Button(
-                text = if (scope.busy) words.saving else words.save,
-                onClick = { save {} },
-                enabled = canSave,
-                size = ButtonSize.Sm,
-                modifier = Modifier.testTag("settings:editor-save"),
-            )
-        }
-
-        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            // What cannot be changed here, and why — the red plate of the web page, word for word.
-            record.element("envOverride")?.let { env ->
-                Notice(words.envPinned, Tones.DANGER, null, null, "settings:editor-env")
-                if ((env as? JsonObject)?.flag("valid") == false) {
-                    Notice(words.envInvalid, Tones.DANGER, null, null, "settings:editor-env-invalid")
-                }
-            }
-            if (record.flag("readOnly")) Notice(words.readOnly, Tones.WARNING, null, null, "settings:editor-readonly")
-            if (secret) {
-                Notice(
-                    if (record.flag("hasValue")) words.secretStored else words.notSetYet,
-                    Tones.INFO, null, null, "settings:editor-secret",
+    // Over the card it was opened from: a centred dialog in a wide window, a sheet from the bottom on a
+    // phone — the kit decides. The dim, Esc and back go the way «Отмена» does, through the question.
+    Dialog(
+        onDismiss = scope.leave,
+        title = record.textOrNull("name") ?: key,
+        width = 520.dp,
+        closeLabel = words.close,
+        footer = {
+            val saveButton = @Composable { modifier: Modifier ->
+                Button(
+                    text = if (scope.busy) words.saving else words.save,
+                    onClick = { save {} },
+                    enabled = canSave,
+                    loading = scope.busy,
+                    size = if (compact) ButtonSize.Lg else ButtonSize.Default,
+                    modifier = modifier.testTag("settings:editor-save"),
                 )
             }
-            if (RestartPending.waiting(record.text("boot"), key)) {
-                Notice(words.restartPending, Tones.WARNING, null, null, "settings:editor-restart")
+            if (compact) {
+                // The answer on top, where the thumb is — as the kit's `DialogActions` stacks them.
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    saveButton(Modifier.fillMaxWidth())
+                    Button(
+                        words.cancel,
+                        scope.leave,
+                        Modifier.fillMaxWidth().testTag("settings:editor-cancel"),
+                        variant = ButtonVariant.Ghost,
+                        size = ButtonSize.Lg,
+                    )
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                    Button(words.cancel, scope.leave, Modifier.testTag("settings:editor-cancel"), variant = ButtonVariant.Outline)
+                    saveButton(Modifier)
+                }
+            }
+        },
+    ) {
+        Column(Modifier.fillMaxWidth().testTag("settings:editor"), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    key,
+                    Modifier.weight(1f, fill = false),
+                    style = Kit.textStyles.monoSmall,
+                    color = Kit.colors.mutedForeground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                when {
+                    dirty -> StatusBadge(words.unsaved, Tone.Warn, Modifier.testTag("settings:editor-unsaved"))
+                    RestartPending.waiting(record.text("boot"), key) -> Pill(words.waitsRestart, Tone.Warn)
+                    secret -> Pill(words.secret, Tone.Neutral, icon = Lucide.Lock)
+                }
+            }
+            record.textOrNull("description")?.let { description ->
+                Text(description, variant = TextVariant.Muted, modifier = Modifier.testTag("settings:editor-description"))
             }
 
-            Group(title = record.textOrNull("name") ?: words.value) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SchemaEditor(
-                        node = node,
-                        value = edited,
-                        label = null,
-                        note = hintOf(node, patternHint, schemaWords),
-                        enabled = !scope.busy,
-                        words = schemaWords,
-                        onChange = {
-                            edited = it
-                            touched = true
-                        },
-                        tag = "settings:field",
-                    )
+            // What cannot be changed here, and why — the red plate of the web page, word for word.
+            record.element("envOverride")?.let { env ->
+                Notice(Tone.Danger, Lucide.Lock, words.pinned, words.envPinned, Modifier.testTag("settings:editor-env"))
+                if ((env as? JsonObject)?.flag("valid") == false) {
+                    Notice(Tone.Danger, Lucide.TriangleAlert, words.pinned, words.envInvalid, Modifier.testTag("settings:editor-env-invalid"))
+                }
+            }
+            if (record.flag("readOnly")) {
+                Notice(Tone.Warn, Lucide.Lock, words.appOwned, words.readOnly, Modifier.testTag("settings:editor-readonly"))
+            }
+            if (RestartPending.waiting(record.text("boot"), key)) {
+                Notice(Tone.Warn, Lucide.RotateCw, words.restartTitle, words.restartPending, Modifier.testTag("settings:editor-restart"))
+            }
+            // What the server said when it refused anyway: its words, and the last word.
+            scope.failure?.let {
+                Notice(Tone.Danger, Lucide.CircleAlert, words.serverRefused, it, Modifier.testTag("settings:editor-refusal"))
+            }
 
-                    // The reason it cannot be saved yet, as the web says it under its own editor.
-                    problem?.takeIf { touched }?.let {
-                        Notice(it, Tones.WARNING, null, null, "settings:editor-problem")
+            Separator()
+            Column(
+                modifier = if (secret) Modifier.testTag("settings:editor-secret") else Modifier,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(words.value, style = Kit.textStyles.label)
+                    if (secret) {
+                        Text(if (record.flag("hasValue")) words.secretStored else words.notSetYet, variant = TextVariant.Muted)
                     }
-                    // And what the server said when it refused anyway: its words, and the last word.
-                    scope.failure?.let { Notice(it, Tones.DANGER, null, null, "settings:editor-refusal") }
+                }
+                SchemaEditor(
+                    node = node,
+                    value = edited,
+                    label = null,
+                    note = hintOf(node, patternHint, schemaWords),
+                    enabled = !scope.busy,
+                    words = schemaWords,
+                    onChange = {
+                        edited = it
+                        touched = true
+                    },
+                    tag = "settings:field",
+                )
 
-                    if (default != null && !secret) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = words.defaultIs(shortJson(default)),
-                                style = tokens.footnote,
-                                color = tokens.muted,
-                                modifier = Modifier.weight(1f).testTag("settings:editor-default-value"),
-                            )
+                // The reason it cannot be saved yet, as the web says it under its own editor.
+                problem?.takeIf { touched }?.let {
+                    Row(
+                        Modifier.testTag("settings:editor-problem"),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(Lucide.CircleAlert, null, Modifier.padding(top = 2.dp), size = 15.dp, tint = Tone.Danger.textColor())
+                        Text(it, variant = TextVariant.Small, color = Tone.Danger.textColor())
+                    }
+                }
+
+                if (default != null && !secret) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = words.defaultIs(shortJson(default)),
+                            variant = TextVariant.Muted,
+                            modifier = Modifier.weight(1f).testTag("settings:editor-default-value"),
+                        )
+                        if (edited != default) {
                             Button(
                                 text = words.toDefault,
                                 onClick = {
@@ -241,50 +295,31 @@ internal fun SettingEditor(scope: NativeActionScope) {
                                     touched = true
                                 },
                                 enabled = !scope.busy,
-                                variant = ButtonVariant.Outline,
+                                variant = ButtonVariant.Ghost,
                                 size = ButtonSize.Sm,
+                                leadingIcon = Lucide.RotateCcw,
                                 modifier = Modifier.testTag("settings:editor-default"),
                             )
                         }
                     }
-                    if (record.flag("isRequired")) {
-                        Text(
-                            text = words.required,
-                            style = tokens.footnote,
-                            color = tokens.muted,
-                            modifier = Modifier.testTag("settings:editor-required"),
-                        )
-                    }
-                    if (record.flag("restartRequired")) {
-                        Text(
-                            text = words.restartNeeded,
-                            style = tokens.footnote,
-                            color = tokens.muted,
-                            modifier = Modifier.testTag("settings:editor-restart-hint"),
-                        )
-                    }
-                    if (nothingTyped) {
-                        Text(
-                            text = words.secretEmpty,
-                            style = tokens.footnote,
-                            color = tokens.muted,
-                            modifier = Modifier.testTag("settings:editor-secret-hint"),
-                        )
+                }
+                if (record.flag("isRequired")) {
+                    Text(words.required, variant = TextVariant.Muted, modifier = Modifier.testTag("settings:editor-required"))
+                }
+                if (record.flag("restartRequired")) {
+                    Row(
+                        Modifier.testTag("settings:editor-restart-hint"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(Lucide.RotateCw, null, size = 14.dp, tint = Tone.Warn.textColor())
+                        Text(words.restartNeeded, style = Kit.textStyles.caption, color = Tone.Warn.textColor())
                     }
                 }
-            }
-
-            record.textOrNull("description")?.let { description ->
-                Group(title = words.about) {
-                    Text(
-                        text = description,
-                        style = tokens.label,
-                        color = tokens.muted,
-                        modifier = Modifier.padding(12.dp).testTag("settings:editor-description"),
-                    )
+                if (nothingTyped) {
+                    Text(words.secretEmpty, variant = TextVariant.Muted, modifier = Modifier.testTag("settings:editor-secret-hint"))
                 }
             }
-            Spacer(Modifier.height(24.dp))
         }
     }
 }

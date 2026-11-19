@@ -13,6 +13,8 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
@@ -36,7 +38,9 @@ class ScreenshotsTest {
 
     private fun ComposeUiTest.shot(name: String) {
         waitForIdle()
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(out, "$name.png"))
+        // The whole scene when it is one, so a dialog (a popup — a second root) is in the picture too.
+        val image = (this as? androidx.compose.ui.test.SkikoComposeUiTest)?.captureToImage() ?: onRoot().captureToImage()
+        ImageIO.write(image.toAwtImage(), "png", File(out, "$name.png"))
     }
 
     private fun ComposeUiTest.tap(tag: String) {
@@ -60,31 +64,32 @@ class ScreenshotsTest {
             clock = { 1_700_000_000_000 },
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
         setContent { RestoApp(host) }
-        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("home:tile-orders").assertExists() }.isSuccess }
+        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("home:summary").assertExists() }.isSuccess }
 
         shot("01-home-restaurant")
 
-        onNodeWithContentDescription("Открыть меню").performClick()
-        shot("02-drawer")
+        tap("shell:nav-more")
+        shot("02-more")
+        openHome()
 
-        tap("context:row")
+        openContexts()
         mainClock.advanceTimeBy(600)
         shot("03-server-sheet")
 
         tap("context:item-demo-point")
         shot("04-home-point")
 
-        onNodeWithContentDescription("Открыть меню").performClick()
-        waitForIdle()
-        tap("context:row")
+        openContexts()
         mainClock.advanceTimeBy(600)
         tap("context:add")
         tap("servers:add-custom")
         shot("05-add-server")
 
         host.switchTo("demo-restaurant")
-        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("home:tile-orders").assertExists() }.isSuccess }
-        tap("home:tile-orders")
+        waitUntil(timeoutMillis = 5_000L) {
+            host.current.value?.id == "demo-restaurant" && host.active.value.superizer.registry.get(cx.m42.superizer.app.AppId("orders")) != null
+        }
+        openApp("orders")
         waitUntil(timeoutMillis = 5_000L) { onAllNodes(tagStartsWith("orders:row-")).fetchSemanticsNodes().isNotEmpty() }
         shot("06-orders")
 
@@ -92,17 +97,14 @@ class ScreenshotsTest {
         waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("orders:title").assertExists() }.isSuccess }
         shot("07-order")
 
-        onNodeWithContentDescription("Открыть меню").performClick()
-        waitForIdle()
-        // The drawer's entry; the open order has a field of that name too.
-        onAllNodesWithText("Блюда").onFirst().performClick()
+        openApp("dishes")
         waitUntil(timeoutMillis = 5_000L) { onAllNodes(tagStartsWith("dishes:row-")).fetchSemanticsNodes().isNotEmpty() }
         shot("08-dishes")
 
-        tap("dishes:place")
+        tap("shell:point")
         mainClock.advanceTimeBy(600)
         shot("09-points")
-        tap("dishes:places:item-p2")
+        tap("shell:point:item-p2")
         tap("dishes:chip-all")
         waitForIdle()
         onAllNodes(tagStartsWith("dishes:row-")).onFirst().performClick()
@@ -111,9 +113,12 @@ class ScreenshotsTest {
 
         host.setDemoRole(cx.m42.restoapp.demo.DemoRole.Operator)
         waitUntil(timeoutMillis = 5_000L) { host.active.value.superizer.registry.get(cx.m42.superizer.app.AppId("dishes")) == null }
-        onNodeWithContentDescription("Открыть меню").performClick()
-        waitForIdle()
-        shot("11-operator-menu")
+        openHome()
+        shot("11-operator-home")
+        if (runCatching { onNodeWithTag("shell:nav-more").assertExists() }.isSuccess) {
+            tap("shell:nav-more")
+            shot("11-operator-more")
+        }
     }
 
     /** The POS and «Клиенты» of slice A (order-entry.plan.md), same window, same demo server. */
@@ -126,10 +131,13 @@ class ScreenshotsTest {
             clock = { 1_700_000_000_000 },
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
         setContent { RestoApp(host) }
-        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("home:tile-pos").assertExists() }.isSuccess }
+        waitUntil(timeoutMillis = 5_000L) {
+            runCatching { onNodeWithTag("home:new-order").assertExists() }.isSuccess &&
+                host.active.value.superizer.registry.get(cx.m42.superizer.app.AppId("pos")) != null
+        }
         shot("12-home-with-pos")
 
-        tap("home:tile-pos")
+        openApp("pos")
         waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("pos:new").assertExists() }.isSuccess }
         shot("13-pos-no-drafts")
 
@@ -146,9 +154,7 @@ class ScreenshotsTest {
         shot("16-pos-points")
         tap("pos:places:item-p1")
 
-        onNodeWithContentDescription("Открыть меню").performClick()
-        waitForIdle()
-        onAllNodesWithText("Клиенты").onFirst().performClick()
+        openApp("clients")
         waitUntil(timeoutMillis = 5_000L) { onAllNodes(tagStartsWith("clients:row-")).fetchSemanticsNodes().isNotEmpty() }
         shot("17-clients")
 
@@ -174,9 +180,12 @@ class ScreenshotsTest {
             clock = { 1_700_000_000_000 },
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
         setContent { RestoApp(host) }
-        waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("home:tile-marketing").assertExists() }.isSuccess }
+        waitUntil(timeoutMillis = 5_000L) {
+            runCatching { onNodeWithTag("home:summary").assertExists() }.isSuccess &&
+                host.active.value.superizer.registry.get(cx.m42.superizer.app.AppId("marketing")) != null
+        }
 
-        tap("home:tile-marketing")
+        openApp("marketing")
         waitUntil(timeoutMillis = 5_000L) { runCatching { onNodeWithTag("marketing:title").assertExists() }.isSuccess }
         shot("20-marketing-summary")
 
@@ -214,7 +223,9 @@ class ScreenshotsTest {
         shot("27-marketing-editor-catalog")
 
         // And the same section for somebody who may not read an order: no money, no applications.
-        shellBack()
+        // The catalog is a dialog of the editor now: its «Отмена», then the editor's cross.
+        onAllNodesWithText("Отмена").onLast().performClick()
+        waitForIdle()
         tap("marketing:editor-cancel")
         host.setDemoRole(cx.m42.restoapp.demo.DemoRole.Marketer)
         waitUntil(timeoutMillis = 5_000L) { host.active.value.superizer.registry.get(cx.m42.superizer.app.AppId("clients")) == null }

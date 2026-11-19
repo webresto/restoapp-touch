@@ -90,6 +90,9 @@ public class AdminizerAgentTransport(
             s.csrfCookie?.let { add("$it=$csrf") }
         }
         header("Cookie", cookies.joinToString("; "))
+        // A browser drops a Cookie header for another site: the web build is let in by the same JWT as a bearer
+        // (the cloud turns it back into the cookie before adminizer); native clients send both, the cookie wins.
+        header("Authorization", "Bearer ${s.cookieValue}")
         s.csrfHeader?.let { header(it, csrf) }
         header("Accept", "application/json")
         lang?.let { header("Accept-Language", it) }

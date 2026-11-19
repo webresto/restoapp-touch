@@ -1,24 +1,14 @@
 package cx.m42.restoapp.pos
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,532 +19,563 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
-import com.composeunstyled.Text
-import cx.m42.restoapp.protocol.Tones
-import cx.m42.restoapp.render.ListRow
-import cx.m42.restoapp.render.Notice
-import cx.m42.restoapp.render.SearchBox
-import cx.m42.restoapp.render.StepperRow
-import cx.m42.restoapp.render.money
-import cx.m42.superizer.theme.AppTheme
-import cx.m42.restoapp.render.SwitchControl
-import cx.m42.superizer.kit.Button
-import cx.m42.superizer.kit.ButtonSize
-import cx.m42.superizer.kit.ButtonVariant
-import androidx.compose.foundation.layout.size
-import cx.m42.superizer.kit.Icon
-import cx.m42.superizer.kit.IconButton
-import cx.m42.superizer.kit.Input
-import cx.m42.superizer.kit.Kit
-import cx.m42.superizer.kit.TextVariant
-import cx.m42.superizer.kit.Text as KitText
-import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.Lucide
-import com.composables.icons.lucide.X
+import com.composables.icons.lucide.MapPin
+import com.composables.icons.lucide.Search
+import com.composables.icons.lucide.Ticket
+import cx.m42.restoapp.protocol.Tones
+import cx.m42.superizer.kit.Avatar
+import cx.m42.superizer.kit.ChoiceItem
+import cx.m42.superizer.kit.ChoiceTile
+import cx.m42.superizer.kit.Chip
+import cx.m42.superizer.kit.Field
+import cx.m42.superizer.kit.Grid
+import cx.m42.superizer.kit.Icon
+import cx.m42.superizer.kit.Input
+import cx.m42.superizer.kit.Item
+import cx.m42.superizer.kit.Kit
+import cx.m42.superizer.kit.QtyStepper
+import cx.m42.superizer.kit.Separator
+import cx.m42.superizer.kit.SwitchItem
+import cx.m42.superizer.kit.Text
+import cx.m42.superizer.kit.TextVariant
+import cx.m42.superizer.kit.Tone
+import cx.m42.superizer.kit.byWindow
+import cx.m42.superizer.kit.palette
+import cx.m42.superizer.kit.textColor
+import cx.m42.superizer.kit.textStyles
+import androidx.compose.ui.draw.alpha
 
 /*
- * The questions of the checkout, one sheet each: how the food is handed over, who the guest is,
- * where it goes, when, what it is paid with, a promo code, the details. Every answer is a call —
- * the server writes it on the order and answers with the whole receipt — and a sheet closes only
- * when the server took it.
+ * The questions of the order, one kit dialog each — a centred card in a wide window, a sheet from the
+ * bottom on a phone: how the food is handed over, who the guest is, where it goes, when, what it is
+ * paid with, a promo code, the details, a note to a line, and what goes with a dish. Every answer is
+ * a call — the server writes it on the order and answers with the whole receipt — and a dialog
+ * closes only when the server took it.
  */
 
 @Composable
-internal fun BoxScope.PosSheets(context: PosContext) {
+internal fun PosSheets(context: PosContext) {
     val state = context.state
     val sheet = state.sheet ?: return
     val order = state.order ?: return
-    val words = context.words
-    val title = when (sheet) {
-        PosSheet.Service -> words.receiving
-        PosSheet.Guest -> words.guest
-        PosSheet.Clients -> words.findClient
-        PosSheet.Address -> words.address
-        PosSheet.Time -> words.time
-        PosSheet.Payment -> words.payment
-        PosSheet.Promocode -> words.promocode
-        PosSheet.Details -> words.details
-        PosSheet.LineComment -> words.comment
-        // The dish is the title: the operator is composing that one, and the sheet says which.
-        PosSheet.Options -> state.chooser?.options?.name ?: words.options
+    when (sheet) {
+        PosSheet.Service -> ServiceSheet(context, order)
+        PosSheet.Guest -> GuestSheet(context, order)
+        PosSheet.Clients -> ClientsSheet(context)
+        PosSheet.Address -> AddressSheet(context, order)
+        PosSheet.Time -> TimeSheet(context, order)
+        PosSheet.Payment -> PaymentSheet(context, order)
+        PosSheet.Promocode -> PromocodeSheet(context, order)
+        PosSheet.Details -> DetailsSheet(context, order)
+        PosSheet.LineComment -> LineCommentSheet(context, order)
+        PosSheet.Options -> OptionsSheet(context)
     }
-    Sheet(
+}
+
+private fun tagOf(sheet: PosSheet) = "pos:sheet-${sheet.name.lowercase()}"
+
+/** The server's refusal of the answer, inside the dialog that gave it: the operator fixes what they look at. */
+@Composable
+private fun Refusal(context: PosContext) {
+    context.state.message?.takeIf { it.tone == Tones.DANGER }?.let { PosNotice(context.words, it.tone, it.text, "pos:sheet-message") }
+}
+
+/** A dialog with only a way out: the choice itself is the answer. */
+@Composable
+private fun ChoiceDialog(
+    context: PosContext,
+    sheet: PosSheet,
+    title: String,
+    description: String? = null,
+    content: @Composable () -> Unit,
+) {
+    val tag = tagOf(sheet)
+    val close = context.instance::closeSheet
+    PosDialog(
+        tag = tag,
         title = title,
-        onDismiss = context.instance::closeSheet,
-        tag = "pos:sheet-${sheet.name.lowercase()}",
-        close = words.close,
-        // The chooser of a dish can be long: its button stays under the thumb instead of below
-        // whatever was scrolled past.
-        footer = if (sheet == PosSheet.Options) ({ OptionsButton(context) }) else null,
+        description = description,
+        onDismiss = close,
+        words = context.words,
+        footer = { PosActions(null, {}, "$tag:ok", context.words.close, close, "$tag:close") },
     ) {
-        state.message?.takeIf { it.tone == Tones.DANGER }?.let { Notice(it.text, it.tone, null, null, "pos:sheet-message") }
-        when (sheet) {
-            PosSheet.Service -> ServiceSheet(context, order)
-            PosSheet.Guest -> GuestSheet(context, order)
-            PosSheet.Clients -> ClientsSheet(context)
-            PosSheet.Address -> AddressSheet(context, order)
-            PosSheet.Time -> TimeSheet(context)
-            PosSheet.Payment -> PaymentSheet(context, order)
-            PosSheet.Promocode -> PromocodeSheet(context, order)
-            PosSheet.Details -> DetailsSheet(context, order)
-            PosSheet.LineComment -> LineCommentSheet(context, order)
-            PosSheet.Options -> OptionsSheet(context)
-        }
+        Refusal(context)
+        content()
     }
 }
 
 /** Delivery, pickup or the dining room — and the table when the order is served at one. */
 @Composable
 private fun ServiceSheet(context: PosContext, order: PosOrder) {
-    val words = context.words
+    val (instance, state, words) = Triple(context.instance, context.state, context.words)
     var table by remember(order.id) { mutableStateOf(order.table.orEmpty()) }
-    context.state.options.service.forEach { option ->
-        ListRow(
-            title = words.serviceType(option.id),
-            subtitle = option.reason,
-            meta = null,
-            value = null,
-            chevron = false,
-            trailing = { if (order.serviceType == option.id) Icon(Lucide.Check, contentDescription = null, size = 18.dp) },
-            valueTone = null,
-            badge = null,
-            badgeTone = null,
-            tag = "pos:service-${option.id}",
-            onClick = if (option.available) {
-                { context.instance.setService(option.id, table.takeIf { option.id == PosOrder.DINE_IN }) }
-            } else {
-                null
-            },
-        )
-    }
-    if (order.serviceType == PosOrder.DINE_IN) {
-        Spacer(Modifier.heightIn(min = 8.dp))
-        Field(words.table, table, { table = it }, "pos:table-input")
-        Button(
-            text = words.save,
-            onClick = { context.instance.setTable(table) },
-            enabled = !context.state.busy && table.isNotBlank(),
-            size = ButtonSize.Lg,
-            modifier = Modifier.padding(top = 8.dp).testTag("pos:table-save"),
-        )
+    ChoiceDialog(context, PosSheet.Service, words.receiving, words.receivingHint) {
+        val options = state.options.service
+        Grid(options.size.coerceIn(1, 3), gap = 8.dp) {
+            options.forEach { option ->
+                val on = order.serviceType == option.id
+                ChoiceTile(
+                    on,
+                    { if (option.available) instance.setService(option.id, table.takeIf { option.id == PosOrder.DINE_IN }) },
+                    Modifier.alpha(if (option.available) 1f else 0.5f).testTag("pos:service-${option.id}"),
+                    padding = 12.dp,
+                ) {
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(serviceIcon(option.id), null, size = 20.dp, tint = if (on) Kit.palette.onBrandSoft else Kit.colors.mutedForeground)
+                        Text(words.serviceType(option.id), style = Kit.textStyles.label, maxLines = 1)
+                        option.reason?.takeIf { !option.available }?.let { Text(it, style = Kit.textStyles.caption, color = Kit.colors.mutedForeground) }
+                    }
+                }
+            }
+        }
+        if (order.serviceType == PosOrder.DINE_IN) {
+            Field(words.table, description = words.tableHint) {
+                Input(
+                    table,
+                    { table = it },
+                    Modifier.testTag("pos:table-input"),
+                    placeholder = "12",
+                    label = words.table,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+            }
+            cx.m42.superizer.kit.Button(
+                words.save,
+                { instance.setTable(table) },
+                Modifier.testTag("pos:table-save"),
+                enabled = !state.busy && table.isNotBlank(),
+            )
+        }
     }
 }
 
-/** The guest: a name and a number, with an account made on the spot when asked. */
+/** The guest: a name and a number, with an account made on the spot when asked; or a customer found. */
 @Composable
 private fun GuestSheet(context: PosContext, order: PosOrder) {
-    val words = context.words
+    val (instance, state, words) = Triple(context.instance, context.state, context.words)
     var name by remember(order.id) { mutableStateOf(order.customerName.orEmpty()) }
     var phone by remember(order.id) { mutableStateOf(order.customerPhone.orEmpty()) }
     var create by remember(order.id) { mutableStateOf(false) }
-    Field(words.name, name, { name = it }, "pos:guest-name")
-    Spacer(Modifier.heightIn(min = 8.dp))
-    Field(words.phone, phone, { phone = it }, "pos:guest-phone")
-    Row(modifier = Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(text = words.createClient, style = AppTheme.body, color = AppTheme.foreground, modifier = Modifier.weight(1f))
-        SwitchControl(checked = create, label = words.createClient, enabled = !context.state.busy, onChange = { create = it }, tag = "pos:guest-create")
-    }
-    Row(modifier = Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(
-            text = words.save,
-            onClick = { context.instance.setCustomer(name.trim(), phone.trim(), create) },
-            enabled = !context.state.busy && name.isNotBlank() && phone.isNotBlank(),
-            size = ButtonSize.Lg,
-            modifier = Modifier.testTag("pos:guest-save"),
-        )
-        Button(
-            text = words.findClient,
-            onClick = { context.instance.openSheet(PosSheet.Clients) },
-            variant = ButtonVariant.Ghost,
-            size = ButtonSize.Lg,
-            modifier = Modifier.testTag("pos:guest-find"),
-        )
+    val tag = tagOf(PosSheet.Guest)
+    PosDialog(
+        tag = tag,
+        title = words.guest,
+        description = words.guestHint,
+        onDismiss = instance::closeSheet,
+        words = words,
+        footer = {
+            PosActions(
+                words.save, { instance.setCustomer(name.trim(), phone.trim(), create) }, "pos:guest-save",
+                words.cancel, instance::closeSheet, "$tag:close",
+                enabled = !state.busy && name.isNotBlank() && phone.isNotBlank(),
+                extra = Triple(words.findClient, { instance.openSheet(PosSheet.Clients) }, "pos:guest-find"),
+            )
+        },
+    ) {
+        Refusal(context)
+        Grid(byWindow(1, 2, 2), gap = 12.dp) {
+            Field(words.name) { Input(name, { name = it }, Modifier.testTag("pos:guest-name"), label = words.name) }
+            Field(words.phone) {
+                Input(
+                    phone, { phone = it }, Modifier.testTag("pos:guest-phone"),
+                    placeholder = "+7", label = words.phone,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                )
+            }
+        }
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, Kit.colors.border, RoundedCornerShape(12.dp))) {
+            SwitchItem(words.createClient, create, { create = it }, Modifier.testTag("pos:guest-create"), enabled = !state.busy)
+        }
     }
 }
 
 /** The customers of this server, searched by the digits of a number or by name. */
 @Composable
 private fun ClientsSheet(context: PosContext) {
-    val words = context.words
+    val (instance, state, words) = Triple(context.instance, context.state, context.words)
     var query by remember { mutableStateOf("") }
-    SearchBox(query, words.searchClient, { typed ->
-        query = typed
-        context.instance.searchClients(typed)
-    }, "pos:clients-search")
-    context.state.options.clients.forEach { client ->
-        ListRow(
-            title = client.title,
-            subtitle = client.phone,
-            meta = null,
-            value = client.orderCount.takeIf { it > 0 }?.toString(),
-            valueTone = null,
-            badge = null,
-            badgeTone = null,
-            tag = "pos:client-${client.id}",
-            onClick = { context.instance.setClient(client.id) },
+    ChoiceDialog(context, PosSheet.Clients, words.findClient) {
+        Input(
+            query,
+            { typed ->
+                query = typed
+                instance.searchClients(typed)
+            },
+            Modifier.testTag("pos:clients-search"),
+            placeholder = words.searchClient,
+            leadingIcon = Lucide.Search,
         )
+        val clients = state.options.clients
+        if (clients.isNotEmpty()) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, Kit.colors.border, RoundedCornerShape(12.dp))) {
+                clients.forEachIndexed { i, client ->
+                    if (i > 0) Separator()
+                    Item(
+                        title = client.title,
+                        description = client.phone,
+                        modifier = Modifier.testTag("pos:client-${client.id}"),
+                        onClick = { instance.setClient(client.id) },
+                        leading = { Avatar(client.title, size = 30.dp, fill = Kit.palette.brandSoft, contentColor = Kit.palette.onBrandSoft) },
+                        trailing = {
+                            if (client.orderCount > 0) Text(words.orders(client.orderCount), style = Kit.textStyles.caption, color = Kit.colors.mutedForeground)
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 
 /** Where a delivery goes: a saved address of the customer, or one typed here. */
 @Composable
 private fun AddressSheet(context: PosContext, order: PosOrder) {
-    val words = context.words
-    val options = context.state.options
+    val (instance, state, words) = Triple(context.instance, context.state, context.words)
+    val options = state.options
     var city by remember(order.id) { mutableStateOf(options.cities.firstOrNull()?.name.orEmpty()) }
+    if (city.isEmpty() && options.cities.isNotEmpty()) city = options.cities.first().name
     var street by remember(order.id) { mutableStateOf("") }
     var home by remember(order.id) { mutableStateOf("") }
     var apartment by remember(order.id) { mutableStateOf("") }
-
-    if (options.savedAddresses.isNotEmpty()) {
-        Text(text = words.savedAddresses, style = AppTheme.footnote, color = AppTheme.muted)
-        options.savedAddresses.forEach { saved ->
-            ListRow(
-                title = saved.formatted,
-                subtitle = null,
-                meta = null,
-                value = null,
-                valueTone = null,
-                badge = null,
-                badgeTone = null,
-                tag = "pos:saved-${saved.id}",
-                // By its id: the server reads the house and the flat off the record, because core
-                // refuses a delivery whose address is a line without a house number.
-                onClick = { context.instance.setSavedAddress(saved.id) },
+    val tag = tagOf(PosSheet.Address)
+    PosDialog(
+        tag = tag,
+        title = words.address,
+        onDismiss = instance::closeSheet,
+        words = words,
+        footer = {
+            PosActions(
+                words.save, { instance.setAddress(city, street.trim(), home.trim(), apartment.trim(), null) }, "pos:address-save",
+                words.cancel, instance::closeSheet, "$tag:close",
+                enabled = !state.busy && street.isNotBlank() && home.isNotBlank(),
+            )
+        },
+    ) {
+        Refusal(context)
+        if (options.savedAddresses.isNotEmpty()) {
+            Text(words.savedAddresses, variant = TextVariant.Small)
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, Kit.colors.border, RoundedCornerShape(12.dp))) {
+                options.savedAddresses.forEachIndexed { i, saved ->
+                    if (i > 0) Separator()
+                    // By its id: the server reads the house and the flat off the record, because core
+                    // refuses a delivery whose address is a line without a house number.
+                    Item(
+                        saved.formatted,
+                        Modifier.testTag("pos:saved-${saved.id}"),
+                        onClick = { instance.setSavedAddress(saved.id) },
+                        leading = { Icon(Lucide.MapPin, null, size = 16.dp, tint = Kit.colors.mutedForeground) },
+                    )
+                }
+            }
+        }
+        if (options.cities.size > 1) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                options.cities.forEach { option ->
+                    Chip(option.name, city == option.name, { city = option.name }, Modifier.testTag("pos:city-${option.id}"))
+                }
+            }
+        }
+        Field(words.street) {
+            Input(
+                street,
+                { typed ->
+                    street = typed
+                    instance.searchStreets(city, typed)
+                },
+                Modifier.testTag("pos:address-street"),
+                label = words.street,
+                leadingIcon = Lucide.MapPin,
             )
         }
-        Spacer(Modifier.heightIn(min = 8.dp))
-    }
-    if (options.cities.size > 1) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-            options.cities.forEach { option ->
-                Button(
-                    text = option.name,
-                    onClick = { city = option.name },
-                    variant = if (city == option.name) ButtonVariant.Default else ButtonVariant.Outline,
-                    size = ButtonSize.Lg,
-                    modifier = Modifier.testTag("pos:city-${option.id}"),
-                )
+        val streets = options.streets.take(4)
+        if (streets.isNotEmpty()) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, Kit.colors.border, RoundedCornerShape(12.dp))) {
+                streets.forEachIndexed { i, suggestion ->
+                    if (i > 0) Separator()
+                    Item(suggestion.name, Modifier.testTag("pos:street-${suggestion.id}"), onClick = { street = suggestion.name })
+                }
+            }
+        }
+        Grid(2, gap = 12.dp) {
+            Field(words.house) { Input(home, { home = it }, Modifier.testTag("pos:address-home"), label = words.house) }
+            Field(words.apartment) {
+                Input(apartment, { apartment = it }, Modifier.testTag("pos:address-apartment"), label = words.apartment, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
             }
         }
     }
-    Field(words.street, street, { typed ->
-        street = typed
-        context.instance.searchStreets(city, typed)
-    }, "pos:address-street")
-    options.streets.take(4).forEach { suggestion ->
-        ListRow(
-            title = suggestion.name,
-            subtitle = null,
-            meta = null,
-            value = null,
-            valueTone = null,
-            badge = null,
-            badgeTone = null,
-            tag = "pos:street-${suggestion.id}",
-            onClick = { street = suggestion.name },
-        )
-    }
-    Spacer(Modifier.heightIn(min = 8.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.weight(1f)) { Field(words.house, home, { home = it }, "pos:address-home") }
-        Box(Modifier.weight(1f)) { Field(words.apartment, apartment, { apartment = it }, "pos:address-apartment") }
-    }
-    Button(
-        text = words.save,
-        onClick = { context.instance.setAddress(city, street.trim(), home.trim(), apartment.trim(), null) },
-        enabled = !context.state.busy && street.isNotBlank() && home.isNotBlank(),
-        size = ButtonSize.Lg,
-        modifier = Modifier.padding(top = 10.dp).testTag("pos:address-save"),
-    )
 }
 
 /** When: as soon as possible, by one of the kitchen's slots, or within so many minutes. */
 @Composable
-private fun TimeSheet(context: PosContext) {
-    val words = context.words
-    val options = context.state.options.time
-    var wait by remember { mutableStateOf("") }
-    if (options.asap) {
-        ListRow(
-            title = words.asap,
-            subtitle = if (options.minCookingMinutes > 0) "${words.cooking} ~${options.minCookingMinutes} ${words.minutes}" else null,
-            meta = null, value = null, valueTone = null, badge = null, badgeTone = null,
-            tag = "pos:time-asap",
-            onClick = { context.instance.setTime("asap") },
-        )
+private fun TimeSheet(context: PosContext, order: PosOrder) {
+    val (instance, state, words) = Triple(context.instance, context.state, context.words)
+    val options = state.options.time
+    var wait by remember { mutableStateOf(order.maxWaitMinutes?.toString().orEmpty()) }
+    ChoiceDialog(context, PosSheet.Time, words.time, words.timeHint) {
+        Column {
+            if (options.asap) {
+                ChoiceItem(
+                    words.asap,
+                    order.date == null && order.maxWaitMinutes == null,
+                    { instance.setTime("asap") },
+                    Modifier.testTag("pos:time-asap"),
+                    description = if (options.minCookingMinutes > 0) "${words.cooking} ~${options.minCookingMinutes} ${words.minutes}" else null,
+                )
+            }
+            options.slots.take(8).forEach { slot ->
+                val from = slot.firstOrNull() ?: return@forEach
+                ChoiceItem(words.clock(from), order.date == from, { instance.setTime("time", date = from) }, Modifier.testTag("pos:time-slot-$from"))
+            }
+        }
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Field("${words.maxWait}, ${words.minutes}", Modifier.weight(1f)) {
+                Input(
+                    wait, { wait = it.filter(Char::isDigit) }, Modifier.testTag("pos:time-wait"),
+                    label = words.maxWait, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+            }
+            cx.m42.superizer.kit.Button(
+                words.save,
+                { instance.setTime("maxWait", maxWaitMinutes = wait.toIntOrNull()) },
+                Modifier.testTag("pos:time-wait-save"),
+                enabled = !state.busy && (wait.toIntOrNull() ?: 0) > 0,
+            )
+        }
     }
-    options.slots.take(8).forEach { slot ->
-        val from = slot.firstOrNull() ?: return@forEach
-        ListRow(
-            title = words.clock(from),
-            subtitle = null, meta = null, value = null, valueTone = null, badge = null, badgeTone = null,
-            tag = "pos:time-slot-$from",
-            onClick = { context.instance.setTime("time", date = from) },
-        )
-    }
-    Spacer(Modifier.heightIn(min = 8.dp))
-    Field("${words.maxWait}, ${words.minutes}", wait, { wait = it.filter(Char::isDigit) }, "pos:time-wait")
-    Button(
-        text = words.save,
-        onClick = { context.instance.setTime("maxWait", maxWaitMinutes = wait.toIntOrNull()) },
-        enabled = !context.state.busy && (wait.toIntOrNull() ?: 0) > 0,
-        size = ButtonSize.Lg,
-        modifier = Modifier.padding(top = 8.dp).testTag("pos:time-wait-save"),
-    )
 }
 
 /** What it is paid with; online payment is listed and refused, with the reason said. */
 @Composable
 private fun PaymentSheet(context: PosContext, order: PosOrder) {
-    context.state.options.payments.forEach { method ->
-        ListRow(
-            title = method.title,
-            // Online payment ends in a redirect, and a terminal has nowhere to send one (slice D).
-            subtitle = if (method.available) null else context.words.notOnTerminal,
-            meta = null,
-            value = null,
-            chevron = false,
-            trailing = { if (order.paymentMethodId == method.id) Icon(Lucide.Check, contentDescription = null, size = 18.dp) },
-            valueTone = null,
-            badge = null,
-            badgeTone = null,
-            tag = "pos:payment-${method.id}",
-            onClick = if (method.available) ({ context.instance.setPayment(method.id) }) else null,
-        )
+    val (instance, state, words) = Triple(context.instance, context.state, context.words)
+    ChoiceDialog(context, PosSheet.Payment, words.payment) {
+        Column {
+            state.options.payments.forEach { method ->
+                ChoiceItem(
+                    method.title,
+                    order.paymentMethodId == method.id,
+                    { if (method.available) instance.setPayment(method.id) },
+                    Modifier.testTag("pos:payment-${method.id}"),
+                    // Online payment ends in a redirect, and a terminal has nowhere to send one (slice D).
+                    description = if (method.available) null else words.notOnTerminal,
+                    enabled = method.available,
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun PromocodeSheet(context: PosContext, order: PosOrder) {
-    val words = context.words
+    val (instance, state, words) = Triple(context.instance, context.state, context.words)
     var code by remember(order.id) { mutableStateOf(order.promotionCode.orEmpty()) }
-    Field(words.promocode, code, { code = it }, "pos:promocode-input")
-    Row(modifier = Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(
-            text = words.save,
-            onClick = { context.instance.setPromocode(code.trim()) },
-            enabled = !context.state.busy && code.isNotBlank(),
-            size = ButtonSize.Lg,
-            modifier = Modifier.testTag("pos:promocode-save"),
-        )
-        Button(
-            text = words.clear,
-            onClick = { context.instance.setPromocode(null) },
-            enabled = !context.state.busy && order.promotionCode != null,
-            variant = ButtonVariant.Ghost,
-            size = ButtonSize.Lg,
-            modifier = Modifier.testTag("pos:promocode-clear"),
-        )
+    val refused = state.message?.tone == Tones.DANGER
+    val tag = tagOf(PosSheet.Promocode)
+    PosDialog(
+        tag = tag,
+        title = words.promocode,
+        description = words.promocodeHint,
+        onDismiss = instance::closeSheet,
+        words = words,
+        footer = {
+            PosActions(
+                words.save, { instance.setPromocode(code.trim()) }, "pos:promocode-save",
+                words.cancel, instance::closeSheet, "$tag:close",
+                enabled = !state.busy && code.isNotBlank(),
+                extra = if (order.promotionCode != null) Triple(words.clear, { instance.setPromocode(null) }, "pos:promocode-clear") else null,
+                extraEnabled = !state.busy,
+            )
+        },
+    ) {
+        Field(words.code, error = state.message?.takeIf { refused }?.text) {
+            Input(
+                code, { code = it }, Modifier.testTag("pos:promocode-input"),
+                placeholder = "DEMO10", label = words.promocode, isInvalid = refused, leadingIcon = Lucide.Ticket,
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+            )
+        }
     }
 }
 
 @Composable
 private fun DetailsSheet(context: PosContext, order: PosOrder) {
-    val words = context.words
+    val (instance, state, words) = Triple(context.instance, context.state, context.words)
     var comment by remember(order.id) { mutableStateOf(order.comment.orEmpty()) }
-    var persons by remember(order.id) { mutableStateOf(order.personsCount?.toString().orEmpty()) }
-    Field(words.comment, comment, { comment = it }, "pos:details-comment")
-    Spacer(Modifier.heightIn(min = 8.dp))
-    Field(words.persons, persons, { persons = it.filter(Char::isDigit) }, "pos:details-persons")
-    Button(
-        text = words.save,
-        onClick = { context.instance.setDetails(comment.trim(), persons.toIntOrNull()) },
-        enabled = !context.state.busy,
-        size = ButtonSize.Lg,
-        modifier = Modifier.padding(top = 10.dp).testTag("pos:details-save"),
-    )
+    var persons by remember(order.id) { mutableStateOf(order.personsCount) }
+    val tag = tagOf(PosSheet.Details)
+    PosDialog(
+        tag = tag,
+        title = words.details,
+        onDismiss = instance::closeSheet,
+        words = words,
+        footer = {
+            PosActions(words.save, { instance.setDetails(comment.trim(), persons) }, "pos:details-save", words.cancel, instance::closeSheet, "$tag:close", enabled = !state.busy)
+        },
+    ) {
+        Refusal(context)
+        Field(words.orderComment, description = words.orderCommentHint) {
+            Input(comment, { comment = it }, Modifier.testTag("pos:details-comment"), label = words.comment, singleLine = false, minLines = 3)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(words.persons, style = Kit.textStyles.label)
+                Text(words.personsHint, variant = TextVariant.Muted)
+            }
+            Row(Modifier.testTag("pos:details-persons")) {
+                QtyStepper(persons ?: 1, { persons = it }, min = 1)
+            }
+        }
+    }
 }
 
 @Composable
 private fun LineCommentSheet(context: PosContext, order: PosOrder) {
-    val lineId = context.state.lineId ?: return
+    val (instance, state, words) = Triple(context.instance, context.state, context.words)
+    val lineId = state.lineId ?: return
     val line = order.lines.firstOrNull { it.lineId == lineId } ?: return
-    val words = context.words
     var comment by remember(lineId) { mutableStateOf(line.comment.orEmpty()) }
-    Text(text = line.name, style = AppTheme.body.copy(fontWeight = FontWeight.SemiBold), color = AppTheme.foreground)
-    Spacer(Modifier.heightIn(min = 8.dp))
-    Field(words.comment, comment, { comment = it }, "pos:line-comment-input")
-    Button(
-        text = words.save,
-        onClick = { context.instance.setLineComment(lineId, comment.trim()) },
-        enabled = !context.state.busy,
-        size = ButtonSize.Lg,
-        modifier = Modifier.padding(top = 10.dp).testTag("pos:line-comment-save"),
-    )
+    val tag = tagOf(PosSheet.LineComment)
+    PosDialog(
+        tag = tag,
+        title = words.lineComment,
+        description = line.name,
+        onDismiss = instance::closeSheet,
+        words = words,
+        footer = {
+            PosActions(words.save, { instance.setLineComment(lineId, comment.trim()) }, "pos:line-comment-save", words.cancel, instance::closeSheet, "$tag:close", enabled = !state.busy)
+        },
+    ) {
+        Refusal(context)
+        Input(comment, { comment = it }, Modifier.testTag("pos:line-comment-input"), placeholder = words.lineCommentHint, label = words.comment, singleLine = false, minLines = 2)
+    }
 }
 
 /**
  * What goes with a dish: the modifier groups the server read off it.
  *
- * A group that takes one is a choice with a ✓; a group that takes several is a counter per option.
- * The rules are the server's and so are the numbers — the sheet shows what an option adds to the
- * dish and never a sum of its own: what the dish costs is on the receipt a moment later.
+ * A group that takes one is a set of tiles, the chosen one in the accent; a group that takes several
+ * is a counter per option. The rules are the server's and so are the numbers — the dialog shows what an
+ * option adds to the dish and never a sum of its own: what the dish costs is on the receipt a moment
+ * later. A required group left empty is marked red once the server has refused it.
  */
 @Composable
 private fun OptionsSheet(context: PosContext) {
     val (instance, state, words) = Triple(context.instance, context.state, context.words)
     val chooser = state.chooser
-    val tokens = AppTheme
-    if (chooser == null) {
-        Text(text = words.loading, style = tokens.label, color = tokens.muted, modifier = Modifier.testTag("pos:options-loading"))
-        return
-    }
-    if (chooser.options.groups.isEmpty()) {
-        Text(text = words.noOptions, style = tokens.label, color = tokens.muted, modifier = Modifier.testTag("pos:options-none"))
-    }
-    chooser.options.groups.forEach { group ->
-        Text(
-            text = group.name,
-            style = tokens.body.copy(fontWeight = FontWeight.SemiBold),
-            color = tokens.foreground,
-            modifier = Modifier.padding(top = 10.dp).testTag("pos:option-group-${group.id}"),
-        )
-        // How many of the group may be taken — the server's rule, said rather than enforced here.
-        val rule = listOfNotNull(
-            if (group.required) words.mustChoose else null,
-            if (group.single) words.chooseOne else group.maxAmount?.let { words.upTo(it) },
-        ).joinToString(" · ")
-        if (rule.isNotEmpty()) Text(text = rule, style = tokens.footnote, color = tokens.muted)
-        group.options.forEach { option ->
-            if (group.single) SingleOption(context, group, option) else CountedOption(context, option)
+    val tag = tagOf(PosSheet.Options)
+    val refused = state.message?.tone == Tones.DANGER
+    PosDialog(
+        tag = tag,
+        // The dish is the title: the operator is composing that one, and the dialog says which.
+        title = chooser?.options?.name ?: words.options,
+        description = chooser?.options?.takeIf { it.price > 0 }?.let { context.money(it.price) },
+        onDismiss = instance::closeSheet,
+        words = words,
+        width = 540.dp,
+        footer = {
+            PosActions(
+                if (chooser?.options?.lineId == null) words.addToReceipt else words.save,
+                instance::confirmOptions,
+                "pos:options-save",
+                words.cancel, instance::closeSheet, "$tag:close",
+                enabled = !state.busy && chooser != null,
+            )
+        },
+    ) {
+        if (chooser == null) {
+            Text(words.loading, Modifier.testTag("pos:options-loading"), variant = TextVariant.Muted)
+            return@PosDialog
+        }
+        Refusal(context)
+        if (chooser.options.groups.isEmpty()) {
+            Text(words.noOptions, Modifier.testTag("pos:options-none"), variant = TextVariant.Muted)
+        }
+        chooser.options.groups.forEach { group ->
+            val empty = group.options.none { (chooser.chosen[it.id] ?: 0) > 0 }
+            val bad = refused && group.required && empty
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        group.name,
+                        Modifier.testTag("pos:option-group-${group.id}"),
+                        style = Kit.textStyles.label.copy(fontWeight = FontWeight.SemiBold),
+                        color = if (bad) Tone.Danger.textColor() else Kit.colors.foreground,
+                    )
+                    // How many of the group may be taken — the server's rule, said rather than enforced here.
+                    val rule = listOfNotNull(
+                        if (group.required) words.mustChoose else words.optional,
+                        if (group.single) words.chooseOne else group.maxAmount?.let { words.upTo(it) },
+                    ).joinToString(" · ")
+                    Text(rule, style = Kit.textStyles.caption, color = if (bad) Tone.Danger.textColor() else Kit.colors.mutedForeground)
+                }
+                if (group.single) {
+                    Grid(byWindow(2, 3, 3), gap = 8.dp) {
+                        group.options.forEach { option -> SingleOption(context, group, option, chooser) }
+                    }
+                } else {
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, Kit.colors.border, RoundedCornerShape(12.dp))) {
+                        group.options.forEachIndexed { i, option ->
+                            if (i > 0) Separator()
+                            CountedOption(context, option, chooser)
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
-/** «Добавить в чек», or «Сохранить» when the chooser was opened on a line of the receipt. */
+/** One of a group: tapped, it replaces whatever was ticked; tapped again, it is taken off. */
 @Composable
-private fun OptionsButton(context: PosContext) {
-    val words = context.words
-    Button(
-        text = if (context.state.chooser?.options?.lineId == null) words.addToReceipt else words.save,
-        onClick = context.instance::confirmOptions,
-        enabled = !context.state.busy && context.state.chooser != null,
-        modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("pos:options-save"),
-        size = ButtonSize.Lg,
-    )
-}
-
-/** One of a group: tapped, it replaces whatever was ticked. */
-@Composable
-private fun SingleOption(context: PosContext, group: PosOptionGroup, option: PosOption) {
-    val chosen = context.state.chooser?.chosen?.get(option.id) ?: 0
+private fun SingleOption(context: PosContext, group: PosOptionGroup, option: PosOption, chooser: PosChooser) {
+    val chosen = (chooser.chosen[option.id] ?: 0) > 0
     val stopped = option.balance == 0.0
-    ListRow(
-        title = option.name,
-        subtitle = optionNote(context, option),
-        meta = null,
-        value = null,
-        chevron = false,
-        trailing = { if (chosen > 0) Icon(Lucide.Check, contentDescription = null, size = 18.dp) },
-        valueTone = null,
-        badge = null,
-        badgeTone = null,
-        tag = "pos:option-${option.id}",
-        onClick = if (stopped) null else ({ context.instance.pickOption(group.id, option.id) }),
-    )
+    ChoiceTile(
+        chosen,
+        { if (!stopped) context.instance.pickOption(group.id, option.id) },
+        Modifier.alpha(if (stopped) 0.5f else 1f).testTag("pos:option-${option.id}"),
+        padding = 12.dp,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(option.name, style = Kit.textStyles.label, maxLines = 2)
+            Text(optionNote(context, option) ?: context.words.noExtra, style = Kit.textStyles.caption, color = Kit.colors.mutedForeground)
+        }
+    }
 }
 
-/** An option of a group that takes several: its own − / +. */
+/** An option of a group that takes several: its own − n +. */
 @Composable
-private fun CountedOption(context: PosContext, option: PosOption) {
-    val (instance, state) = context.instance to context.state
-    val tokens = AppTheme
-    val chosen = state.chooser?.chosen?.get(option.id) ?: 0
+private fun CountedOption(context: PosContext, option: PosOption, chooser: PosChooser) {
+    val chosen = chooser.chosen[option.id] ?: 0
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).testTag("pos:option-${option.id}"),
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).testTag("pos:option-${option.id}"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = option.name, style = tokens.body, color = tokens.foreground)
-            optionNote(context, option)?.let { Text(text = it, style = tokens.footnote, color = tokens.muted) }
+        Column(Modifier.weight(1f)) {
+            Text(option.name, style = Kit.textStyles.label)
+            optionNote(context, option)?.let { Text(it, style = Kit.textStyles.caption, color = Kit.colors.mutedForeground) }
         }
-        StepperRow(
-            display = chosen.toString(),
-            tone = null,
-            onMinus = { instance.setOption(option.id, chosen - 1) },
-            onPlus = { instance.setOption(option.id, chosen + 1) },
-            enabled = !state.busy && option.balance != 0.0,
-            tag = "pos:option-${option.id}:amount",
-        )
+        Row(Modifier.testTag("pos:option-${option.id}:amount")) {
+            QtyStepper(
+                chosen,
+                { context.instance.setOption(option.id, it) },
+                min = 0,
+                max = if (option.balance == 0.0) chosen else option.maxAmount ?: Int.MAX_VALUE,
+            )
+        }
     }
 }
 
 /** What an option costs on top of the dish, and what the server says about it. */
-@Composable
 private fun optionNote(context: PosContext, option: PosOption): String? {
     val words = context.words
     return listOfNotNull(
-        if (option.price > 0) "+${money(option.price, context.currency)}" else null,
+        if (option.price > 0) "+${context.money(option.price)}" else null,
         option.freeAmount.takeIf { it > 0 }?.let { words.free(it) },
         option.defaultAmount.takeIf { it > 0 }?.let { words.byDefault },
         if (option.balance == 0.0) words.stopped else option.balance.takeIf { it > 0 }?.let { "${words.left} ${it.toInt()}" },
     ).joinToString(" · ").takeIf { it.isNotEmpty() }
-}
-
-/** A labelled text field, as the renderer's form draws one. */
-@Composable
-private fun Field(label: String, value: String, onChange: (String) -> Unit, tag: String) {
-    cx.m42.superizer.kit.Field(label = label) {
-        Input(value = value, onValueChange = onChange, label = label, modifier = Modifier.testTag(tag))
-    }
-}
-
-/**
- * A sheet from the bottom over a scrim — the shape of the point switcher, with whatever a question
- * needs inside it.
- */
-@Composable
-private fun BoxScope.Sheet(
-    title: String,
-    onDismiss: () -> Unit,
-    tag: String,
-    close: String,
-    footer: (@Composable () -> Unit)? = null,
-    content: @Composable () -> Unit,
-) {
-    AnimatedVisibility(visible = true, enter = fadeIn(), exit = fadeOut()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Kit.colors.scrim)
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
-        )
-    }
-    Column(
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-            .background(Kit.colors.background)
-            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
-            .testTag(tag),
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .padding(top = 8.dp, bottom = 4.dp)
-                .size(width = 36.dp, height = 5.dp)
-                .clip(RoundedCornerShape(50))
-                .background(Kit.colors.border),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-            KitText(text = title, variant = TextVariant.H3, modifier = Modifier.weight(1f))
-            IconButton(
-                Lucide.X,
-                contentDescription = close,
-                onClick = onDismiss,
-                variant = ButtonVariant.Secondary,
-                size = ButtonSize.Sm,
-                modifier = Modifier.testTag("$tag:close"),
-            )
-        }
-        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
-            content()
-        }
-        footer?.let {
-            Box(Modifier.padding(top = 12.dp)) { it() }
-        }
-    }
 }

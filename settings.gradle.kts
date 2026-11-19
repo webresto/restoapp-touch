@@ -24,7 +24,9 @@ pluginManagement {
  * way: the library is not compiled again on every run, on the Mac least of all.
  */
 val superizerFromMaven = System.getenv("SUPERIZER_FROM_MAVEN") == "1"
-val superizerDir = file("../superizer")
+// SUPERIZER_DIR points at another checkout of the library — a git worktree of a branch being written
+// together with this one — without touching ../superizer.
+val superizerDir = file(System.getenv("SUPERIZER_DIR") ?: "../superizer")
 if (!superizerFromMaven) {
     check(superizerDir.exists()) {
         "Superizer's sources are expected at ${superizerDir.canonicalPath}: " +

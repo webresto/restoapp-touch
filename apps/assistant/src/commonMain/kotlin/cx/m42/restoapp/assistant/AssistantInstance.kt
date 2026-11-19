@@ -5,6 +5,8 @@ import cx.m42.restoapp.protocol.MobileApiException
 import cx.m42.restoapp.render.RestoServer
 import cx.m42.superizer.app.AppChrome
 import cx.m42.superizer.app.AppInstance
+import cx.m42.superizer.app.AppLayout
+import cx.m42.superizer.app.AppWidth
 import cx.m42.superizer.runtime.InstanceRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -58,6 +60,9 @@ public class AssistantInstance(
 
     private val _chrome = MutableStateFlow(AppChrome())
     override val chrome: StateFlow<AppChrome> get() = _chrome.asStateFlow()
+
+    /** As wide as the window: the conversations sit beside the chat on a desktop, and the chat keeps its own width. */
+    override val layout: StateFlow<AppLayout> = MutableStateFlow(AppLayout(width = AppWidth.Adaptive)).asStateFlow()
 
     private var transport: AssistantTransport? = null
     private var started = false

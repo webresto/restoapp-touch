@@ -91,13 +91,11 @@ class RealServerWalkTest {
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
 
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
 
             // 1. Connect the server by address and sign in as the Stock Manager.
-            openMenu()
-            onNodeWithTag("context:row").performClick()
-            waitForIdle()
+            openContexts()
             onNodeWithTag("context:add").performClick()
             waitForIdle()
             onNodeWithTag("servers:add-custom").performClick()
@@ -110,12 +108,13 @@ class RealServerWalkTest {
             onNodeWithTag("servers:connect").performClick()
             waitUntil(timeoutMillis = 40_000L) {
                 if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
-                host.active.value.superizer.registry.get(AppId("dishes")) != null && exists("home:tile-dishes")
+                host.active.value.superizer.registry.get(AppId("dishes")) != null && exists("home:summary")
             }
             waitForIdle()
 
-            // 2. «Блюда» is on Home, and it opens.
-            onNodeWithTag("home:tile-dishes").performScrollTo().performClick()
+            // 2. «Блюда» is in the navigation, and it opens.
+            assertApp("dishes")
+            openApp("dishes")
             waitUntil(timeoutMillis = 20_000L) { exists("dishes:list") }
 
             // 3. The point of the app is shown — two points, so there is something to switch.
@@ -210,7 +209,7 @@ class RealServerWalkTest {
         }
 
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitUntil(timeoutMillis = 10_000L) { exists("home:sign-in") }
             onNodeWithTag("home:sign-in:action").performClick()
             waitForIdle()
@@ -219,8 +218,11 @@ class RealServerWalkTest {
             waitUntil(timeoutMillis = 60_000L) { host.active.value.session.status.value == ServerStatus.Online }
             waitForIdle()
             onNodeWithTag("home:sign-in").assertDoesNotExist()
-            // The menu is rebuilt only when it changes, so the tile comes back a frame later.
-            waitUntil(timeoutMillis = 20_000L) { exists("home:tile-dishes") }
+            // The menu is rebuilt only when it changes, so the app comes back a frame later.
+            waitUntil(timeoutMillis = 20_000L) {
+                host.active.value.superizer.registry.get(AppId("dishes")) != null && exists("shell:nav-home")
+            }
+            assertApp("dishes")
         }
 
         // 14. What the server itself holds after the walk: the stock of p1 the client wrote.
@@ -264,13 +266,11 @@ class RealServerWalkTest {
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
 
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
 
             // 1. Connect the server and sign in as the operator.
-            openMenu()
-            onNodeWithTag("context:row").performClick()
-            waitForIdle()
+            openContexts()
             onNodeWithTag("context:add").performClick()
             waitForIdle()
             onNodeWithTag("servers:add-custom").performClick()
@@ -283,13 +283,13 @@ class RealServerWalkTest {
             onNodeWithTag("servers:connect").performClick()
             waitUntil(timeoutMillis = 40_000L) {
                 if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
-                host.active.value.superizer.registry.get(AppId("orders")) != null && exists("home:tile-orders")
+                host.active.value.superizer.registry.get(AppId("orders")) != null && exists("home:summary")
             }
             waitForIdle()
 
             // 2. «Заказы» opens on «Ленина, 5», and «Блюда» is not there at all.
-            onNodeWithTag("home:tile-dishes").assertDoesNotExist()
-            onNodeWithTag("home:tile-orders").performScrollTo().performClick()
+            assertNoApp("dishes")
+            openApp("orders")
             waitUntil(timeoutMillis = 20_000L) { exists("orders:list") }
             waitUntil(timeoutMillis = 20_000L) { exists("orders:row-$mine") }
             onNodeWithTag("orders:row-$theirs").assertDoesNotExist()
@@ -378,13 +378,11 @@ class RealServerWalkTest {
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
 
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
 
             // 1. Connect the server and sign in as the order taker.
-            openMenu()
-            onNodeWithTag("context:row").performClick()
-            waitForIdle()
+            openContexts()
             onNodeWithTag("context:add").performClick()
             waitForIdle()
             onNodeWithTag("servers:add-custom").performClick()
@@ -397,17 +395,17 @@ class RealServerWalkTest {
             onNodeWithTag("servers:connect").performClick()
             waitUntil(timeoutMillis = 40_000L) {
                 if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
-                host.active.value.superizer.registry.get(AppId("clients")) != null && exists("home:tile-clients")
+                host.active.value.superizer.registry.get(AppId("clients")) != null && exists("home:summary")
             }
             waitForIdle()
 
             // 2. The taker has «Клиенты» and the POS, and no «Блюда» or «Заказы» at all.
-            onNodeWithTag("home:tile-pos").assertExists()
-            onNodeWithTag("home:tile-dishes").assertDoesNotExist()
-            onNodeWithTag("home:tile-orders").assertDoesNotExist()
+            assertApp("pos")
+            assertNoApp("dishes")
+            assertNoApp("orders")
 
             // 3. «Клиенты»: the last four digits of the number find the person.
-            onNodeWithTag("home:tile-clients").performScrollTo().performClick()
+            openApp("clients")
             waitUntil(timeoutMillis = 20_000L) { exists("clients:list") }
             val ivan = customer("Иван Петров")["id"]!!.jsonPrimitive.content
             onNodeWithTag("clients:row-$ivan").assertExists()
@@ -424,7 +422,7 @@ class RealServerWalkTest {
 
             // 5. The POS, at the terminal's point: a new order with one dish in it.
             goHome()
-            onNodeWithTag("home:tile-pos").performScrollTo().performClick()
+            openApp("pos")
             waitUntil(timeoutMillis = 20_000L) { exists("pos:new") || exists("pos:place") }
             // Two points are ticked for this group; the terminal works at one, and p1 is it.
             if (!exists("pos:new")) {
@@ -505,7 +503,7 @@ class RealServerWalkTest {
             onNodeWithTag("pos:placed-done").performClick()
             waitForIdle()
             goHome()
-            onNodeWithTag("home:tile-clients").performScrollTo().performClick()
+            openApp("clients")
             waitUntil(timeoutMillis = 20_000L) { exists("clients:list") }
             onNodeWithTag("clients:search").performTextInput("0007")
             waitUntil(timeoutMillis = 20_000L) { exists("clients:row-$olgaId") }
@@ -553,13 +551,11 @@ class RealServerWalkTest {
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
 
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
 
             // 1. Connect the server and sign in as the marketer: both rights of the section.
-            openMenu()
-            onNodeWithTag("context:row").performClick()
-            waitForIdle()
+            openContexts()
             onNodeWithTag("context:add").performClick()
             waitForIdle()
             onNodeWithTag("servers:add-custom").performClick()
@@ -572,13 +568,13 @@ class RealServerWalkTest {
             onNodeWithTag("servers:connect").performClick()
             waitUntil(timeoutMillis = 40_000L) {
                 if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
-                host.active.value.superizer.registry.get(AppId("marketing")) != null && exists("home:tile-marketing")
+                host.active.value.superizer.registry.get(AppId("marketing")) != null && exists("home:summary")
             }
             waitForIdle()
 
             // 2. The summary is the home screen of the section, and nothing else is on Home.
-            onNodeWithTag("home:tile-dishes").assertDoesNotExist()
-            onNodeWithTag("home:tile-marketing").performScrollTo().performClick()
+            assertNoApp("dishes")
+            openApp("marketing")
             waitUntil(timeoutMillis = 20_000L) { exists("marketing:detail") }
             onNodeWithTag("marketing:field-codesTotal:value").assertTextEquals("3")
             onNodeWithTag("marketing:field-promotionsByCodeOnly:value").assertTextEquals("1")
@@ -647,19 +643,19 @@ class RealServerWalkTest {
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
 
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
 
             // 1. Connect the server and sign in as the administrator: «Система» is the one app
             // whose right — the Extensions page of the panel — nobody but an administrator holds
             // on this stand.
-            connect(address, "admin", "home:tile-system")
+            connect(host, address, "admin", "system")
 
             // 2. The card of the server: which server this is, in its own time zone, and the
             // honest word about the marketplace — the stand has no licence, so no version of any
             // module is checked at all. This is the refusal of this walk, and it is on the first
             // screen rather than behind a button.
-            onNodeWithTag("home:tile-system").performScrollTo().performClick()
+            openApp("system")
             waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
             onNodeWithTag("system:field-timezone:value").assertTextEquals("Europe/Moscow")
             onNodeWithTag("system:field-marketplaceText:value").performScrollTo()
@@ -732,13 +728,13 @@ class RealServerWalkTest {
             // in the panel every day — has no tile for it at all.
             shellBack()
             waitForIdle()
-            connect(address, "stock", "home:tile-dishes")
-            onNodeWithTag("home:tile-system").assertDoesNotExist()
+            connect(host, address, "stock", "dishes")
+            assertNoApp("system")
 
             // 8. The right closes the restart too: somebody who only leads the settings has the
             // card of the server, with no button on it and not a word of a plan they cannot act on.
-            connect(address, "settler", "home:tile-system")
-            onNodeWithTag("home:tile-system").performScrollTo().performClick()
+            connect(host, address, "settler", "system")
+            openApp("system")
             waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
             onNodeWithTag("system:field-timezone:value").assertTextEquals("Europe/Moscow")
             onNodeWithTag("system:system.restart-now").assertDoesNotExist()
@@ -774,10 +770,10 @@ class RealServerWalkTest {
 
         try {
             runComposeUiTest {
-                setContent { RestoApp(host) }
+                setContent { OnAPhone { RestoApp(host) } }
                 waitForIdle()
-                connect(address, "admin", "home:tile-system")
-                onNodeWithTag("home:tile-system").performScrollTo().performClick()
+                connect(host, address, "admin", "system")
+                openApp("system")
                 waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
 
                 // 1. The marketplace, from the home screen, and a word that finds one program.
@@ -950,11 +946,11 @@ class RealServerWalkTest {
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
 
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
-            connect(address, "admin", "home:tile-channels")
+            connect(host, address, "admin", "channels")
 
-            onNodeWithTag("home:tile-channels").performScrollTo().performClick()
+            openApp("channels")
             waitUntil(timeoutMillis = 20_000L) { exists("channels:list") }
             waitUntil(timeoutMillis = 20_000L) { exists("channels:row-channel-types") }
             onNodeWithTag("channels:row-channel-types").performScrollTo().performClick()
@@ -990,10 +986,10 @@ class RealServerWalkTest {
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
 
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
-            connect(address, "admin", "home:tile-system")
-            onNodeWithTag("home:tile-system").performScrollTo().performClick()
+            connect(host, address, "admin", "system")
+            openApp("system")
             waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
 
             onNodeWithTag("system:system.restart-now").performScrollTo().performClick()
@@ -1032,10 +1028,10 @@ class RealServerWalkTest {
         ).also { it.active.value.superizer.settings.chooseLanguage("ru") }
 
         runComposeUiTest {
-            setContent { RestoApp(host) }
+            setContent { OnAPhone { RestoApp(host) } }
             waitForIdle()
-            connect(address, "admin", "home:tile-system")
-            onNodeWithTag("home:tile-system").performScrollTo().performClick()
+            connect(host, address, "admin", "system")
+            openApp("system")
             waitUntil(timeoutMillis = 20_000L) { exists("system:detail") }
             onNodeWithTag("system:link-system.catalog").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-hello") }
@@ -1058,10 +1054,8 @@ class RealServerWalkTest {
     }
 
     /** Adds the stand as another server of the client and signs in, as every walk above does. */
-    private fun androidx.compose.ui.test.ComposeUiTest.connect(address: String, login: String, tile: String) {
-        openMenu()
-        onNodeWithTag("context:row").performClick()
-        waitForIdle()
+    private fun androidx.compose.ui.test.ComposeUiTest.connect(host: RestoAppHost, address: String, login: String, app: String) {
+        openContexts()
         onNodeWithTag("context:add").performClick()
         waitForIdle()
         onNodeWithTag("servers:add-custom").performClick()
@@ -1074,7 +1068,7 @@ class RealServerWalkTest {
         onNodeWithTag("servers:connect").performClick()
         waitUntil(timeoutMillis = 40_000L) {
             if (exists("servers:problem")) error("the server refused the sign-in: see servers:problem")
-            exists(tile)
+            host.active.value.superizer.registry.get(AppId(app)) != null && exists("home:summary")
         }
         waitForIdle()
     }
@@ -1110,15 +1104,8 @@ class RealServerWalkTest {
 
     private fun androidx.compose.ui.test.ComposeUiTest.exists(tag: String) = runCatching { onNodeWithTag(tag).assertExists() }.isSuccess
 
-    /** Back to Home through the shell's menu: «Главная» is the host's own word for it. */
+    /** Back to Home through the shell's navigation: «Главная» of the bottom bar. */
     private fun androidx.compose.ui.test.ComposeUiTest.goHome() {
-        openMenu()
-        onNodeWithText("Главная").performClick()
-        waitForIdle()
-    }
-
-    private fun androidx.compose.ui.test.ComposeUiTest.openMenu() {
-        onNode(hasContentDescription("Открыть меню")).performClick()
-        waitForIdle()
+        openHome()
     }
 }

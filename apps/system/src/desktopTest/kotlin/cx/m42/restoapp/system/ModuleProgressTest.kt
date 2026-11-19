@@ -111,7 +111,8 @@ class ModuleProgressTest {
         show(method("system.install", "Установить"), script)
 
         waitUntil(timeoutMillis = 5_000L) { exists("module-progress:done") }
-        onNodeWithTag("module-progress:title").assertTextEquals("Установка: stand-hello")
+        // The job's title is the page's: the header of the kit, which has no tag of its own.
+        onNodeWithText("Установка: stand-hello").assertExists()
         onNodeWithText("Программа установлена").assertExists()
         onNodeWithTag("module-progress:log").assertTextEquals("Module stand-hello installed successfully")
         // The request for a restart: new code is not running until the process comes back.

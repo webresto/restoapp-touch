@@ -50,6 +50,18 @@
  *   POST /__fake/reset-catalog                    leaves only d1, d2, d3, and no stock at all
  *   POST /__fake/reset-menus                      the site's menus back as seeded (simple-navigation)
  *   POST /__fake/bulk-dishes {"count": 60}        adds that many dishes, for the paging
+ *   POST /__fake/demo                             a working day of a pizzeria, for screenshots: 16 dishes
+ *                                                 in six groups (+ «Добавки», the modifiers), at p1 three
+ *                                                 in the stop list and four running low; ten customers
+ *                                                 (Дмитрий Волков +7 916 123 45 01 …), some with a saved
+ *                                                 address; ~24 orders of p1 today up to now (placed,
+ *                                                 cooking, on the way, done, one rejected; deliveries,
+ *                                                 pickups, tables), a few at p2, the same weekday a week
+ *                                                 ago and 2–5 a day over the last 60 days — ЛЕТО10 on
+ *                                                 about every sixth. Idempotent: the orders carry the tag
+ *                                                 `stand-demo` and are written once; after reset-catalog
+ *                                                 a call puts the dishes and the stock back. The base
+ *                                                 fixtures (d1–d3, the codes) are left as they are
  *   POST /__fake/drop-bulk-dishes                 removes them again
  *   GET  /__fake/promocode?code=ЛЕТО10            the promo code as the database holds it
  *   GET  /__fake/setting?key=TZ                   the Settings row as the database holds it
@@ -371,6 +383,277 @@ async function settings(sails: any) {
   await Settings.set("JWT_SECRET", { value: "stand-jwt-secret-0123456789abcdef0123" });
 }
 
+/**
+ * A working day of a pizzeria, for screenshots that mean something (`POST /__fake/demo`): a menu with a
+ * stop list and dishes running low, regular customers, and the orders of today, of the same weekday a week
+ * ago and of the last 60 days — with addresses, tables, comments, modifiers and ЛЕТО10 on some of them.
+ *
+ * Every part is idempotent on its own: dishes, groups and stock are upserted, customers are core's
+ * `materializeUser` (the same number is the same person), and the orders are written once — they carry the
+ * tag `stand-demo`, and a second call finds them. After `/__fake/reset-catalog` a call puts the dishes and
+ * the stock back and leaves the orders alone.
+ *
+ * The orders are written as records, the way `placeDelivery` writes one, and not through a checkout: a
+ * checkout cannot be placed in the past, and the marketing and the «к прошлой неделе» of «Главная» count by
+ * `createdAt` / `orderedAt`. The stops a board selects by are written by core's `syncOrderStops`.
+ */
+const DEMO_TAG = "stand-demo";
+
+const DEMO_GROUPS = [
+  { id: "g-pizza", name: "Пицца" },
+  { id: "g-soups", name: "Супы" },
+  { id: "g-hot", name: "Горячее" },
+  { id: "g-salads", name: "Салаты" },
+  { id: "g-drinks", name: "Напитки" },
+  { id: "g-desserts", name: "Десерты" },
+  { id: "g-extras", name: "Добавки" },
+];
+
+/** [id, name, price, group, balance at p1: undefined — no limit, 0 — stop list, a few — running low]. */
+const DEMO_DISHES: Array<[string, string, number, string, number?]> = [
+  ["demo-pepperoni", "Пепперони 30 см", 590, "g-pizza"],
+  ["demo-four-cheese", "Четыре сыра 30 см", 650, "g-pizza", 4],
+  ["demo-margherita", "Маргарита 30 см", 490, "g-pizza"],
+  ["demo-hawaii", "Гавайская 30 см", 620, "g-pizza", 0],
+  ["demo-meat", "Мясная 30 см", 690, "g-pizza"],
+  ["demo-tom-yum", "Том ям", 520, "g-soups", 3],
+  ["demo-cheese-soup", "Сырный суп", 340, "g-soups"],
+  ["demo-carbonara", "Паста карбонара", 450, "g-hot"],
+  ["demo-wings", "Куриные крылья BBQ", 390, "g-hot"],
+  ["demo-caesar", "Цезарь с курицей", 420, "g-salads", 5],
+  ["demo-greek", "Греческий салат", 360, "g-salads"],
+  ["demo-mors", "Морс клюквенный 0,5 л", 150, "g-drinks"],
+  ["demo-lemonade", "Лимонад домашний 0,5 л", 190, "g-drinks", 0],
+  ["demo-cola", "Кола 0,33 л", 120, "g-drinks"],
+  ["demo-tiramisu", "Тирамису", 290, "g-desserts", 2],
+  ["demo-cheesecake", "Чизкейк Нью-Йорк", 310, "g-desserts", 0],
+];
+
+/** Modifiers of a pizza: products of their own, as core keeps them. */
+const DEMO_MODIFIERS: Array<[string, string, number]> = [
+  ["demo-mod-thin", "Тонкое тесто", 0],
+  ["demo-mod-tomato", "Томатный соус", 0],
+  ["demo-mod-cheese", "Двойной сыр", 90],
+  ["demo-mod-jalapeno", "Халапеньо", 60],
+];
+
+/** [name, phone digits, saved address: [street line, house, flat] or none]. */
+const DEMO_CUSTOMERS: Array<[string, string, [string, string, string]?]> = [
+  ["Дмитрий Волков", "9161234501", ["ул. Ленина, 12", "12", "45"]],
+  ["Ольга Лебедева", "9161234502", ["ул. Гагарина, 7", "7", "12"]],
+  ["Сергей Морозов", "9161234503"],
+  ["Анна Ковалёва", "9161234504", ["пр. Мира, 21", "21", "88"]],
+  ["Михаил Соколов", "9161234505"],
+  ["Екатерина Новикова", "9161234506", ["ул. Садовая, 3", "3", "9"]],
+  ["Алексей Козлов", "9161234507", ["ул. Пушкина, 15", "15", "31"]],
+  ["Мария Попова", "9161234508"],
+  ["Иван Смирнов", "9161234509", ["Тверская ул., 8", "8", "102"]],
+  ["Наталья Фёдорова", "9161234510"],
+];
+
+const DEMO_STREETS: Array<[string, string]> = [
+  ["ул. Ленина, 12", "12"], ["ул. Гагарина, 7", "7"], ["пр. Мира, 21", "21"], ["ул. Садовая, 3", "3"],
+  ["ул. Пушкина, 15", "15"], ["Тверская ул., 8", "8"], ["ул. Чехова, 4", "4"], ["Цветной б-р, 11", "11"],
+];
+
+const DEMO_COMMENTS = [
+  "Домофон не работает, позвоните за 5 минут",
+  "Без лука, пожалуйста",
+  "Сдача с 5000",
+  "Оставить у двери",
+  "Приборы на троих",
+];
+
+/** A small deterministic generator: the same demo every run, so the screenshots of two runs compare. */
+function seeded(seed: number) {
+  let state = seed >>> 0;
+  const next = () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return {
+    next,
+    int: (min: number, max: number) => min + Math.floor(next() * (max - min + 1)),
+    pick: <T>(items: T[]) => items[Math.floor(next() * items.length)],
+  };
+}
+
+interface DemoOrder {
+  at: number;
+  place: string;
+  method: "delivery" | "pickup" | "dine-in";
+  state: string;
+}
+
+async function demo(sails: any): Promise<Record<string, unknown>> {
+  const { dish: Dish, group: Group, order: Order, orderdish: OrderDish, user: User, userlocation: UserLocation } = sails.models;
+  const DishPlace: any = (global as any).DishPlace;
+
+  for (const group of DEMO_GROUPS) {
+    if (!(await Group.findOne({ id: group.id }))) await Group.create(group).fetch();
+  }
+  const prices = new Map<string, number>();
+  for (const [id, name, price, parentGroup] of DEMO_DISHES) {
+    if (!(await Dish.findOne({ id }))) await Dish.create({ id, name, code: id.slice(5).toUpperCase(), price, parentGroup, enable: true }).fetch();
+    prices.set(id, price);
+  }
+  for (const [id, name, price] of DEMO_MODIFIERS) {
+    if (!(await Dish.findOne({ id }))) {
+      await Dish.create({ id, name, code: id.slice(5).toUpperCase(), price, parentGroup: "g-extras", enable: true, modifier: true }).fetch();
+    }
+    prices.set(id, price);
+  }
+  // The stock of p1 the way the web Stock Manager writes it; a dish without a balance has no limit.
+  for (const [id, , , , balance] of DEMO_DISHES) {
+    if (balance !== undefined) await DishPlace.upsertForPlace(id, "p1", { localBalance: balance });
+  }
+  await DishPlace.upsertForPlace("demo-tom-yum", "p2", { localBalance: 0 });
+  await DishPlace.upsertForPlace("demo-tiramisu", "p2", { localBalance: 6 });
+
+  const core = require(require.resolve("@webresto/core/lib/AuthService", { paths: [dev] }));
+  const AuthService = core.default ?? core;
+  const customers: Array<{ id: string; name: string; phone: string; address: [string, string, string] | null }> = [];
+  for (const [name, phone, address] of DEMO_CUSTOMERS) {
+    const { user } = await AuthService.materializeUser({ firstName: name, phone: { code: "+7", number: phone } });
+    if (address && !(await UserLocation.findOne({ user: String(user.id), formatted: address[0] }))) {
+      await UserLocation.create({ user: String(user.id), formatted: address[0], home: address[1], apartment: address[2], coordinate: { lat: 55.752, lon: 37.615 } }).fetch();
+    }
+    customers.push({ id: String(user.id), name, phone, address: address ?? null });
+  }
+
+  if (await Order.count({ tag: DEMO_TAG })) {
+    return { ok: true, created: 0, already: await Order.count({ tag: DEMO_TAG }) };
+  }
+
+  const random = seeded(20261119);
+  const now = Date.now();
+  const minute = 60_000;
+  const day = 24 * 60 * minute;
+  const midnight = new Date(now);
+  midnight.setHours(0, 0, 0, 0);
+  const today = midnight.getTime();
+  // The opening hours: from 10:00, or — on a stand started early in the morning — the ten hours before now.
+  const opening = Math.min(today + 10 * 60 * minute, Math.max(today, now - 10 * 60 * minute));
+
+  const specs: DemoOrder[] = [];
+  // Today at p1: the newest are under way — two placed, three cooking, two on the way — the rest done, one rejected.
+  const todayCount = 24;
+  for (let index = 0; index < todayCount; index += 1) {
+    const age = index < 2 ? random.int(1, 8) * minute
+      : index < 5 ? random.int(10, 25) * minute
+      : index < 7 ? random.int(26, 45) * minute
+      : (opening < now ? (now - opening) * ((index - 6) / (todayCount - 6)) : 0) + random.int(0, 9) * minute;
+    const at = Math.round(Math.max(today + minute, now - age));
+    const state = index < 2 ? "ORDER" : index < 5 ? "COOKING" : index < 7 ? "ON_THE_WAY" : index === 11 ? "REJECT" : "DONE";
+    const method = state === "ON_THE_WAY" ? "delivery" : index % 7 === 3 ? "dine-in" : index % 3 === 1 ? "pickup" : "delivery";
+    specs.push({ at, place: "p1", method, state });
+  }
+  // A handful at p2: deliveries of the second kitchen.
+  for (let index = 0; index < 5; index += 1) {
+    specs.push({ at: now - (index * 70 + random.int(5, 30)) * minute, place: "p2", method: "delivery", state: index === 0 ? "COOKING" : "DONE" });
+  }
+  // The same weekday a week ago, over the whole day: «к прошлой неделе» compares up to the same minute.
+  for (let index = 0; index < 20; index += 1) {
+    const at = today - 7 * day + 10 * 60 * minute + Math.floor((12 * 60 * minute * index) / 20) + random.int(0, 20) * minute;
+    specs.push({ at, place: "p1", method: index % 3 === 1 ? "pickup" : "delivery", state: index === 6 ? "REJECT" : "DONE" });
+  }
+  // The other days of the last two months: fewer a day, for the charts of «Маркетинг» — and the month before
+  // the last one is there so that its «к прошлому периоду» compares with something.
+  for (let back = 1; back <= 60; back += 1) {
+    if (back === 7) continue;
+    const count = back <= 30 ? random.int(2, 5) : random.int(2, 4);
+    for (let index = 0; index < count; index += 1) {
+      const at = today - back * day + random.int(10 * 60, 22 * 60) * minute;
+      specs.push({ at, place: random.next() < 0.8 ? "p1" : "p2", method: random.next() < 0.6 ? "delivery" : "pickup", state: random.next() < 0.05 ? "REJECT" : "DONE" });
+    }
+  }
+  specs.sort((a, b) => a.at - b.at);
+
+  const { syncOrderStops } = require(path.join(dev, "node_modules/@webresto/core/lib/order/order-stops"));
+  const pizzas = DEMO_DISHES.filter(([, , , group]) => group === "g-pizza").map(([id]) => id);
+  const others = DEMO_DISHES.filter(([, , , group]) => group !== "g-pizza").map(([id]) => id);
+  const bought = new Map<string, number>();
+  let promoCount = 0;
+
+  for (const [position, spec] of specs.entries()) {
+    const shortId = String(1000 + position + 1);
+    const customer = random.next() < 0.8 ? random.pick(customers) : null;
+    const lineCount = random.next() < 0.7 ? random.int(2, 4) : random.int(5, 6);
+    const lines: Array<{ dish: string; amount: number; modifiers: Array<{ id: string; amount: number }>; value: number }> = [];
+    const used = new Set<string>();
+    for (let index = 0; index < lineCount; index += 1) {
+      const dish = index < 2 || random.next() < 0.3 ? random.pick(pizzas) : random.pick(others);
+      if (used.has(dish)) continue;
+      used.add(dish);
+      const roll = random.next();
+      const amount = roll < 0.7 ? 1 : roll < 0.92 ? 2 : 3;
+      const modifiers = pizzas.includes(dish) && random.next() < 0.5
+        ? [{ id: "demo-mod-thin", amount: 1 }, { id: random.pick(["demo-mod-tomato", "demo-mod-cheese", "demo-mod-jalapeno"]), amount: 1 }]
+        : [];
+      const unit = (prices.get(dish) ?? 0) + modifiers.reduce((sum, modifier) => sum + (prices.get(modifier.id) ?? 0) * modifier.amount, 0);
+      lines.push({ dish, amount, modifiers, value: unit * amount });
+    }
+    const basketTotal = lines.reduce((sum, line) => sum + line.value, 0);
+    // ЛЕТО10 on every sixth order or so; now and then a dead code somebody typed, which gave nothing.
+    const promo = random.next() < 0.18 ? "leto" : random.next() < 0.03 ? "dead" : null;
+    const discountTotal = promo === "leto" ? Math.round(basketTotal * 0.1) : 0;
+    const deliveryCost = spec.method === "delivery" && basketTotal < 1500 ? 150 : 0;
+    const total = basketTotal - discountTotal + deliveryCost;
+    const orderedAt = Math.floor(spec.at / 1000);
+    const done = spec.state === "DONE" || spec.state === "REJECT";
+    const completedAt = done ? Math.min(Math.floor(now / 1000), orderedAt + random.int(25, 60) * 60) : null;
+    const street = customer?.address ? [customer.address[0], customer.address[1]] : random.pick(DEMO_STREETS);
+    const flat = customer?.address ? customer.address[2] : String(random.int(1, 140));
+
+    const order = await Order.create({ shortId, createdAt: spec.at }).fetch();
+    for (const [index, line] of lines.entries()) {
+      await OrderDish.create({
+        order: order.id, dish: line.dish, amount: line.amount, modifiers: line.modifiers,
+        itemPrice: line.value / line.amount, itemTotal: line.value, itemTotalBeforeDiscount: line.value,
+        addedBy: "user", createdAt: spec.at + index,
+      }).fetch();
+    }
+    await Order.update({ id: order.id }, {
+      tag: DEMO_TAG,
+      state: spec.state,
+      serviceType: spec.method,
+      ...(spec.method === "delivery"
+        ? { cookingPoints: [spec.place], address: { formatted: street[0], home: street[1], apartment: flat }, delivery: { cost: deliveryCost } }
+        : { pickupPoint: spec.place }),
+      ...(spec.method === "dine-in" ? { table: String(random.int(1, 12)) } : {}),
+      orderedAt,
+      completedAt,
+      customer: customer
+        ? { name: customer.name, phone: { code: "+7", number: customer.phone, additionalNumber: "" } }
+        : { name: "Гость", phone: { code: "+7", number: `99900${String(position).padStart(5, "0")}`, additionalNumber: "" } },
+      ...(customer ? { user: customer.id } : {}),
+      comment: random.next() < 0.25 ? random.pick(DEMO_COMMENTS) : "",
+      basketTotal,
+      discountTotal,
+      total,
+      paid: spec.state === "DONE" || random.next() < 0.4,
+      dishesCount: lines.reduce((sum, line) => sum + line.amount, 0),
+      uniqueDishes: lines.length,
+      ...(promo === "leto"
+        ? { promotionCode: "code-leto", promotionCodeString: "ЛЕТО10", promotionCodeDescription: "Скидка 10% по коду из рассылки" }
+        : promo === "dead"
+          ? { promotionCode: null, promotionCodeString: "СТАРЫЙ" }
+          : {}),
+    }).fetch();
+    await syncOrderStops({ id: order.id });
+    if (promo === "leto") promoCount += 1;
+    if (customer && spec.state !== "REJECT") bought.set(customer.id, (bought.get(customer.id) ?? 0) + 1);
+  }
+
+  // «Заказов» of a customer is core's counter (`UserOrderHistory`), which only a checkout moves.
+  for (const [id, count] of bought) await User.updateOne({ id }, { orderCount: count });
+
+  return { ok: true, created: specs.length, today: todayCount, promo: promoCount, customers: customers.length, dishes: DEMO_DISHES.length };
+}
+
 /** A placed order, the way the storefront's resolvers make one (core test/places/support/storefront.ts). */
 async function placeOrder(dish: string, amount: number, place: string): Promise<string> {
   const Order: any = (global as any).Order;
@@ -465,6 +748,28 @@ async function dropStandModules(sails: any) {
   }
 }
 
+/** The Sails hooks of `modules/*` of the checkout, by their hook names; enabled through INIT_MODULES_TO_ENABLE. */
+function installedModuleHooks(): Record<string, unknown> {
+  const root = path.join(dev, "modules");
+  if (!fs.existsSync(root)) return {};
+  const hooks: Record<string, unknown> = {};
+  const names: string[] = [];
+  for (const name of fs.readdirSync(root)) {
+    if (name.startsWith("stand-")) continue;
+    const file = path.join(root, name, "package.json");
+    if (!fs.existsSync(file)) continue;
+    const info = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (!info.sails?.isHook) continue;
+    hooks[info.sails.hookName ?? name] = require(path.join(root, name));
+    names.push(info.name ?? name);
+  }
+  // A fresh database gets the module rows of the module manager disabled, unless named here.
+  const enabled = new Set((process.env.INIT_MODULES_TO_ENABLE ?? "").split(";").filter(Boolean));
+  names.forEach((name) => enabled.add(name));
+  process.env.INIT_MODULES_TO_ENABLE = [...enabled].join(";");
+  return hooks;
+}
+
 async function main() {
   const marketplace = await fakeMarketplace();
   process.env.MODULE_STORAGE_URL = marketplace.url;
@@ -506,9 +811,13 @@ async function main() {
     ...(config.hooks || {}),
     grunt: false,
     // @webresto/graphql halts the whole process when its schema fails to build; the stand needs none.
-    restographql: false,
+    ...(process.env.STAND_GRAPHQL ? {} : { restographql: false }),
     "app-manager-proto": require(path.join(dev, "api/hooks/app-manager-proto")),
     "app-mobile-api": require(path.join(dev, "api/hooks/app-mobile-api")),
+    // The installed modules of the checkout (`modules/*`): a server gets them into node_modules when it
+    // deploys them, a checkout has them only here. `simple-navigation` among them — «Навигация», whose
+    // app comes to the client as JS. `stand-*` are the marketplace walk's own and come and go.
+    ...installedModuleHooks(),
   };
   const dir = path.join(require("os").tmpdir(), `restoapp-real-${process.pid}`);
   config.datastores = { default: { adapter: "sails-disk", dir } };
@@ -581,6 +890,9 @@ async function main() {
             ? { id: (await sails.models.userap.findOne({ login: "operator" })).id, isAdministrator: false, groups: [{ name: "Operator" }] }
             : { id: (await sails.models.userap.findOne({ login: "admin" })).id, isAdministrator: true };
           return answer(await moveOrder(data.id, data.state, user));
+        }
+        if (req.url === "/__fake/demo") {
+          return answer(await demo(sails));
         }
         if (req.url === "/__fake/bulk-dishes") {
           // A catalog big enough for the 50-a-page cursor of «Блюда».

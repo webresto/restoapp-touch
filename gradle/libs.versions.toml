@@ -20,9 +20,10 @@ ktor = "3.4.0"
 jsonSchemaValidator = "1.5.9"
 # The JS engine of script apps (js-module.plan.md); the version the prototype in .ai-notes/quick was measured on.
 quickjs = "1.0.15"
+kotlinxBrowser = "0.5.0"
 
 # The library. Bumped by an explicit commit, as in Unitool.
-superizer = "0.10.0"
+superizer = "0.11.0"
 
 [libraries]
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
@@ -36,6 +37,7 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 json-schema-validator = { module = "com.networknt:json-schema-validator", version.ref = "jsonSchemaValidator" }
+kotlinx-browser = { module = "org.jetbrains.kotlinx:kotlinx-browser", version.ref = "kotlinxBrowser" }
 quickjs = { module = "io.github.dokar3:quickjs-kt", version.ref = "quickjs" }
 
 superizer-core = { module = "cx.m42.superizer:core", version.ref = "superizer" }

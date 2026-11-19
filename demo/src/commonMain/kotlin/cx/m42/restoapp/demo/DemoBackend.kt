@@ -116,6 +116,7 @@ public class DemoBackend(
                 SETTINGS -> system.settings(method, params, current, words)
                 SYSTEM -> system.system(method, params, current, words)
                 ASSISTANT -> assistantSession(words)
+                HOME -> homeSummary(current, point!!, words, homeRights(current.role), clock())
                 else -> fail(MobileApiException.FORBIDDEN, "Method is not available")
             }
             Answer(result, declaration.revision, PROTOCOL_VERSION)
@@ -145,9 +146,19 @@ public class DemoBackend(
         else -> places.map { it.id }
     }
 
+    /** What of the day a role sees on «Главная»: money is the administrator's, the rest follows the apps. */
+    private fun homeRights(role: DemoRole) = HomeRights(
+        money = role == DemoRole.Admin,
+        orders = placesOf(role, ORDERS).isNotEmpty(),
+        dishes = placesOf(role, DISHES).isNotEmpty(),
+    )
+
     private fun declaration(role: DemoRole, lang: String): Declaration {
         val words = DemoWords(lang)
+        // «Главная» stands at the points of what it shows: a role with neither orders nor dishes has none.
+        val homePlaces = (placesOf(role, ORDERS) + placesOf(role, DISHES)).distinct()
         val apps = listOfNotNull(
+            homePlaces.takeIf { it.isNotEmpty() }?.let { homeApp(words, it, homeRights(role)) },
             placesOf(role, DISHES).takeIf { it.isNotEmpty() }?.let { dishesApp(words, it) },
             placesOf(role, ORDERS).takeIf { it.isNotEmpty() }?.let { ordersApp(words, it) },
             // The customers are the model rights of the panel: the stock manager has none of them,
@@ -161,7 +172,7 @@ public class DemoBackend(
         val used = apps.flatMap { it.places }.toSet()
         return Declaration(
             protocolVersion = PROTOCOL_VERSION,
-            revision = "demo-${role.name.lowercase()}-${places.joinToString(",") { it.id }}-5",
+            revision = "demo-${role.name.lowercase()}-${places.joinToString(",") { it.id }}-6",
             server = ServerFacts(serverName, VERSION, currency = "RUB", timezone = "Europe/Moscow", locale = "ru"),
             user = DeclaredUser(JsonPrimitive(role.ordinal + 1), loginOf(role), fullName = fullNameOf(role, words), isAdministrator = role == DemoRole.Admin),
             places = places.filter { it.id in used }.sortedBy { it.title },
@@ -297,6 +308,8 @@ public class DemoBackend(
                 page(chosen.map(::item), offset, mapOf("active" to active.size, "done" to done.size))
             }
             "orders.get" -> buildJsonObject { put("item", item(order(params.string("id")))) }
+            // P4: the mark of «Заказы» in the menu.
+            "orders.badge" -> JsonPrimitive(orders.count { it.state.active })
             "orders.setState" -> {
                 val target = order(params.string("id"))
                 val to = OrderState.entries.firstOrNull { it.name == params.string("to") }
@@ -581,6 +594,52 @@ public class DemoBackend(
                         put("applications", shown.size)
                         put("totalDiscount", shown.sumOf { it.discount })
                         put("avgDiscount", if (shown.isEmpty()) 0 else shown.sumOf { it.discount } / shown.size)
+                    }
+                    // P7: what the summary's blocks read — arrays the model does not declare.
+                    if (money) {
+                        val before = current.applications.filter { it.createdAt in (since - days * DAY_MS) until since }
+                        fun delta(now: Int, then: Int) = if (then == 0) null else ((now - then) * 100 / then)
+                        delta(shown.size, before.size)?.let { put("applicationsDelta", it) }
+                        delta(shown.sumOf { it.discount }, before.sumOf { it.discount })?.let { put("totalDiscountDelta", it) }
+                        put("avgDiscountDelta", -3)
+                        putJsonArray("applicationsByDay") {
+                            for (day in days - 1 downTo 0) {
+                                val at = clock() - day * DAY_MS
+                                val real = current.applications.count { (clock() - it.createdAt) / DAY_MS == day.toLong() }
+                                add(buildJsonObject {
+                                    put("x", dayLabel(at, words))
+                                    // The demo has a handful of real ones; the rest is a steady made-up evening.
+                                    put("y", real + 18 + ((at / DAY_MS * 7919 + 13) % 23).toInt())
+                                })
+                            }
+                        }
+                        val byCode = current.codes.map { code -> code to shown.filter { it.code == code.code } }
+                        putJsonArray("codesShare") {
+                            byCode.filter { it.second.isNotEmpty() }.forEach { (code, uses) ->
+                                add(buildJsonObject {
+                                    put("title", code.code)
+                                    put("value", uses.size)
+                                })
+                            }
+                        }
+                        putJsonArray("codesDiscount") {
+                            byCode.sortedByDescending { (_, uses) -> uses.sumOf { it.discount } }.take(4).forEach { (code, uses) ->
+                                add(buildJsonObject {
+                                    put("title", code.code)
+                                    put("value", uses.sumOf { it.discount })
+                                    put("format", "money")
+                                })
+                            }
+                        }
+                    } else {
+                        putJsonArray("codesShare") {
+                            for (state in listOf("active", "scheduled", "expired", "disabled")) {
+                                add(buildJsonObject {
+                                    put("title", codeStatusTitle(state, words))
+                                    put("value", current.codes.count { it.effectiveStatus == state })
+                                })
+                            }
+                        }
                     }
                     putJsonArray("_actions") {}
                     putJsonArray("_links") {
@@ -1516,3 +1575,29 @@ private fun namedOptions(groups: List<DemoCatalog.DemoOptionGroup>, chosen: List
 /** 1330 → "1 330 ₽", with no-break spaces so a sum never splits. */
 internal fun rub(amount: Int): String =
     amount.toString().reversed().chunked(3).joinToString(" ").reversed() + " ₽"
+
+private const val DAY_MS: Long = 24L * 60 * 60 * 1000
+
+/** «18 ноя» — the day of [at] in Moscow, without a date library: the label of a bar of the summary. */
+internal fun dayLabel(at: Long, words: DemoWords): String {
+    val days = (at + 3 * 60 * 60 * 1000).floorDiv(DAY_MS)
+    // Howard Hinnant's civil_from_days.
+    val z = days + 719_468
+    val era = z.floorDiv(146_097L)
+    val doe = z - era * 146_097
+    val yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365
+    val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+    val mp = (5 * doy + 2) / 153
+    val day = (doy - (153 * mp + 2) / 5 + 1).toInt()
+    val month = (if (mp < 10) mp + 3 else mp - 9).toInt()
+    val ru = listOf("янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
+    val en = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+    return words.t("$day ${ru[month - 1]}", "${en[month - 1]} $day")
+}
+
+private fun codeStatusTitle(state: String, words: DemoWords): String = when (state) {
+    "active" -> words.t("Действует", "Works")
+    "scheduled" -> words.t("Запланирован", "Scheduled")
+    "expired" -> words.t("Истёк", "Expired")
+    else -> words.t("Выключен", "Switched off")
+}
