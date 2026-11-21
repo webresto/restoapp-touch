@@ -11,6 +11,7 @@ import cx.m42.restoapp.protocol.ItemUi
 import cx.m42.restoapp.protocol.Model
 import cx.m42.restoapp.protocol.Special
 import cx.m42.restoapp.protocol.Tones
+import cx.m42.restoapp.protocol.SummaryBlock
 import cx.m42.restoapp.protocol.Ui
 import cx.m42.restoapp.protocol.Views
 import kotlinx.serialization.json.JsonObject
@@ -339,11 +340,11 @@ internal fun restartInput(words: DemoWords, whens: List<String> = listOf("midnig
 
 internal fun systemApp(words: DemoWords): DeclaredApp {
     val server = words.t("Сервер", "Server")
-    val programs = words.t("Программы", "Programs")
+    val programs = words.t("Модули", "Modules")
     val right = words.t("Что сейчас", "Right now")
     val versionSection = words.t("Версия", "Version")
     val readiness = words.t("Готовность", "Readiness")
-    val aboutSection = words.t("О программе", "About")
+    val aboutSection = words.t("О модуле", "About")
     val relations = words.t("Связи", "Relations")
     val details = words.t("Подробности", "Details")
     val version = words.t("Версия", "Version")
@@ -353,8 +354,8 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
     val description = words.t("Описание", "Description")
     val author = words.t("Автор", "Author")
     val marketplace = words.t("Маркетплейс", "Marketplace")
-    val systemWord = words.t("Системная", "System")
-    val disabled = words.t("Выключена", "Switched off")
+    val systemWord = words.t("Системный", "System")
+    val disabled = words.t("Выключен", "Switched off")
 
     fun job(name: String, title: String, on: String, confirm: String? = null, primary: Boolean? = null) = DeclaredMethod(
         name = name,
@@ -383,10 +384,12 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
             "serverCard" to Model(
                 listOf(
                     Field("version", version, Formats.TEXT, readonly = true, section = server),
+                    Field("uptime", words.t("Работает", "Uptime"), Formats.TEXT, readonly = true, section = server),
+                    Field("startedAt", words.t("Запущен", "Started"), Formats.DATETIME, readonly = true, section = server),
                     Field("timezone", words.t("Часовой пояс", "Time zone"), Formats.TEXT, readonly = true, section = server),
                     Field("currency", words.t("Валюта", "Currency"), Formats.TEXT, readonly = true, section = server),
-                    Field("systemCount", words.t("Системных программ", "System programs"), Formats.NUMBER, readonly = true, section = programs),
-                    Field("installedCount", words.t("Установленных программ", "Installed programs"), Formats.NUMBER, readonly = true, section = programs),
+                    Field("systemCount", words.t("Системных модулей", "System modules"), Formats.NUMBER, readonly = true, section = programs),
+                    Field("installedCount", words.t("Установленных модулей", "Installed modules"), Formats.NUMBER, readonly = true, section = programs),
                     Field("disabledCount", words.t("Выключено", "Switched off"), Formats.NUMBER, readonly = true, section = programs),
                     Field("updatesCount", words.t("Доступно обновлений", "Updates available"), Formats.NUMBER, readonly = true, section = programs),
                     Field("restartText", words.t("Перезапуск", "Restart"), Formats.TEXT, readonly = true, section = right),
@@ -403,7 +406,7 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
                             Special(JsonPrimitive("ok"), words.t("Работает", "Working"), Tones.SUCCESS),
                             Special(JsonPrimitive("system"), systemWord, Tones.INFO),
                             Special(JsonPrimitive("update"), words.t("Обновление", "Update"), Tones.WARNING),
-                            Special(JsonPrimitive("not-loaded"), words.t("Не загружена", "Not loaded"), Tones.WARNING),
+                            Special(JsonPrimitive("not-loaded"), words.t("Не загружен", "Not loaded"), Tones.WARNING),
                             Special(JsonPrimitive("disabled"), disabled, Tones.DANGER),
                             Special(JsonPrimitive("migrations"), words.t("Миграции не прошли", "Migrations did not pass"), Tones.DANGER),
                         ),
@@ -413,10 +416,10 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
                     Field("latestVersion", latest, Formats.TEXT, readonly = true, section = versionSection),
                     Field(
                         "kind", words.t("Вид", "Kind"), Formats.ENUM, readonly = true, section = versionSection,
-                        titles = mapOf("system" to systemWord, "installed" to words.t("Установленная", "Installed")),
+                        titles = mapOf("system" to systemWord, "installed" to words.t("Установленный", "Installed")),
                     ),
-                    Field("enable", words.t("Включена", "Enabled"), Formats.BOOLEAN, readonly = true, section = versionSection),
-                    Field("loaded", words.t("Загружена на сервере", "Loaded on the server"), Formats.BOOLEAN, readonly = true, section = versionSection),
+                    Field("enable", words.t("Включён", "Enabled"), Formats.BOOLEAN, readonly = true, section = versionSection),
+                    Field("loaded", words.t("Загружен на сервере", "Loaded on the server"), Formats.BOOLEAN, readonly = true, section = versionSection),
                     Field("migrationsText", migrations, Formats.TEXT, readonly = true, section = readiness),
                     Field("settingsText", words.t("Настройки", "Settings"), Formats.TEXT, readonly = true, section = readiness),
                     Field("author", author, Formats.TEXT, readonly = true, section = aboutSection),
@@ -427,7 +430,7 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
                     Field("removeText", words.t("Удаление", "Removal"), Formats.TEXT, readonly = true, section = relations),
                     Field("hookName", words.t("Имя хука", "Hook name"), Formats.TEXT, readonly = true, section = details),
                     Field("directoryName", words.t("Каталог", "Directory"), Formats.TEXT, readonly = true, section = details),
-                    Field("repository", words.t("Откуда установлена", "Installed from"), Formats.TEXT, readonly = true, section = details),
+                    Field("repository", words.t("Откуда установлен", "Installed from"), Formats.TEXT, readonly = true, section = details),
                 ),
             ),
             "catalogItem" to Model(
@@ -450,7 +453,10 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
                 title = words.t("Этот сервер", "This server"),
                 model = "serverCard",
                 input = objectSchema(emptyList(), emptyMap()),
-                ui = Ui(view = Views.DETAIL, item = ItemUi(title = "title", subtitle = "subtitle"), section = words.t("Сервер", "Server")),
+                ui = Ui(
+                    view = Views.DETAIL, item = ItemUi(title = "title", subtitle = "subtitle"), section = words.t("Сервер", "Server"),
+                    summary = listOf(SummaryBlock(SummaryBlock.NOTICE, "notice", covers = listOf("restartText"))),
+                ),
             ),
             DeclaredMethod(
                 name = "system.restart",
@@ -492,14 +498,14 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
                     search = "q",
                     chips = "kind",
                     open = "system.module",
-                    empty = words.t("Программ нет", "No programs"),
+                    empty = words.t("Модулей нет", "No modules"),
                     section = programs,
                 ),
             ),
             DeclaredMethod(
                 name = "system.module",
                 kind = DeclaredMethod.KIND_QUERY,
-                title = words.t("Программа", "Program"),
+                title = words.t("Модуль", "Module"),
                 model = "module",
                 input = idInput(),
                 ui = Ui(view = Views.DETAIL, item = ItemUi(title = "name", subtitle = "appId", badge = "stateText")),
@@ -523,14 +529,14 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
                     item = ItemUi(title = "name", subtitle = "teaser", value = "latestVersion", badge = "stateText"),
                     search = "q",
                     open = "system.catalogItem",
-                    empty = words.t("В маркетплейсе нет программ для установки", "The marketplace has no programs to install"),
+                    empty = words.t("В маркетплейсе нет модулей для установки", "The marketplace has no modules to install"),
                     section = marketplace,
                 ),
             ),
             DeclaredMethod(
                 name = "system.catalogItem",
                 kind = DeclaredMethod.KIND_QUERY,
-                title = words.t("Программа в маркетплейсе", "Program in the marketplace"),
+                title = words.t("Модуль в маркетплейсе", "Module in the marketplace"),
                 model = "catalogItem",
                 input = idInput(),
                 ui = Ui(view = Views.DETAIL, item = ItemUi(title = "name", subtitle = "appId", badge = "stateText")),
@@ -540,7 +546,7 @@ internal fun systemApp(words: DemoWords): DeclaredApp {
             job("system.update", words.t("Обновить", "Update"), "module", primary = true),
             job(
                 "system.remove", words.t("Удалить", "Remove"), "module",
-                confirm = words.t("Удалить программу? Её файлы и настройки будут удалены.", "Remove this program? Its files and settings will be deleted."),
+                confirm = words.t("Удалить модуль? Его файлы и настройки будут удалены.", "Remove this module? Its files and settings will be deleted."),
             ),
             DeclaredMethod(
                 name = "system.job",

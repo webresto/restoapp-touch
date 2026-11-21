@@ -86,7 +86,7 @@ class ModuleProgressTest {
         "id" to "job-1",
         "state" to "done",
         "title" to "Установка: stand-hello",
-        "doneText" to "Программа установлена",
+        "doneText" to "Модуль установлен",
         "log" to "Module stand-hello installed successfully",
         "restartText" to "Перезагрузка запланирована на 00:00 по времени сервера.",
         "restartConfirm" to "Перезапустить сервер сейчас?",
@@ -113,7 +113,7 @@ class ModuleProgressTest {
         waitUntil(timeoutMillis = 5_000L) { exists("module-progress:done") }
         // The job's title is the page's: the header of the kit, which has no tag of its own.
         onNodeWithText("Установка: stand-hello").assertExists()
-        onNodeWithText("Программа установлена").assertExists()
+        onNodeWithText("Модуль установлен").assertExists()
         onNodeWithTag("module-progress:log").assertTextEquals("Module stand-hello installed successfully")
         // The request for a restart: new code is not running until the process comes back.
         onNodeWithTag("module-progress:restart").assertTextEquals("Перезагрузка запланирована на 00:00 по времени сервера.")
@@ -130,9 +130,9 @@ class ModuleProgressTest {
     @Test
     fun whatIsDangerousAsksFirstAndCancellingSendsNothing() = runComposeUiTest {
         val script = Script { _, _ -> error("nothing may be sent") }
-        show(method("system.remove", "Удалить", "Удалить программу? Её файлы и настройки будут удалены."), script)
+        show(method("system.remove", "Удалить", "Удалить модуль? Его файлы и настройки будут удалены."), script)
 
-        onNodeWithText("Удалить программу? Её файлы и настройки будут удалены.").assertExists()
+        onNodeWithText("Удалить модуль? Его файлы и настройки будут удалены.").assertExists()
         assertTrue(script.calls.isEmpty())
         onNodeWithTag("module-progress:no").performClick()
         waitForIdle()
@@ -142,13 +142,13 @@ class ModuleProgressTest {
 
     @Test
     fun yesStartsTheRemoval() = runComposeUiTest {
-        val removed = item("id" to "job-1", "state" to "done", "doneText" to "Программа удалена")
+        val removed = item("id" to "job-1", "state" to "done", "doneText" to "Модуль удалён")
         val script = Script { name, _ -> if (name == "system.remove") item("jobId" to "job-1") else removed }
-        show(method("system.remove", "Удалить", "Удалить программу?"), script)
+        show(method("system.remove", "Удалить", "Удалить модуль?"), script)
 
         onNodeWithTag("module-progress:yes").performClick()
         waitUntil(timeoutMillis = 5_000L) { exists("module-progress:done") }
-        onNodeWithText("Программа удалена").assertExists()
+        onNodeWithText("Модуль удалён").assertExists()
         assertEquals("system.remove stand-hello", script.calls.first())
     }
 
@@ -169,11 +169,11 @@ class ModuleProgressTest {
 
     @Test
     fun aFailedJobSaysWhyAndOffersNoRestart() = runComposeUiTest {
-        val failed = item("id" to "job-1", "state" to "failed", "errorText" to "Программа недоступна по вашей лицензии")
+        val failed = item("id" to "job-1", "state" to "failed", "errorText" to "Модуль недоступен по вашей лицензии")
         show(method("system.install", "Установить"), installs(failed))
 
         waitUntil(timeoutMillis = 5_000L) { exists("module-progress:error") }
-        onNodeWithText("Программа недоступна по вашей лицензии").assertExists()
+        onNodeWithText("Модуль недоступен по вашей лицензии").assertExists()
         assertTrue(!exists("module-progress:restart-now"))
         assertTrue(!exists("module-progress:finish"))
     }

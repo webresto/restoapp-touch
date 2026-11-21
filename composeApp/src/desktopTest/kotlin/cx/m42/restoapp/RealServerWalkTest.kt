@@ -693,7 +693,7 @@ class RealServerWalkTest {
             onNodeWithTag("system:link-system.modules").performScrollTo().performClick()
             waitUntil(timeoutMillis = 20_000L) { exists("system:row-restocore") }
             // A row merges its semantics, so the badge of a row is looked for in the unmerged tree.
-            onNodeWithTag("system:row-restocore:badge", useUnmergedTree = true).assertTextEquals("Системная")
+            onNodeWithTag("system:row-restocore:badge", useUnmergedTree = true).assertTextEquals("Системный")
 
             // 4. The search over what is installed — the panel has none, and the owner asked for
             // it: one word, and only the program it names is left.
@@ -715,9 +715,9 @@ class RealServerWalkTest {
             // The row's own record draws the card at once; the card of the server arrives after it,
             // and only it carries the hook name — so that is what tells the card has loaded.
             waitUntil(timeoutMillis = 20_000L) { exists("system:field-hookName:value") }
-            onNodeWithTag("system:field-state:value").assertTextEquals("Системная")
+            onNodeWithTag("system:field-state:value").assertTextEquals("Системный")
             onNodeWithTag("system:field-removeText:value").performScrollTo()
-                .assertTextEquals("Системную программу удалить нельзя")
+                .assertTextEquals("Системный модуль удалить нельзя")
             onNodeWithTag("system:field-migrationsText:value").performScrollTo()
                 .assertTextEquals("Миграции на этом сервере не выполняются: база не postgres")
             // Nothing can be done to a program in this slice, so no action is drawn on its card.
@@ -789,7 +789,7 @@ class RealServerWalkTest {
                 // 2. Refusal: what the licence does not cover says so, and has no button.
                 onNodeWithTag("system:row-stand-paid").performClick()
                 waitUntil(timeoutMillis = 20_000L) { exists("system:field-description:value") }
-                onNodeWithTag("system:field-stateText:value").assertTextEquals("Недоступна по лицензии")
+                onNodeWithTag("system:field-stateText:value").assertTextEquals("Недоступен по лицензии")
                 onNodeWithTag("system:system.install").assertDoesNotExist()
                 backOneScreen()
                 waitUntil(timeoutMillis = 20_000L) { exists("system:row-stand-future") }
@@ -799,7 +799,7 @@ class RealServerWalkTest {
                 waitUntil(timeoutMillis = 20_000L) { exists("system:system.install") }
                 onNodeWithTag("system:system.install").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 20_000L) { exists("module-progress:error") }
-                onNodeWithText("Программа не подходит этому серверу. Нет того, что ей нужно: @webresto/core").assertExists()
+                onNodeWithText("Модуль не подходит этому серверу. Нет того, что ему нужно: @webresto/core").assertExists()
                 onNodeWithTag("module-progress:restart-now").assertDoesNotExist()
                 onNodeWithTag("module-progress:close").performClick()
                 waitForIdle()
@@ -811,7 +811,7 @@ class RealServerWalkTest {
                 waitUntil(timeoutMillis = 20_000L) { exists("system:system.install") }
                 onNodeWithTag("system:system.install").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 60_000L) { exists("module-progress:done") }
-                onNodeWithText("Программа установлена").assertExists()
+                onNodeWithText("Модуль установлен").assertExists()
                 onNodeWithTag("module-progress:restart").assertTextEquals("Перезагрузка запланирована на 00:00 по времени сервера.")
                 onNodeWithTag("module-progress:restart-now").assertExists()
                 assertTrue(get("modules").contains("\"stand-hello\""), "the manager has it: " + get("modules"))
@@ -819,7 +819,7 @@ class RealServerWalkTest {
                 // 5. «Готово»: the card under the screen is right at once, with no button left.
                 onNodeWithTag("module-progress:finish").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 20_000L) { exists("system:field-stateText:value") && !exists("module-progress") }
-                onNodeWithTag("system:field-stateText:value").assertTextEquals("Установлена")
+                onNodeWithTag("system:field-stateText:value").assertTextEquals("Установлен")
                 onNodeWithTag("system:system.install").assertDoesNotExist()
 
                 // 6. The marketplace does not offer it any more, and the programs list it.
@@ -842,7 +842,7 @@ class RealServerWalkTest {
                 // 8. Updating.
                 onNodeWithTag("system:system.update").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 60_000L) { exists("module-progress:done") }
-                onNodeWithText("Программа обновлена").assertExists()
+                onNodeWithText("Модуль обновлён").assertExists()
                 onNodeWithTag("module-progress:finish").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 20_000L) { !exists("module-progress") && !exists("system:system.update") }
                 onNodeWithTag("system:field-version:value").assertTextEquals("1.1.0")
@@ -898,7 +898,7 @@ class RealServerWalkTest {
                 waitUntil(timeoutMillis = 20_000L) { exists("system:system.remove") }
                 onNodeWithTag("system:system.remove").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 10_000L) { exists("module-progress:question") }
-                onNodeWithText("Удалить программу? Её файлы и настройки будут удалены.").assertExists()
+                onNodeWithText("Удалить модуль? Его файлы и настройки будут удалены.").assertExists()
                 onNodeWithTag("module-progress:no").performClick()
                 waitForIdle()
                 assertTrue(get("modules").contains("\"stand-hello\""), "«Отмена» removes nothing")
@@ -908,7 +908,7 @@ class RealServerWalkTest {
                 waitUntil(timeoutMillis = 10_000L) { exists("module-progress:yes") }
                 onNodeWithTag("module-progress:yes").performClick()
                 waitUntil(timeoutMillis = 60_000L) { exists("module-progress:done") }
-                onNodeWithText("Программа удалена").assertExists()
+                onNodeWithText("Модуль удалён").assertExists()
                 onNodeWithTag("module-progress:finish").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 20_000L) { !exists("module-progress") && !exists("system:system.remove") }
                 assertTrue(!get("modules").contains("\"stand-hello\""), "the manager let it go: " + get("modules"))

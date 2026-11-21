@@ -15,6 +15,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 
 /**
  * What «Каналы продаж», «Настройки» and «Система» answer on the demo server: the handlers of the hook's
@@ -75,7 +76,7 @@ internal class DemoSystem(
         val ordered = next.restartOrderedAt
         if (ordered != null && now - ordered >= RESTART_MS) {
             jobs.clear()
-            next = next.copy(restartOrderedAt = null, restartScheduled = false, boot = next.boot + 1)
+            next = next.copy(restartOrderedAt = null, restartScheduled = false, boot = next.boot + 1, changedSinceBoot = emptyList())
         }
         if (next != state) save(next)
         return next
@@ -99,18 +100,20 @@ internal class DemoSystem(
                 .map { type ->
                     DemoChannel("ch-${type.id}", type.id, type.title.first, type.title.second, type.id, enabled = false, changedAt = clock())
                 }
-            state.copy(modules = state.modules + module, channels = state.channels + fresh, restartScheduled = true)
+            state.copy(modules = state.modules + module, channels = state.channels + fresh, restartScheduled = true, changedSinceBoot = state.changedSinceBoot + "${item.name} ${item.latestVersion}")
         } ?: state
         "update" -> state.copy(
             modules = state.modules.map { module ->
                 if (module.appId == job.appId) module.copy(version = module.latestVersion ?: module.version, latestVersion = null) else module
             },
             restartScheduled = true,
+            changedSinceBoot = state.changedSinceBoot + state.modules.filter { it.appId == job.appId }.map { "${it.name} ${it.latestVersion ?: it.version}" },
         )
         else -> state.copy(
             modules = state.modules.filterNot { it.appId == job.appId },
             settingValues = state.settingValues.filterKeys { key -> DemoSettings.all.firstOrNull { it.key == key }?.module != job.appId },
             restartScheduled = true,
+            changedSinceBoot = state.changedSinceBoot + state.modules.filter { it.appId == job.appId }.map { "${it.name} (удалён)" },
         )
     }
 
@@ -619,9 +622,9 @@ internal class DemoSystem(
 
     private fun stateWord(state: String, module: DemoModule, words: DemoWords): String = when (state) {
         "migrations" -> words.t("Миграции не прошли", "Migrations did not pass")
-        "disabled" -> words.t("Выключена", "Switched off")
+        "disabled" -> words.t("Выключен", "Switched off")
         "update" -> "${words.t("Обновление", "Update")} ${module.latestVersion}"
-        "system" -> words.t("Системная", "System")
+        "system" -> words.t("Системный", "System")
         else -> words.t("Работает", "Working")
     }
 
@@ -634,6 +637,10 @@ internal class DemoSystem(
         put("title", serverName)
         put("subtitle", "$version · $zone")
         put("version", version)
+        // As the server: when the process started, and how long that is in words — «3 дн 4 ч».
+        val started = clock() - ((3 * 24 + 4) * 60 + 1) * 60_000L
+        put("uptime", words.t("3 дн 4 ч", "3 d 4 h"))
+        put("startedAt", started)
         put("timezone", zone)
         put("currency", "RUB")
         put("systemCount", state.modules.count { it.system })
@@ -650,6 +657,27 @@ internal class DemoSystem(
             state.restartScheduled -> put("restartText", words.restartScheduled)
         }
         if (pending > 0) put("migrationsText", "${words.t("Миграции не пройдены", "Migrations not processed")} · $pending")
+        // P12, as the server: modules changed since the start run only after a restart.
+        when {
+            restarting -> put("notice", buildJsonObject { put("tone", "info"); put("title", words.t("Сервер перезапускается", "The server is restarting")) })
+            state.changedSinceBoot.isNotEmpty() -> put("notice", buildJsonObject {
+                put("tone", "warning")
+                put("title", words.t("Нужен перезапуск сервера", "The server needs a restart"))
+                put(
+                    "text",
+                    "${words.t("Изменены модули", "Modules changed")}: ${state.changedSinceBoot.joinToString(", ")}. " +
+                        words.t("Сервер работает со старым кодом: новые страницы и функции этих модулей появятся после перезапуска.", "The server runs the old code: the new pages and functions of these modules appear after a restart.") + " " +
+                        if (state.restartScheduled) words.restartScheduled else words.t("Перезапустите сейчас или запланируйте на полночь.", "Restart now or plan it for midnight."),
+                )
+                if (!state.restartScheduled) putJsonArray("actions") {
+                    add(buildJsonObject {
+                        put("title", words.t("Перезапустить в полночь", "Restart at midnight"))
+                        put("method", "system.restart")
+                        putJsonObject("input") { put("when", "midnight") }
+                    })
+                }
+            })
+        }
         // A restart that is planned is not planned again, and one that is going cannot be ordered twice.
         putJsonArray("_actions") {
             when {
@@ -664,7 +692,7 @@ internal class DemoSystem(
             }
         }
         putJsonArray("_links") {
-            add(link("${words.t("Программы", "Programs")} · ${state.modules.size}", "system.modules"))
+            add(link("${words.t("Модули", "Modules")} · ${state.modules.size}", "system.modules"))
             add(link(words.t("Маркетплейс", "Marketplace"), "system.catalog"))
             add(link(words.t("Настройки", "Settings"), "settings.list", app = SETTINGS))
             add(link(words.t("Каналы продаж", "Sales channels"), "channels.list", app = CHANNELS))
@@ -711,9 +739,9 @@ internal class DemoSystem(
                 put("settingsText", "${words.t("Не заполнены обязательные настройки", "Required settings are not filled in")} · $it")
             }
             when (removeBlock) {
-                "system" -> put("removeText", words.t("Системную программу удалить нельзя", "A system program cannot be removed"))
-                "forbidden" -> put("removeText", words.t("Программа запрещает своё удаление", "The program forbids its own removal"))
-                "dependents" -> put("removeText", "${words.t("Удалить нельзя, от неё зависят", "Cannot be removed, it is depended on by")}: ${dependents.joinToString(", ")}")
+                "system" -> put("removeText", words.t("Системный модуль удалить нельзя", "A system module cannot be removed"))
+                "forbidden" -> put("removeText", words.t("Модуль запрещает своё удаление", "The module forbids its own removal"))
+                "dependents" -> put("removeText", "${words.t("Удалить нельзя, от него зависят", "Cannot be removed, it is depended on by")}: ${dependents.joinToString(", ")}")
             }
         }
         putJsonArray("_actions") {
@@ -739,10 +767,10 @@ internal class DemoSystem(
         put(
             "stateText",
             when (block) {
-                "installed" -> words.t("Установлена", "Installed")
-                "license" -> words.t("Недоступна по лицензии", "Unavailable for this license")
+                "installed" -> words.t("Установлен", "Installed")
+                "license" -> words.t("Недоступен по лицензии", "Unavailable for this license")
                 "download" -> words.t("Пока нельзя скачать", "Cannot be downloaded yet")
-                else -> words.t("Доступна", "Available")
+                else -> words.t("Доступен", "Available")
             },
         )
         putJsonArray("_actions") {
@@ -753,7 +781,7 @@ internal class DemoSystem(
     /** The record a job's action answers with: the card as the job left it, or the fact that it is gone. */
     private fun recordOf(kind: String, appId: String, state: DemoState, words: DemoWords): JsonObject {
         if (kind == "install") {
-            return DemoModules.marketOf(appId)?.let { catalogRecord(state, it, words) } ?: fail(MobileApiException.NOT_FOUND, words.t("Такой программы в маркетплейсе нет", "The marketplace has no such program"))
+            return DemoModules.marketOf(appId)?.let { catalogRecord(state, it, words) } ?: fail(MobileApiException.NOT_FOUND, words.t("Такого модуля в маркетплейсе нет", "The marketplace has no such module"))
         }
         moduleOf(state, appId)?.let { return moduleRecord(state, it, words, card = true) }
         return buildJsonObject {
@@ -761,7 +789,7 @@ internal class DemoSystem(
             put("appId", appId)
             put("name", appId)
             put("state", "removed")
-            put("stateText", words.t("Удалена", "Removed"))
+            put("stateText", words.t("Удалён", "Removed"))
             putJsonArray("_actions") {}
         }
     }
@@ -774,11 +802,11 @@ internal class DemoSystem(
             fail(MobileApiException.CONFLICT, "${words.t("Сейчас идёт другое задание, дождитесь его конца", "Another job is going on, wait for it to end")}: ${going.appId}")
         }
         val failsWith = if (kind == "install") {
-            val item = DemoModules.marketOf(appId) ?: fail(MobileApiException.NOT_FOUND, words.t("Такой программы в маркетплейсе нет", "The marketplace has no such program"))
-            if (moduleOf(state, appId) != null) fail(MobileApiException.CONFLICT, words.t("Эта программа уже установлена", "This program is already installed"))
+            val item = DemoModules.marketOf(appId) ?: fail(MobileApiException.NOT_FOUND, words.t("Такого модуля в маркетплейсе нет", "The marketplace has no such module"))
+            if (moduleOf(state, appId) != null) fail(MobileApiException.CONFLICT, words.t("Этот модуль уже установлен", "This module is already installed"))
             item.needsCore
         } else {
-            moduleOf(state, appId) ?: fail(MobileApiException.NOT_FOUND, words.t("Такой программы на сервере нет", "The server has no such program"))
+            moduleOf(state, appId) ?: fail(MobileApiException.NOT_FOUND, words.t("Такого модуля на сервере нет", "The server has no such module"))
             null
         }
         return DemoJob("job-${nextJob++}", kind, appId, now, failsWith).also { jobs[it.id] = it }
@@ -792,7 +820,7 @@ internal class DemoSystem(
             "download" -> words.t("Скачиваем из маркетплейса", "Downloading from the marketplace")
             "check" -> words.t("Проверяем совместимость", "Checking compatibility")
             "dependencies" -> words.t("Ставим зависимости", "Installing dependencies")
-            "load" -> words.t("Загружаем программу", "Loading the program")
+            "load" -> words.t("Загружаем модуль", "Loading the module")
             "remove" -> words.t("Удаляем файлы", "Deleting the files")
             else -> words.t("Начинаем", "Starting")
         }
@@ -812,7 +840,7 @@ internal class DemoSystem(
         if (failed) {
             put(
                 "errorText",
-                "${words.t("Программа не подходит этому серверу.", "This program does not suit this server.")} " +
+                "${words.t("Модуль не подходит этому серверу.", "This module does not suit this server.")} " +
                     "${words.t("Нужен", "Needs")} core ≥ ${job.failsWith}, ${words.t("установлен", "installed")} ${moduleOf(state, "core")?.version}",
             )
         }
@@ -820,9 +848,9 @@ internal class DemoSystem(
             put(
                 "doneText",
                 when (job.kind) {
-                    "install" -> words.t("Программа установлена", "The program is installed")
-                    "update" -> words.t("Программа обновлена", "The program is updated")
-                    else -> words.t("Программа удалена", "The program is removed")
+                    "install" -> words.t("Модуль установлен", "The module is installed")
+                    "update" -> words.t("Модуль обновлён", "The module is updated")
+                    else -> words.t("Модуль удалён", "The module is removed")
                 },
             )
             if (state.restartScheduled) {
@@ -876,7 +904,7 @@ internal class DemoSystem(
             page(found.map { catalogRecord(current, it, words) }, offsetOf(params), emptyMap())
         }
         "system.catalogItem" -> {
-            val item = DemoModules.marketOf(params.string("id")) ?: fail(MobileApiException.NOT_FOUND, words.t("Такой программы в маркетплейсе нет", "The marketplace has no such program"))
+            val item = DemoModules.marketOf(params.string("id")) ?: fail(MobileApiException.NOT_FOUND, words.t("Такого модуля в маркетплейсе нет", "The marketplace has no such module"))
             buildJsonObject { put("item", catalogRecord(current, item, words)) }
         }
         "system.install", "system.update", "system.remove" -> {
@@ -893,7 +921,7 @@ internal class DemoSystem(
         }
         "system.job" -> {
             val job = jobs[params.string("id")]
-                ?: fail(MobileApiException.NOT_FOUND, words.t("Сервер не помнит это задание: скорее всего, он перезапустился. Проверьте список программ.", "The server does not remember this job: it has most likely restarted. Check the list of programs."))
+                ?: fail(MobileApiException.NOT_FOUND, words.t("Сервер не помнит это задание: скорее всего, он перезапустился. Проверьте список модулей.", "The server does not remember this job: it has most likely restarted. Check the list of modules."))
             buildJsonObject { put("item", jobRecord(job, current, words)) }
         }
         else -> fail(MobileApiException.FORBIDDEN, "Method is not available")

@@ -48,7 +48,7 @@ class ProgressShotsTest {
         put("item", buildJsonObject { fields.forEach { (key, value) -> put(key, value) } })
     }
 
-    private val steps = listOf("Проверяем лицензию", "Скачиваем из маркетплейса", "Проверяем совместимость", "Ставим зависимости", "Загружаем программу")
+    private val steps = listOf("Проверяем лицензию", "Скачиваем из маркетплейса", "Проверяем совместимость", "Ставим зависимости", "Загружаем модуль")
 
     private fun running(upTo: Int) = item(
         "id" to "job-1", "state" to "running", "title" to "Установка: sales-channel-vk", "stepText" to steps[upTo],
@@ -60,14 +60,14 @@ class ProgressShotsTest {
         for ((name, ending) in listOf(
             "01-job-running" to null,
             "02-job-done" to item(
-                "id" to "job-1", "state" to "done", "title" to "Установка: sales-channel-vk", "doneText" to "Программа установлена",
+                "id" to "job-1", "state" to "done", "title" to "Установка: sales-channel-vk", "doneText" to "Модуль установлен",
                 "log" to steps.joinToString("\n") { "14:22:0X  info  $it" } + "\nModule sales-channel-vk installed successfully",
-                "restartText" to "Новая программа заработает после перезапуска сервера.",
+                "restartText" to "Новый модуль заработает после перезапуска сервера.",
                 "restartConfirm" to "Перезапустить сервер сейчас?",
             ),
             "03-job-failed" to item(
                 "id" to "job-1", "state" to "failed", "title" to "Установка: sales-channel-vk", "stepText" to steps[2],
-                "errorText" to "Программа не подходит этому серверу. Нужен core ≥ 2.15.0, установлен 2.14.1",
+                "errorText" to "Модуль не подходит этому серверу. Нужен core ≥ 2.15.0, установлен 2.14.1",
                 "log" to steps.take(3).joinToString("\n") + "\nerror: core 2.14.1 < 2.15.0",
             ),
         )) {

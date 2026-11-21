@@ -116,7 +116,7 @@ class DemoSystemWalkTest {
         see("system:row-loyalty-bonuses")
         shot("07-marketplace")
         tap("system:row-loyalty-bonuses")
-        read("Недоступна по лицензии")
+        read("Недоступен по лицензии")
         assertTrue(!exists("system:system.install"), "what the licence refuses has no button")
         shot("08-marketplace-blocked")
     }
@@ -237,9 +237,16 @@ class DemoSystemWalkTest {
         // the provider needs.
         tap("module-progress:finish")
         waitUntil(timeoutMillis = 10_000L) { !exists("module-progress") }
-        read("Установлена")
+        read("Установлен")
         assertTrue(!exists("system:system.install"), "what is installed has no button to install")
         shot("34-provider-installed")
+        // «Этот сервер» asks for the restart: the new module runs only after it (P12).
+        backHome()
+        openApp("system")
+        see("system:summary-notice")
+        read("Нужен перезапуск сервера")
+        read("Изменены модули")
+        shot("35-server-needs-restart")
         backHome()
         openApp("channels")
         tap("channels:row-ch-vk")

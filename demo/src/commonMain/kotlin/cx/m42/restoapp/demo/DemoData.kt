@@ -266,6 +266,8 @@ internal data class DemoState(
     /** «Система»: the programs, and the restart they wait for. */
     val modules: List<DemoModule> = DemoModules.all,
     val restartScheduled: Boolean = false,
+    /** Modules installed, updated or removed since the last restart: «sales-channel-vk 2.8.0» — the card asks for a restart. */
+    val changedSinceBoot: List<String> = emptyList(),
     /** A restart ordered «сейчас»: the moment it was, while it is going. */
     val restartOrderedAt: Long? = null,
     /** Which run of the server this is: a reminder of a run before it is spent. */
