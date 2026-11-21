@@ -353,13 +353,19 @@ public data class SummaryBlock(
     val totals: String? = null,
     /** For a metric (Resto Cloud): the field of the record holding the tone of the number — `balanceTone` of «Баланс». */
     @Serializable(with = LenientString::class) val tone: String? = null,
+    /** (Resto Cloud) Fields of the record this block already says — `statusMessage` under a notice: not drawn again. */
+    val covers: List<String>? = null,
 ) {
     public companion object {
         public const val METRIC: String = "metric"
         public const val SERIES: String = "series"
         public const val LIST: String = "list"
         public const val SHARE: String = "share"
-        public val TYPES: Set<String> = setOf(METRIC, SERIES, LIST, SHARE)
+        /** P12 (Resto Cloud): {tone, title, text?, actions?: [{title, method, input, tone?}]} — a note over the card. */
+        public const val NOTICE: String = "notice"
+        /** P13 (Resto Cloud): {title?, note?, steps: [{title, note?, state}]} — a timeline, the start of a service. */
+        public const val STEPS: String = "steps"
+        public val TYPES: Set<String> = setOf(METRIC, SERIES, LIST, SHARE, NOTICE, STEPS)
     }
 }
 

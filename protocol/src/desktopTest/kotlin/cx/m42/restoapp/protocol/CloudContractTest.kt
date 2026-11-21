@@ -122,9 +122,19 @@ class CloudContractTest {
         assertEquals(true, links.last().quiet)
         // Every block of the card's summary is in the record of a running service.
         val blocks = declaration.app("services")!!.method("services.get")!!.ui!!.summary.orEmpty()
-        blocks.forEach { assertTrue(it.field in recordOf(service)!!, "${it.field} is not in services.get") }
-        // A stopped one says why it has no numbers.
-        assertTrue("metricsNote" in recordOf(call(cloud, "services.get", buildJsonObject { put("id", "coffee-zerno") }))!!)
+        // The metrics are; the notice (P12) and the steps (P13) are only where there is something to say.
+        blocks.filter { it.type != SummaryBlock.NOTICE && it.type != SummaryBlock.STEPS }
+            .forEach { assertTrue(it.field in recordOf(service)!!, "${it.field} is not in services.get") }
+        assertTrue("notice" !in recordOf(service)!! && "launch" !in recordOf(service)!! && "_refresh" !in recordOf(service)!!)
+        val failed = call(cloud, "services.get", buildJsonObject { put("id", "burger-lenina") })
+        Contract.assertValid("itemResult", failed)
+        assertTrue("notice" in recordOf(failed)!! && "launch" in recordOf(failed)!!)
+        val starting = call(cloud, "services.get", buildJsonObject { put("id", "sushi-market") })
+        Contract.assertValid("itemResult", starting)
+        assertTrue("launch" in recordOf(starting)!! && "_refresh" in recordOf(starting)!!)
+        // A stopped one says so, and what to do, in its notice (P12) — no numbers.
+        val stopped = recordOf(call(cloud, "services.get", buildJsonObject { put("id", "coffee-zerno") }))!!
+        assertTrue("notice" in stopped && "cpu" !in stopped)
 
         Contract.assertValid("itemResult", call(cloud, "balance.get"))
         Contract.assertValid("listResult", call(cloud, "balance.transactions"))

@@ -34,7 +34,17 @@ import com.composables.icons.lucide.List
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MapPin
 import com.composables.icons.lucide.Check
+import com.composables.icons.lucide.CircleAlert
+import com.composables.icons.lucide.Info
+import com.composables.icons.lucide.TriangleAlert
+import com.composables.icons.lucide.X
+import cx.m42.superizer.kit.Button
+import cx.m42.superizer.kit.ButtonSize
+import cx.m42.superizer.kit.ButtonVariant
 import cx.m42.superizer.kit.Icon
+import cx.m42.superizer.kit.Notice
+import cx.m42.superizer.kit.Spinner
+import cx.m42.superizer.kit.softColor
 import cx.m42.restoapp.protocol.Board
 import cx.m42.restoapp.protocol.DeclaredApp
 import cx.m42.restoapp.protocol.DeclaredMethod
@@ -42,6 +52,7 @@ import cx.m42.restoapp.protocol.Field
 import cx.m42.restoapp.protocol.Formats
 import cx.m42.restoapp.protocol.SummaryBlock
 import cx.m42.restoapp.protocol.Views
+import cx.m42.restoapp.protocol.requiredNames
 import cx.m42.superizer.kit.BarChart
 import cx.m42.superizer.kit.Grid
 import cx.m42.superizer.kit.Kit
@@ -88,6 +99,27 @@ internal fun sectionsOf(app: DeclaredApp): List<DeclaredMethod> {
     if (marked.size < 2) return emptyList()
     val home = marked.firstOrNull { it.name == app.home }
     return listOfNotNull(home) + marked.filter { it !== home }
+}
+
+/**
+ * The tabs of a record — a service's «Обзор | События | Логи | Расходы | Настройки» (prototype `services/<id>/…`):
+ * the card's own method first, then the queries of the app with a `section` that take the record's `id`, then the
+ * record's form actions with a `section`. Fewer than two are no tabs.
+ */
+internal fun recordTabsOf(app: DeclaredApp, cardMethod: String): List<DeclaredMethod> {
+    val card = app.method(cardMethod) ?: return emptyList()
+    if (card.ui?.section.isNullOrBlank()) return emptyList()
+    fun takesId(m: DeclaredMethod) = "id" in m.input.requiredNames()
+    val queries = app.methods.filter { m ->
+        m !== card && m.kind == DeclaredMethod.KIND_QUERY && !m.ui?.section.isNullOrBlank() && takesId(m) &&
+            m.ui?.view.let { it == Views.LIST || it == Views.DETAIL }
+    }
+    val forms = app.methods.filter { m ->
+        m.ui?.view == Views.ACTION && !m.ui?.section.isNullOrBlank() && m.ui?.control?.type == cx.m42.restoapp.protocol.Controls.FORM &&
+            m.ui?.on == card.model
+    }
+    val tabs = listOf(card) + queries + forms
+    return if (tabs.size < 2) emptyList() else tabs
 }
 
 /** The kit's item of a section: a card for a `detail` (the summary), a list for a `list`. */
@@ -292,6 +324,13 @@ internal fun WayPanel(field: Field, order: List<String>, current: String?, tag: 
 internal fun summaryFields(blocks: List<SummaryBlock>): Set<String> =
     blocks.filter { it.type in SummaryBlock.TYPES }.flatMap { listOfNotNull(it.field, it.delta) }.toSet()
 
+/** Fields a block of this record already says (`covers`): `statusMessage` under a notice that is there. */
+internal fun coveredFields(blocks: List<SummaryBlock>, record: JsonObject): Set<String> =
+    blocks.filter { it.type in SummaryBlock.TYPES && record[it.field] is JsonObject }.flatMap { it.covers.orEmpty() }.toSet()
+
+/** An action of a notice (P12): a method of the same app with its params as they are. */
+internal class NoticeAction(val title: String, val method: String, val input: JsonObject, val tone: String?)
+
 private class SeriesPoint(val x: String, val y: Float)
 
 private class ListLine(
@@ -314,8 +353,25 @@ private class SharePart(val title: String, val value: Double)
  * missing or of another shape, is skipped; nothing of the summary — the card is drawn as without it.
  */
 @Composable
-internal fun SummaryView(context: RenderContext, model: String?, record: JsonObject, blocks: List<SummaryBlock>) {
+internal fun SummaryView(
+    context: RenderContext,
+    model: String?,
+    record: JsonObject,
+    blocks: List<SummaryBlock>,
+    /** P12: a notice's button — calls the method, re-reads the record. Null — the notice has no buttons. */
+    onNoticeAction: ((NoticeAction) -> Unit)? = null,
+    /** Methods of this record now being called: their buttons wait. */
+    busy: Set<String> = emptySet(),
+) {
     val tag = "${context.tag}:summary"
+    // P12, P13: what is going on with the record and the steps of it — over the numbers, the first thing seen.
+    blocks.forEach { block ->
+        val value = record[block.field] as? JsonObject ?: return@forEach
+        when (block.type) {
+            SummaryBlock.NOTICE -> NoticeBlock(context, value, "$tag-${block.field}", onNoticeAction, busy)
+            SummaryBlock.STEPS -> StepsPanel(context, model, block, value, "$tag-${block.field}")
+        }
+    }
     val metrics = blocks.filter { it.type == SummaryBlock.METRIC }.mapNotNull { block -> metricOf(context, model, record, block)?.let { block to it } }
     // A metric and the series of the same name with «Series» after it (`cpu` + `cpuSeries`) are one tile: the
     // number and its shape under it, as the prototype's gauges are; the series is not drawn again on its own.
@@ -564,6 +620,117 @@ private fun SharePanel(context: RenderContext, model: String?, block: SummaryBlo
                     color = Kit.colors.mutedForeground,
                     textAlign = androidx.compose.ui.text.style.TextAlign.End,
                 )
+            }
+        }
+    }
+}
+
+// ───────────────────────────── P12, P13 (Resto Cloud): notice, steps ─────────────────────────────
+
+private fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+
+/** The note over the card: what happened and the one or two things to do about it. */
+@Composable
+private fun NoticeBlock(context: RenderContext, notice: JsonObject, tag: String, onAction: ((NoticeAction) -> Unit)?, busy: Set<String>) {
+    val title = notice.str("title") ?: return
+    val tone = toneKit(notice.str("tone"))
+    val actions = (notice["actions"] as? JsonArray).orEmpty().mapNotNull { element ->
+        val o = element as? JsonObject ?: return@mapNotNull null
+        val label = o.str("title") ?: return@mapNotNull null
+        val method = o.str("method") ?: return@mapNotNull null
+        if (context.app.method(method) == null) return@mapNotNull null
+        NoticeAction(label, method, o["input"] as? JsonObject ?: JsonObject(emptyMap()), o.str("tone"))
+    }
+    val icon = when (tone) {
+        Tone.Danger -> Lucide.TriangleAlert
+        Tone.Warn -> Lucide.CircleAlert
+        else -> Lucide.Info
+    }
+    Notice(
+        tone = tone,
+        icon = icon,
+        title = title,
+        text = notice.str("text").orEmpty(),
+        modifier = Modifier.testTag(tag),
+        action = if (actions.isEmpty() || onAction == null) null else ({
+            val phone = LocalWindowClass.current == WindowClass.Compact
+            val buttons: @Composable () -> Unit = {
+                actions.forEachIndexed { index, action ->
+                    Button(
+                        text = action.title,
+                        onClick = { onAction(action) },
+                        loading = action.method in busy,
+                        enabled = busy.isEmpty(),
+                        size = ButtonSize.Sm,
+                        variant = if (index == 0) ButtonVariant.Default else ButtonVariant.Outline,
+                        modifier = Modifier.testTag("$tag-action-$index"),
+                    )
+                }
+            }
+            if (phone) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { buttons() }
+            else Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { buttons() }
+        }),
+    )
+}
+
+/** The timeline of a start: done, the one in progress (a spinner), failed (a cross and why), and what is left. */
+@Composable
+private fun StepsPanel(context: RenderContext, model: String?, block: SummaryBlock, value: JsonObject, tag: String) {
+    val steps = (value["steps"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }.mapNotNull { o ->
+        o.str("title")?.let { Triple(it, o.str("note"), o.str("state") ?: "pending") }
+    }
+    if (steps.isEmpty()) return
+    Panel(
+        modifier = Modifier.testTag(tag),
+        title = value.str("title") ?: blockTitle(context, model, block),
+        description = value.str("note"),
+    ) {
+        Column {
+            steps.forEachIndexed { index, (title, note, state) ->
+                val done = state == "done"
+                val failed = state == "failed"
+                val active = state == "active"
+                Row(Modifier.testTag("$tag-$index").semantics { stateDescription = state }, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            Modifier.size(26.dp).clip(CircleShape).background(
+                                when {
+                                    failed -> Tone.Danger.softColor()
+                                    done -> Tone.Success.softColor()
+                                    active -> Tone.Running.softColor()
+                                    else -> Kit.colors.secondary
+                                },
+                            ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            when {
+                                failed -> Icon(Lucide.X, null, size = 14.dp, tint = Tone.Danger.textColor())
+                                done -> Icon(Lucide.Check, null, size = 14.dp, tint = Tone.Success.textColor())
+                                active -> Spinner(size = 13.dp, color = Tone.Running.color())
+                                else -> Text((index + 1).toString(), style = Kit.textStyles.caption, color = Kit.colors.mutedForeground)
+                            }
+                        }
+                        if (index < steps.lastIndex) {
+                            Box(Modifier.width(2.dp).height(26.dp).background(if (done) Tone.Success.color().copy(alpha = 0.35f) else Kit.colors.border))
+                        }
+                    }
+                    Column(Modifier.weight(1f).padding(top = 3.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(
+                            title,
+                            style = if (active || failed) Kit.textStyles.label.copy(fontWeight = FontWeight.SemiBold) else Kit.textStyles.label,
+                            color = if (done || active || failed) Kit.colors.foreground else Kit.colors.mutedForeground,
+                        )
+                        note?.let {
+                            Text(
+                                it,
+                                style = Kit.textStyles.caption,
+                                color = if (failed) Tone.Danger.textColor() else Kit.colors.mutedForeground,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             }
         }
     }

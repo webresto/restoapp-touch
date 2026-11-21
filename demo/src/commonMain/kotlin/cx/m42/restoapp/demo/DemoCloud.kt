@@ -143,13 +143,23 @@ public class DemoCloud(
         ),
     )
 
+    /** Every method called, in order — what a test reads to see a card re-read itself (P14). */
+    public val calls: MutableList<String> = mutableListOf()
+
     override suspend fun call(token: String, method: String, params: JsonObject, place: String?, lang: String): Answer<JsonElement> {
         if (token != TOKEN) throw MobileApiException(MobileApiException.UNAUTHORIZED, "Sign in")
+        calls += method
         val words = DemoWords(lang)
         val result: JsonElement = when (method) {
             "home.summary" -> item(summary(words))
             "services.list" -> list(params)
-            "services.get", "services.power" -> item(service(words, serviceOf(params)))
+            "services.get", "services.power", "services.update" -> item(service(words, serviceOf(params)))
+            "services.logs" -> item(buildJsonObject {
+                put("id", serviceOf(params).id)
+                put("title", words.t("Логи", "Logs"))
+                put("container", if ((params["container"] as? JsonPrimitive)?.contentOrNull == "postgres") words.t("База данных", "Database") else "RestoApp")
+                put("text", LOG)
+            })
             "services.events" -> JsonObject(mapOf("items" to JsonArray(events(words, serviceOf(params))), "nextCursor" to kotlinx.serialization.json.JsonNull))
             "services.spend" -> item(spendOf(serviceOf(params)))
             "balance.get" -> item(balance(words))
@@ -271,15 +281,34 @@ public class DemoCloud(
                 put("diskSeries", points(List(32) { s.disk / 100.0 * (0.82 + it * 0.0056) }))
                 put("rpsSeries", points(series(s.seed + 5, base = 0.4).map { it * (s.rps ?: 1) * 2 }))
                 s.ordersToday?.let { put("ordersToday", it) }
-            } else {
-                put("metricsNote", s.note ?: words.t("Сервис не запущен — метрик нет", "The service is not running — no metrics"))
             }
+            // P12, P13, P14 — as the cloud's mobile API (cloud-panel layers/app-mobile-api/lib/serviceState.ts) gives them.
+            stateOf(words, s)?.let { (notice, launch) ->
+                notice?.let { put("notice", it) }
+                launch?.let { put("launch", it) }
+            }
+            if (s.status == "starting" || s.status == "deleting") put("_refresh", 5)
             putJsonArray("_links") {
                 add(buildJsonObject { put("title", words.t("Открыть управление", "Open the console")); putJsonObject("open") { put("server", s.id) } })
                 add(buildJsonObject { put("title", words.t("Открыть сайт", "Open the site")); putJsonObject("open") { put("url", "https://${s.host}") } })
                 add(buildJsonObject { put("title", words.t("Веб-админка", "Web admin")); put("quiet", true); put("meta", "admin"); putJsonObject("open") { put("url", "https://${s.host}/admin") } })
             }
+            s.note?.let { put("statusMessage", it) }
             putJsonArray("_actions") {
+                add(buildJsonObject {
+                    put("method", "services.update")
+                    put("input", objectSchema(listOf("id"), mapOf(
+                        "id" to stringProperty(100),
+                        "title" to buildJsonObject { put("type", "string"); put("minLength", 1); put("maxLength", 64); put("title", words.t("Название", "Name")); put("default", s.title) },
+                        "planId" to titled(words.t("Тариф", "Plan"), enumProperty(listOf("start", "standard", "pro"), if (s.plan == "Стандарт") "standard" else "start", mapOf(
+                            "start" to words.t("Старт · 14,40 ₽ в день", "Start · 14.40 ₽ a day"),
+                            "standard" to words.t("Стандарт · 28,80 ₽ в день", "Standard · 28.80 ₽ a day"),
+                            "pro" to words.t("Про · 57,60 ₽ в день", "Pro · 57.60 ₽ a day"),
+                        ))),
+                        "imageVersion" to titled(words.t("Версия RestoApp", "RestoApp version"), enumProperty(listOf("next", "latest", "dev"), "next", mapOf("next" to "next", "latest" to "latest", "dev" to "dev"))),
+                        "logLevel" to titled(words.t("Уровень логов", "Log level"), enumProperty(listOf("info", "debug"), "info", mapOf("info" to "info", "debug" to "debug"))),
+                    )))
+                })
                 val to = when (s.status) {
                     "online" -> listOf("restart", "stop")
                     "stopped" -> listOf("start")
@@ -293,6 +322,70 @@ public class DemoCloud(
             }
         })
     }
+
+    /** The notice over the card and the timeline of the start, by the status — the prototype's «Обзор» of a service. */
+    private fun stateOf(words: DemoWords, s: DemoCloudService): Pair<JsonObject?, JsonObject?>? {
+        fun step(title: String, state: String, note: String) = buildJsonObject { put("title", title); put("state", state); put("note", note) }
+        val names = listOf(
+            words.t("Место в кластере", "Place in the cluster") to words.t("Выделяем память и процессор по тарифу", "Memory and CPU of the plan are reserved"),
+            words.t("Образ RestoApp", "RestoApp image") to words.t("Загружаем версию «next»", "Downloading version «next»"),
+            words.t("Запуск RestoApp и базы", "RestoApp and its database") to words.t("Запускаем приложение и базу данных", "The app and its database start"),
+            words.t("Адрес и сертификат", "Address and certificate") to words.t("Выпускаем HTTPS для ${s.host}", "HTTPS for ${s.host}"),
+            words.t("Проверка", "Health check") to words.t("Ждём, пока сервер ответит по адресу", "Waiting for the server to answer at its address"),
+        )
+        fun launch(title: String, note: String, at: Int, state: String, atNote: String) = buildJsonObject {
+            put("title", title)
+            put("note", note)
+            putJsonArray("steps") {
+                names.forEachIndexed { i, (name, hint) ->
+                    add(when {
+                        i < at -> step(name, "done", words.t("Готово", "Done"))
+                        i == at -> step(name, state, atNote)
+                        else -> step(name, "pending", hint)
+                    })
+                }
+            }
+        }
+        fun action(title: String, extra: Map<String, String> = emptyMap(), tone: String? = null) = buildJsonObject {
+            put("title", title); put("method", "services.power")
+            putJsonObject("input") { put("id", s.id); put("to", "start"); extra.forEach { (k, v) -> put(k, v) } }
+            tone?.let { put("tone", it) }
+        }
+        return when (s.status) {
+            "starting" -> null to launch(
+                words.t("Запуск сервиса · шаг 3 из 5", "Starting · step 3 of 5"),
+                words.t("идёт 4 мин · обычно 3–5 мин, первый запуск на узле — до 15", "4 min so far · usually 3–5 min, the first start on a node up to 15"),
+                2, "active", words.t("Запускаем сервер", "Starting the server"),
+            )
+            "error" -> buildJsonObject {
+                put("tone", "danger")
+                put("title", words.t("Не хватило памяти на тарифе", "Out of memory on the plan"))
+                put("text", words.t(
+                    "Контейнер RestoApp остановлен по лимиту памяти тарифа «${s.plan}» (OOMKilled). Выберите тариф побольше в настройках и запустите сервис снова.",
+                    "The RestoApp container was killed at the memory limit of the «${s.plan}» plan (OOMKilled). Choose a bigger plan in the settings and start again.",
+                ))
+                putJsonArray("actions") { add(action(words.t("Запустить снова", "Start again"), tone = "success")) }
+            } to launch(
+                words.t("На чём остановился запуск", "Where the start stopped"),
+                words.t("Установка удалена, списания остановлены", "The installation is removed, charging stopped"),
+                2, "failed", words.t("Не хватает памяти: контейнер остановлен по лимиту", "Out of memory: the container was killed at its limit"),
+            )
+            "stopped" -> buildJsonObject {
+                put("tone", "info")
+                put("title", words.t("Сервис выключен", "The service is off"))
+                put("text", words.t("Деньги не списываются. При запуске RestoApp ставится заново — с пустой базой данных.", "Nothing is charged. A start installs RestoApp again — with an empty database."))
+                putJsonArray("actions") { add(action(words.t("Запустить", "Start"), tone = "success")) }
+            } to null
+            "deleting" -> buildJsonObject {
+                put("tone", "info")
+                put("title", words.t("Сервис удаляется", "The service is being deleted"))
+                put("text", words.t("Удаляем сервер и базу данных. Отменить это уже нельзя.", "The server and its database are being removed. This cannot be undone."))
+            } to null
+            else -> null
+        }
+    }
+
+    private fun titled(title: String, schema: JsonObject) = JsonObject(schema + ("title" to JsonPrimitive(title)))
 
     private fun events(words: DemoWords, s: DemoCloudService): List<JsonObject> = listOf(
         buildJsonObject { put("id", "e1"); put("title", words.t("Перезапущен", "Restarted")); put("time", "12 мин назад") },
@@ -361,6 +454,7 @@ public class DemoCloud(
                         Field("memory", words.t("Память", "Memory"), Formats.PERCENT, readonly = true, section = metrics),
                         Field("disk", words.t("Диск", "Disk"), Formats.PERCENT, readonly = true, section = metrics),
                         Field("ordersToday", words.t("Заказов сегодня", "Orders today"), Formats.NUMBER, readonly = true, section = metrics),
+                        Field("statusMessage", words.t("Подробности", "Details"), readonly = true),
                         Field("metricsNote", words.t("Метрики", "Metrics"), readonly = true, section = metrics),
                         Field("region", words.t("Регион", "Region"), readonly = true, section = words.t("Сведения", "Details")),
                         Field("version", words.t("Версия RestoApp", "RestoApp version"), readonly = true, section = words.t("Сведения", "Details")),
@@ -368,6 +462,7 @@ public class DemoCloud(
                 ),
                 "event" to Model(listOf(Field("title", words.t("Событие", "Event"), readonly = true), Field("time", words.t("Когда", "When"), readonly = true))),
                 "spend" to Model(listOf(Field("perDay", words.t("В сутки", "Per day"), Formats.MONEY, readonly = true))),
+                "log" to Model(listOf(Field("container", words.t("Контейнер", "Container"), readonly = true), Field("text", words.t("Последние строки", "Last lines"), readonly = true))),
             ),
             methods = listOf(
                 DeclaredMethod(
@@ -386,6 +481,8 @@ public class DemoCloud(
                         view = Views.DETAIL, section = words.t("Обзор", "Overview"),
                         item = ItemUi(title = "title", subtitle = "host", badge = "status"),
                         summary = listOf(
+                            SummaryBlock(SummaryBlock.NOTICE, "notice", covers = listOf("statusMessage")),
+                            SummaryBlock(SummaryBlock.STEPS, "launch", title = words.t("Запуск сервиса", "Start of the service"), covers = listOf("statusMessage")),
                             SummaryBlock(SummaryBlock.METRIC, "cpu", format = Formats.PERCENT),
                             SummaryBlock(SummaryBlock.SERIES, "cpuSeries", title = words.t("Процессор за сутки", "CPU, last day"), format = Formats.PERCENT),
                             SummaryBlock(SummaryBlock.METRIC, "memory", format = Formats.PERCENT),
@@ -404,9 +501,19 @@ public class DemoCloud(
                     model = "event", ui = Ui(view = Views.LIST, section = words.t("События", "Events"), item = ItemUi(title = "title", meta = "time")),
                 ),
                 DeclaredMethod(
+                    "services.logs", DeclaredMethod.KIND_QUERY, words.t("Логи", "Logs"),
+                    objectSchema(listOf("id"), mapOf("id" to stringProperty(100), "container" to enumProperty(listOf("restoapp", "postgres"), "restoapp", mapOf("restoapp" to "RestoApp", "postgres" to words.t("База данных", "Database"))))),
+                    model = "log", ui = Ui(view = Views.DETAIL, section = words.t("Логи", "Logs"), item = ItemUi(title = "title", subtitle = "container")),
+                ),
+                DeclaredMethod(
                     "services.spend", DeclaredMethod.KIND_QUERY, words.t("Расходы", "Spend"), objectSchema(listOf("id"), mapOf("id" to stringProperty(100))),
                     model = "spend",
-                    ui = Ui(view = Views.DETAIL, section = words.t("Расходы", "Spend"), summary = listOf(SummaryBlock(SummaryBlock.METRIC, "perDay", format = Formats.MONEY), SummaryBlock(SummaryBlock.SERIES, "days", format = Formats.MONEY))),
+                    ui = Ui(view = Views.DETAIL, section = words.t("Расходы", "Spend"), summary = listOf(SummaryBlock(SummaryBlock.METRIC, "perDay", format = Formats.MONEY), SummaryBlock(SummaryBlock.SERIES, "days", title = words.t("Расход по дням", "Spend per day"), format = Formats.MONEY))),
+                ),
+                DeclaredMethod(
+                    "services.update", DeclaredMethod.KIND_MUTATION, words.t("Настройки", "Settings"),
+                    objectSchema(listOf("id"), mapOf("id" to stringProperty(100), "title" to stringProperty(64, 1), "planId" to stringProperty(100), "imageVersion" to stringProperty(100), "logLevel" to stringProperty(20))),
+                    ui = Ui(view = Views.ACTION, on = "service", placement = listOf("detail"), section = words.t("Настройки", "Settings"), control = Control(type = Controls.FORM)),
                 ),
                 DeclaredMethod(
                     "services.power", DeclaredMethod.KIND_MUTATION, words.t("Питание", "Power"),
@@ -487,6 +594,13 @@ public class DemoCloud(
         public const val VERSION: String = "2026.11"
 
         private val STATUSES = listOf("online", "starting", "error", "stopped", "deleting")
+        private val LOG = listOf(
+            "2026-11-21T09:42:38Z  info: Server lifted in `/app`",
+            "2026-11-21T09:42:38Z debug: Environment : production",
+            "2026-11-21T09:42:39Z  info: GET /healthz 200 3ms",
+            "2026-11-21T09:43:02Z  info: POST /graphql 200 84ms",
+            "2026-11-21T09:43:05Z  warn: Settings get error: Requested setting [DEFAULT_CAPTCHA_ADAPTER] was not declared",
+        ).joinToString("\n")
         private val STATUS_TONES = mapOf("online" to Tones.SUCCESS, "starting" to Tones.INFO, "error" to Tones.DANGER, "stopped" to Tones.MUTED, "deleting" to Tones.MUTED)
         private val POWER = mapOf("start" to ("Запустить" to "Start"), "restart" to ("Перезапустить" to "Restart"), "stop" to ("Выключить" to "Switch off"))
 

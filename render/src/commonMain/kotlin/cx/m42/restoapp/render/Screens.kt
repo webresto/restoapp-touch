@@ -102,6 +102,7 @@ import cx.m42.superizer.runtime.LocalAppRuntime
 import cx.m42.superizer.ui.platform.ScreenSteps
 import cx.m42.superizer.ui.platform.SystemBackHandler
 import cx.m42.superizer.ui.platform.hostDrawsBack
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -454,10 +455,17 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, fram
 
     Page(width = if (boardShown) cx.m42.superizer.kit.PageWidth.Wide else cx.m42.superizer.kit.PageWidth.Default, modifier = Modifier.testTag("$tag:list")) {
         if (!bottom) BackLine(instance, context)
+        // A tab of a record («События» of a service): the card's name and address over it, then its tabs.
+        val card = frame.card
+        val cardItem = frame.cardMethod?.let { context.app.method(it) }?.ui?.item
         Header(
-            title = if (bottom) context.app.title else instance.titleAt(context.app, frames, frames.lastIndex) ?: method.title,
+            title = card?.let { c -> cardItem?.title?.let { plain(c[it]) } } ?: if (bottom) context.app.title else instance.titleAt(context.app, frames, frames.lastIndex) ?: method.title,
             bar = barTitle(instance, context),
-            description = state.description,
+            description = card?.let { c -> cardItem?.subtitle?.let { plain(c[it]) } } ?: state.description,
+            badge = card?.let { c ->
+                val model = frame.cardMethod?.let { context.app.method(it) }?.model
+                context.show(c, model, cardItem?.badge)?.let { b -> { Badge(b.text, b.tone) } }
+            },
             crumbs = crumbs,
             // Inside the shell the point is chosen in its bar, for every app at once (_plan/07, item 7).
             meta = if (context.app.byPlace && bottom && !hostDrawsBack) ({ PlaceMeta(instance, context, choosable = true) }) else null,
@@ -470,6 +478,7 @@ private fun ListScreen(instance: ServerAppInstance, context: RenderContext, fram
                 )
             }),
         )
+        if (card != null) RecordTabsBar(instance, context, frame)
         TopNotices(instance, context)
         // The form of the list's action is a dialog over the list — a sheet on a phone — as the prototype's.
         if (listAction != null && adding && nativeList == null) {
@@ -1171,11 +1180,49 @@ private fun DetailScreen(instance: ServerAppInstance, context: RenderContext, fr
             Skeleton(Modifier.fillMaxWidth().height(220.dp), androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
             return@RecordFrame
         }
+        // P14: a record about to change (a service starting) is read again while it is on screen.
+        val refresh = (record["_refresh"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 2..300 }
+        if (refresh != null && !frame.loading) {
+            // Keyed by the record's id, not its content: an answer equal to the last one keeps the loop going.
+            LaunchedEffect(record.id(), refresh) {
+                while (true) {
+                    delay(refresh * 1000L)
+                    instance.quietReload()
+                }
+            }
+        }
         // `frame.loading`: the card is drawn from the row of the list while the full record is being
         // read. A screen of the client's own is built from that record — the editor of a setting from
         // the JSON Schema in it — so it must not open on half of one.
-        RecordPage(instance, context, method?.model, method?.ui?.item ?: ItemUi(), record, crumbs, settled = !frame.loading, home = null, editing = editing, summary = method?.ui?.summary.orEmpty())
+        // A tab of a record («Логи», «Расходы»): the card's header over it, its own record under the tabs.
+        val cardMethod = frame.cardMethod?.let { context.app.method(it) }
+        val head = frame.card?.let { card -> TabHead(card, cardMethod?.model, cardMethod?.ui?.item ?: ItemUi()) }
+        RecordPage(
+            instance, context, method?.model, method?.ui?.item ?: ItemUi(), record, crumbs, settled = !frame.loading, home = null, editing = editing,
+            summary = method?.ui?.summary.orEmpty(),
+            head = head,
+            tabs = { RecordTabsBar(instance, context, frame) },
+            onlyAction = frame.tab,
+        )
     }
+}
+
+/** The header of a record's tab: the card's record, not the tab's own («Логи»). */
+internal class TabHead(val record: JsonObject, val model: String?, val item: ItemUi)
+
+/** The tabs of the record on top, under its header — the prototype's «Обзор | События | Логи | Расходы | Настройки». */
+@Composable
+private fun RecordTabsBar(instance: ServerAppInstance, context: RenderContext, frame: Frame) {
+    val cardMethod = frame.cardMethod ?: frame.method
+    val tabs = remember(context.app, cardMethod) { recordTabsOf(context.app, cardMethod) }
+    if (tabs.isEmpty()) return
+    val selected = frame.tab ?: frame.method
+    cx.m42.superizer.kit.LineTabs(
+        items = tabs.map { it.ui?.section.orEmpty() },
+        selected = tabs.indexOfFirst { it.name == selected }.coerceAtLeast(0),
+        onSelect = { index -> instance.openTab(tabs[index].name) },
+        modifier = Modifier.testTag("${context.tag}:tabs"),
+    )
 }
 
 /** A home method that answers one record — the summary of «Маркетинг»: its chips, its card, its links. */
@@ -1214,17 +1261,34 @@ private fun ColumnScope.RecordPage(
     editing: MutableState<Editing?>,
     /** P7: the blocks over the card; empty — the card as it is. */
     summary: List<cx.m42.restoapp.protocol.SummaryBlock> = emptyList(),
+    /** A tab of a record: the card's header instead of this record's own, and no actions in it. */
+    head: TabHead? = null,
+    /** The record's tabs, drawn under the header. */
+    tabs: (@Composable () -> Unit)? = null,
+    /** «Настройки» as a tab: only this action's form, nothing else of the card. */
+    onlyAction: String? = null,
 ) {
     val busy by instance.busy.collectAsState()
     val id = record.id().orEmpty()
     val tag = context.tag
     val window = LocalWindowClass.current
-    val actions = context.actions(record, "detail")
+    // The record's tabs take the actions that are tabs themselves («Настройки») out of the card.
+    val tabNames = remember(context.app, record) {
+        recordTabsOf(context.app, context.app.methods.firstOrNull { it.model == model && it.ui?.view == Views.DETAIL && !it.ui?.section.isNullOrBlank() }?.name ?: "")
+            .map { it.name }.toSet()
+    }
+    val actions = context.actions(record, "detail").let { all ->
+        when {
+            head != null -> emptyList()
+            onlyAction != null -> all.filter { (_, method) -> method.name == onlyAction }
+            else -> all.filter { (_, method) -> method.name !in tabNames || method.kind == DeclaredMethod.KIND_QUERY }
+        }
+    }
     // P3: the record's main action — the first one marked; null when none is, and every action looks as before.
     val primary = actions.firstOrNull { it.second.ui?.primary == true }?.second?.name
     // P9: «Открыть управление» — a server of the account the host can open now is the record's main button, and
     // the record's own actions step back; one it cannot (not running) is not drawn at all.
-    val allLinks = record.links()
+    val allLinks = if (head != null || onlyAction != null) emptyList() else record.links()
     val serverLinks = allLinks.filter { link -> link.open.server?.let { instance.server.canOpenServer(it) } == true }
     fun emphasis(method: DeclaredMethod): Boolean? = if (serverLinks.isNotEmpty()) false else primary?.let { it == method.name }
     // Wider than a phone the buttons of a record's flow and its own screens sit in the header, the way an
@@ -1242,13 +1306,24 @@ private fun ColumnScope.RecordPage(
         }
     }
 
-    val subtitle = context.show(record, model, item.subtitle)
-    val badge = context.show(record, model, item.badge)
-    val value = context.show(record, model, item.value)
+    // «Настройки» as a tab: its form is the whole page, so it is open from the start (and again after a save).
+    val tabForm = if (onlyAction == null) null else actions.firstOrNull { (_, m) -> m.name == onlyAction && m.ui?.control?.type == Controls.FORM }
+    LaunchedEffect(tabForm?.second?.name, editing.value == null, settled) {
+        val (action, method) = tabForm ?: return@LaunchedEffect
+        if (editing.value == null && settled) {
+            editing.value = Editing(action, method, FormState(formFields(method, action.input ?: method.input), "$tag:${method.name}:form"))
+        }
+    }
+    val headRecord = head?.record ?: record
+    val headModel = head?.model ?: model
+    val headItem = head?.item ?: item
+    val subtitle = context.show(headRecord, headModel, headItem.subtitle)
+    val badge = context.show(headRecord, headModel, headItem.badge)
+    val value = if (head != null) null else context.show(record, model, item.value)
     val open = editing.value
     Box(Modifier.testTag("$tag:title")) {
         Header(
-            title = item.title?.let { plain(record[it]) } ?: id,
+            title = headItem.title?.let { plain(headRecord[it]) } ?: id,
             bar = barTitle(instance, context),
             description = subtitle?.text,
             crumbs = crumbs,
@@ -1272,7 +1347,7 @@ private fun ColumnScope.RecordPage(
             }) else null,
             actions = if (open != null && !compact) ({
                 EditButtons(instance, context, record, open, editing, fill = false)
-            }) else if (headerActions.isEmpty() && serverLinks.isEmpty()) null else ({
+            }) else if (head != null || onlyAction != null || (headerActions.isEmpty() && serverLinks.isEmpty())) null else ({
                 headerActions.forEach { (action, method) ->
                     val waiting = "$id:${method.name}" in busy
                     when (method.ui?.control?.type) {
@@ -1298,21 +1373,28 @@ private fun ColumnScope.RecordPage(
             }),
         )
     }
+    tabs?.invoke()
     TopNotices(instance, context)
     home?.let { FrameChips(instance, context, it, emptyMap()) }
     // The way of the record along its board — an order's «Заказан → Готовится → В пути → Выполнен».
     if (home == null) context.app.methods.firstNotNullOfOrNull { m -> if (m.model == model) boardOf(context, m) else null }?.let { (board, field) ->
         if (record.containsKey(board.field)) WayPanel(field, board.order, enumKey(record[board.field]), "$tag:way")
     }
-    if (summary.isNotEmpty()) SummaryView(context, model, record, summary)
+    if (summary.isNotEmpty() && onlyAction == null) {
+        SummaryView(
+            context, model, record, summary,
+            onNoticeAction = { action -> instance.noticeAction(record, action.method, action.input) },
+            busy = busy.filter { it.startsWith("$id:") }.map { it.removePrefix("$id:") }.toSet(),
+        )
+    }
 
     // Fields by section, in the declaration's order; the title is the header already.
     //
     // A field the record does not carry at all is left out: a promotion has either a percentage or a flat
     // amount, and a «—» where the other one would be says something false. A field that is there and empty
     // (`null`) still shows «—» — that is a value nobody has set, which is worth seeing.
-    val drawnAbove = summaryFields(summary)
-    val shownFields = context.app.fields(model).filter { it.name != item.title && it.name !in drawnAbove && record.containsKey(it.name) }
+    val drawnAbove = summaryFields(summary) + coveredFields(summary, record)
+    val shownFields = if (onlyAction != null) emptyList() else context.app.fields(model).filter { it.name != item.title && it.name !in drawnAbove && record.containsKey(it.name) }
     // The lines of the card: not the servers (a button above, or nothing) and not the quiet ones (at the foot).
     val links = allLinks.filter { it.open.server == null && it.quiet != true }
     val quietLinks = allLinks.filter { it.open.server == null && it.quiet == true }

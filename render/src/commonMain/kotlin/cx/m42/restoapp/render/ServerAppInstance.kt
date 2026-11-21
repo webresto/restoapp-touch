@@ -77,6 +77,14 @@ internal data class Frame(
     /** A card's record; the row's own copy until the method answers. */
     val record: JsonObject? = null,
     val loading: Boolean = false,
+    /**
+     * A tab of a record (a service's «События», «Логи»): the record of the card it belongs to — its header — and the
+     * card's own method. Null on the card itself and on any other frame.
+     */
+    val card: JsonObject? = null,
+    val cardMethod: String? = null,
+    /** On the card's own method: the action shown alone as a tab («Настройки» — `services.update`). */
+    val tab: String? = null,
 )
 
 /** One record opened from a list — kept for the screens, which ask for "the open card" and not for the stack. */
@@ -692,6 +700,38 @@ internal class ServerAppInstance(
      * A section of the app (P5): its method's screen at the bottom of the stack, everything above it gone — the
      * way a tab of the home screen is. Asks first when there are edits on screen.
      */
+    /**
+     * Opens [tab] of the card on top in the card's place — the way back stays the list's. A query of the record
+     * («События», «Логи») is a frame of its own under the card's header; an action with a section («Настройки») is
+     * the card's own method showing only that action's form.
+     */
+    fun openTab(tab: String) {
+        val current = top ?: return
+        val cardMethod = current.cardMethod ?: current.method
+        val card = current.card ?: current.record ?: return
+        val id = card.id() ?: return
+        val target = app?.method(tab) ?: return
+        val selected = current.tab ?: current.method
+        if (selected == tab) return
+        val params = buildJsonObject { put("id", JsonPrimitive(id)) }
+        val frame = when {
+            tab == cardMethod -> Frame(cardMethod, params, record = card, loading = true)
+            target.kind == DeclaredMethod.KIND_QUERY -> Frame(tab, params, title = current.title, card = card, cardMethod = cardMethod, loading = target.ui?.view == Views.DETAIL)
+            else -> Frame(cardMethod, params, record = card, loading = true, tab = tab)
+        }
+        leave {
+            loadJob?.cancel()
+            searchJob?.cancel()
+            quietJob?.cancel()
+            pollJob?.cancel()
+            pollJob = null
+            _error.value = null
+            setFrames(_frames.value.dropLast(1) + frame)
+            loadTop()
+            startPolling()
+        }
+    }
+
     fun openSection(method: String) {
         val section = app?.method(method) ?: return
         if (_frames.value.size == 1 && _frames.value.single().method == section.name) return
@@ -726,6 +766,32 @@ internal class ServerAppInstance(
             if (id != null && (action.input ?: method.input).property("id") != null) put("id", JsonPrimitive(id))
             put(param, value)
         })
+    }
+
+    /**
+     * P12: a button of a record's notice — «Запустить на версии «next»»: the method of this app with the notice's params
+     * as they are. Like [actWith], the answer's record replaces this one, and the card is re-read.
+     */
+    fun noticeAction(record: JsonObject, methodName: String, params: JsonObject) {
+        val id = record.id() ?: return
+        val key = "$id:$methodName"
+        if (key in _busy.value) return
+        _busy.value = _busy.value + key
+        runtime.scope.launch {
+            try {
+                val updated = recordOf(server.call(methodName, params))
+                if (updated != null) replace(updated)
+                _error.value = null
+                mutated()
+                quietReload(delayMs = QUIET_RELOAD_MS)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: MobileApiException) {
+                fail(failure)
+            } finally {
+                _busy.value = _busy.value - key
+            }
+        }
     }
 
     /** The same, with the params given whole: a native screen of an action builds them itself (`control: native`). */

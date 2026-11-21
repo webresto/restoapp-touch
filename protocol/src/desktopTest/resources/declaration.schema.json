@@ -227,7 +227,7 @@
     },
 
     "summaryBlock": {
-      "description": "P7. A block of the summary of a `detail`. `metric` — a number of the record (`delta`: the field with its change in %, the sign gives the tone); `series` — the field is an array [{x: string, y: number}]; `list` — [{title, value?, format?, amount?, note?}] (`amount` — «2 ×» before the title, `note` — a second line under it), with `totals` the field of the lines under them [{title, value, format?, tone?, strong?}]; `share` — [{title, value: number}]. The array fields are not declared in the model, so an older client shows the card of the declared fields. A client skips a block of a type it does not know.",
+      "description": "P7. A block of the summary of a `detail`. `metric` — a number of the record (`delta`: the field with its change in %, the sign gives the tone); `series` — the field is an array [{x: string, y: number}]; `list` — [{title, value?, format?, amount?, note?}] (`amount` — «2 ×» before the title, `note` — a second line under it), with `totals` the field of the lines under them [{title, value, format?, tone?, strong?}]; `share` — [{title, value: number}]; `notice` (P12) and `steps` (P13) — see their entries. The array fields are not declared in the model, so an older client shows the card of the declared fields. A client skips a block of a type it does not know.",
       "type": "object",
       "required": ["type", "field"],
       "oneOf": [
@@ -273,6 +273,26 @@
             "type": { "const": "share" },
             "field": { "type": "string", "minLength": 1 },
             "title": { "$ref": "#/definitions/text" }
+          }
+        },
+        {
+          "description": "P12 (Resto Cloud). The field is an object {tone: info|warning|success|danger, title, text?, actions?: [{title, method, input, tone?}]}: a coloured note over the card — what happened and one thing to do about it. An action calls `method` of the same app with `input` as it is, then the record is read again. `covers` — fields of the record the note already says (`statusMessage`), not drawn again in the card. No field in the record — no note.",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "notice" },
+            "field": { "type": "string", "minLength": 1 },
+            "title": { "$ref": "#/definitions/text" },
+            "covers": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        {
+          "description": "P13 (Resto Cloud). The field is an object {title?, note?, steps: [{title, note?, state: done|active|failed|pending}]}: a timeline — the start of a service, step by step («Образ RestoApp · Загружаем версию…»). `title` of the object wins over the block's. No field in the record — no timeline.",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "steps" },
+            "field": { "type": "string", "minLength": 1 },
+            "title": { "$ref": "#/definitions/text" },
+            "covers": { "type": "array", "items": { "type": "string", "minLength": 1 } }
           }
         }
       ]
@@ -586,7 +606,11 @@
           "properties": {
             "_actions": { "type": "array", "items": { "$ref": "#/definitions/action" } },
             "_open": { "$ref": "#/definitions/open" },
-            "_links": { "type": "array", "items": { "$ref": "#/definitions/link" } }
+            "_links": { "type": "array", "items": { "$ref": "#/definitions/link" } },
+            "_refresh": {
+              "description": "P14 (Resto Cloud). Seconds: while the record is on screen the client reads it again after this long — a service that is starting or stopping. Absent — read once.",
+              "type": "integer", "minimum": 2, "maximum": 300
+            }
           }
         }
       }
